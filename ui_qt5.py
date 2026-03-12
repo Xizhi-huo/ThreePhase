@@ -7,7 +7,7 @@ ui_qt5.py  ──  PyQt5 主窗口（组装入口）
 PowerSyncUI 通过多重继承组合两个 Mixin：
 
   WidgetBuilderMixin  (ui_widgets.py)
-    └── 右侧控制面板、Tab3(PT考核) 的所有 QWidget 构建 + 槽函数
+    └── 右侧控制面板、Tab3(回路测试)、Tab4(同步测试)、Tab5(PT考核) 的所有 QWidget 构建 + 槽函数
 
   PlotBuilderMixin    (ui_plots.py)
     └── Tab1(波形/相量) / Tab2(母排拓扑) 的 matplotlib Figure 初始化
@@ -73,9 +73,11 @@ class PowerSyncUI(WidgetBuilderMixin, PlotBuilderMixin, QtWidgets.QMainWindow):
 
         # ── 构建各区域 ────────────────────────────────────────────────────
         self._build_control_panel()   # ← WidgetBuilderMixin
-        self._setup_tab_waveforms()   # ← PlotBuilderMixin
-        self._setup_tab_circuit()     # ← PlotBuilderMixin
-        self._setup_tab_pt_exam()     # ← WidgetBuilderMixin
+        self._setup_tab_waveforms()   # ← PlotBuilderMixin   Tab 0
+        self._setup_tab_circuit()     # ← PlotBuilderMixin   Tab 1
+        self._setup_tab_loop_test()   # ← WidgetBuilderMixin Tab 2
+        self._setup_tab_pt_exam()     # ← WidgetBuilderMixin Tab 3
+        self._setup_tab_sync_test()   # ← WidgetBuilderMixin Tab 4
         self._init_lines()            # ← PlotBuilderMixin
 
     # ── 对外接口（ctrl 调用）────────────────────────────────────────────────

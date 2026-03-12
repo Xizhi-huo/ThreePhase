@@ -487,6 +487,8 @@ class PlotBuilderMixin:
         self._render_breakers(p)
         self._render_grounding_and_pt(p)
         self._render_multimeter(p)
+        self._render_loop_test(p)
+        self._render_sync_test(p)
         self._render_pt_exam(p)
         self._update_generator_buttons()
 
@@ -610,6 +612,118 @@ class PlotBuilderMixin:
             self.txt_meter.set_visible(False)
             self.probe1_plot.set_data([], [])
             self.probe2_plot.set_data([], [])
+
+    def _render_loop_test(self, p):
+        records  = self.ctrl.loop_test_state['records']
+        feedback = self.ctrl.loop_test_state['feedback']
+        fb_color = self.ctrl.loop_test_state['feedback_color']
+        current_phase = self.ctrl._get_current_loop_phase_match()
+        sim = self.ctrl.sim_state
+
+        if self.ctrl.is_loop_test_complete():
+            summary = "三相回路连通性测试全部完成，电路连通正常。"
+            sc = '#006400'
+        elif sim.gen1.breaker_closed and sim.gen2.breaker_closed:
+            summary = "两台发电机已合闸，可开始测量三相回路。"
+            sc = '#cc6600'
+        else:
+            summary = "请按步骤操作：断开小电阻 → 手动模式 → 起机合闸 → 万用表测量。"
+            sc = '#264653'
+        self.loop_test_summary_lbl.setText(summary)
+        self.loop_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:12px; color:{sc};")
+
+        meter_text = p.meter_reading
+        if current_phase:
+            meter_text = f"当前表笔对准 {current_phase} 相回路。{meter_text}"
+        self.loop_test_meter_lbl.setText(f"实时测量：{meter_text}")
+        self.loop_test_meter_lbl.setStyleSheet(
+            f"font-size:12px; color:{_qs(getattr(p, 'meter_color', 'black'))};")
+        self.loop_test_feedback_lbl.setText(f"操作提示：{feedback}")
+        self.loop_test_feedback_lbl.setStyleSheet(f"font-size:12px; color:{_qs(fb_color)};")
+
+        for lbl, (text, done) in zip(self.loop_test_step_labels,
+                                     self.ctrl.get_loop_test_steps()):
+            lbl.setText(("√ " if done else "□ ") + text)
+            lbl.setStyleSheet(f"font-size:12px; color:{'#006400' if done else '#666666'};")
+
+        for phase, lbl in self.loop_test_record_labels.items():
+            record = records[phase]
+            if record is None:
+                lbl.setText("未记录")
+                lbl.setStyleSheet("font-size:12px; color:#999999;")
+            else:
+                lbl.setText("回路导通 [连通正常]")
+                lbl.setStyleSheet("font-size:12px; color:#006400;")
+
+    def _render_sync_test(self, p):
+        state    = self.ctrl.sync_test_state
+        feedback = state['feedback']
+        fb_color = state['feedback_color']
+        sim      = self.ctrl.sim_state
+        gen1, gen2 = sim.gen1, sim.gen2
+
+        # 总状态摘要
+        if self.ctrl.is_sync_test_complete():
+            summary = "两台发电机同步功能测试全部完成！"
+            sc = '#006400'
+        elif state['round1_done']:
+            summary = "第一轮已完成，请互换角色进行第二轮测试。"
+            sc = '#cc6600'
+        else:
+            summary = "请按步骤完成两轮同步测试。"
+            sc = '#264653'
+        self.sync_test_summary_lbl.setText(summary)
+        self.sync_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:12px; color:{sc};")
+
+        # 实时同步偏差显示
+        ref_gen = getattr(p, 'bus_reference_gen', None)
+        if ref_gen == 1 and gen2.mode == "auto":
+            df = abs(gen2.freq - gen1.freq)
+            dv = abs(gen2.amp - gen1.amp)
+            ok = self.ctrl._is_gen_synced(gen2, gen1)
+            color = '#006400' if ok else '#cc4400'
+            self.sync_test_live_lbl.setText(
+                f"[第一轮] Gen2跟踪Gen1 — Δf={df:.3f} Hz，ΔV={dv:.0f} V  "
+                f"{'[已同步 ✓]' if ok else '[同步中…]'}")
+            self.sync_test_live_lbl.setStyleSheet(f"font-size:12px; color:{color};")
+        elif ref_gen == 2 and gen1.mode == "auto":
+            df = abs(gen1.freq - gen2.freq)
+            dv = abs(gen1.amp - gen2.amp)
+            ok = self.ctrl._is_gen_synced(gen1, gen2)
+            color = '#006400' if ok else '#cc4400'
+            self.sync_test_live_lbl.setText(
+                f"[第二轮] Gen1跟踪Gen2 — Δf={df:.3f} Hz，ΔV={dv:.0f} V  "
+                f"{'[已同步 ✓]' if ok else '[同步中…]'}")
+            self.sync_test_live_lbl.setStyleSheet(f"font-size:12px; color:{color};")
+        else:
+            self.sync_test_live_lbl.setText(
+                f"母排基准: {'Gen ' + str(ref_gen) if ref_gen else '无（死母线）'}  "
+                f"| Gen1: {gen1.freq:.2f}Hz/{gen1.amp:.0f}V ({gen1.mode})  "
+                f"| Gen2: {gen2.freq:.2f}Hz/{gen2.amp:.0f}V ({gen2.mode})")
+            self.sync_test_live_lbl.setStyleSheet("font-size:12px; color:#444444;")
+
+        self.sync_test_feedback_lbl.setText(f"操作提示：{feedback}")
+        self.sync_test_feedback_lbl.setStyleSheet(f"font-size:12px; color:{_qs(fb_color)};")
+
+        for lbl, (text, done) in zip(self.sync_test_step_labels,
+                                     self.ctrl.get_sync_test_steps()):
+            lbl.setText(("√ " if done else "□ ") + text)
+            lbl.setStyleSheet(f"font-size:12px; color:{'#006400' if done else '#666666'};")
+
+        # 记录状态标签
+        if state['round1_done']:
+            self.sync_round1_lbl.setText("Gen 1 基准 → Gen 2 同步：已记录 ✓")
+            self.sync_round1_lbl.setStyleSheet("font-size:12px; color:#006400;")
+        else:
+            self.sync_round1_lbl.setText("Gen 1 基准 → Gen 2 同步：未记录")
+            self.sync_round1_lbl.setStyleSheet("font-size:12px; color:#999999;")
+
+        if state['round2_done']:
+            self.sync_round2_lbl.setText("Gen 2 基准 → Gen 1 同步：已记录 ✓")
+            self.sync_round2_lbl.setStyleSheet("font-size:12px; color:#006400;")
+        else:
+            self.sync_round2_lbl.setText("Gen 2 基准 → Gen 1 同步：未记录")
+            self.sync_round2_lbl.setStyleSheet("font-size:12px; color:#999999;")
 
     def _render_pt_exam(self, p):
         gen_id = self._pt_target_bg.checkedId()
