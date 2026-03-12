@@ -46,9 +46,7 @@ def _qs(color: str) -> str:
     return _MAP.get(color, color)
 
 
-# ════════════════════════════════════════════════════════════════════════════
 # MplCanvas  —  单张 matplotlib Figure 嵌入 Qt
-# ════════════════════════════════════════════════════════════════════════════
 class MplCanvas(FigureCanvas):
     def __init__(self, fig: Figure):
         super().__init__(fig)
