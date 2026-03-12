@@ -26,7 +26,7 @@ from config_qt5 import CT_RATIO, TRIP_CURRENT
 from ui_nodes import NODES
 
 
-# ── 热力颜色工具 ─────────────────────────────────────────────────────────────
+# 热力颜色工具
 def rms_to_heat_color(rms: float) -> str:
     ratio = min(rms / TRIP_CURRENT, 1.0)
     r = int(255 * ratio)
