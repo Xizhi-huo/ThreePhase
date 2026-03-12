@@ -82,4 +82,41 @@ class PowerSyncUI(WidgetBuilderMixin, PlotBuilderMixin, QtWidgets.QMainWindow):
 
     # ── 对外接口（ctrl 调用）────────────────────────────────────────────────
     def show_warning(self, title: str, message: str):
-        QtWidgets.QMessageBox.warning(self, title, message)
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle(title)
+        dialog.setModal(True)
+        dialog.resize(560, 360)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(10)
+
+        title_lbl = QtWidgets.QLabel(title)
+        title_lbl.setStyleSheet("font-size:14px; font-weight:bold; color:#8b0000;")
+        layout.addWidget(title_lbl)
+
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: 1px solid #cccccc; background: white; }")
+
+        content = QtWidgets.QWidget()
+        content_layout = QtWidgets.QVBoxLayout(content)
+        content_layout.setContentsMargins(10, 10, 10, 10)
+
+        msg_lbl = QtWidgets.QLabel(message)
+        msg_lbl.setWordWrap(True)
+        msg_lbl.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        msg_lbl.setStyleSheet("font-size:12px; color:#222222;")
+        msg_lbl.setAlignment(QtCore.Qt.AlignTop | QtCore.Qt.AlignLeft)
+        content_layout.addWidget(msg_lbl)
+        content_layout.addStretch()
+
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
+
+        btn_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
+        btn_box.accepted.connect(dialog.accept)
+        layout.addWidget(btn_box)
+
+        dialog.exec_()

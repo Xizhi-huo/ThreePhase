@@ -378,7 +378,7 @@ class WidgetBuilderMixin:
         outer.setSpacing(8)
 
         hdr = QtWidgets.QLabel("隔离母排合闸前 - 第一步：回路连通性测试")
-        hdr.setStyleSheet("font-size:15px; font-weight:bold; color:#1a5c1a;")
+        hdr.setStyleSheet("font-size:17px; font-weight:bold; color:#1a5c1a;")
         outer.addWidget(hdr)
 
         desc = QtWidgets.QLabel(
@@ -387,7 +387,7 @@ class WidgetBuilderMixin:
             "确认 G1 与 G2 同相回路导通正常。"
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color:#2d5a27; font-size:12px;")
+        desc.setStyleSheet("color:#2d5a27; font-size:13px;")
         outer.addWidget(desc)
 
         # ── 操作按钮 ──────────────────────────────────────────────────────
@@ -405,30 +405,34 @@ class WidgetBuilderMixin:
         btn_reset = QtWidgets.QPushButton("重置回路测试")
         btn_reset.setStyleSheet("background:#ffd6d6;")
         btn_reset.clicked.connect(lambda: self.ctrl.reset_loop_test())
+        btn_done = QtWidgets.QPushButton("完成第一步测试")
+        btn_done.setStyleSheet("background:#cdeccf; font-size:13px; font-weight:bold;")
+        btn_done.clicked.connect(lambda: self.ctrl.finalize_loop_test())
         ar.addWidget(btn_topo)
         ar.addWidget(btn_mm)
         ar.addWidget(btn_reset)
+        ar.addWidget(btn_done)
         outer.addWidget(act_row)
 
         # ── 实时状态 ──────────────────────────────────────────────────────
         status_grp = QtWidgets.QGroupBox("实时状态")
         status_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:12px;}"
+            "QGroupBox{background:white; color:#264653; font-size:13px;}"
             "QGroupBox::title{font-weight:bold;}"
             "QGroupBox *{font-weight:normal; font-size:12px;}"
         )
         sg_lay = QtWidgets.QVBoxLayout(status_grp)
 
         self.loop_test_summary_lbl = QtWidgets.QLabel("")
-        self.loop_test_summary_lbl.setStyleSheet("font-weight:bold; font-size:12px; color:#264653;")
+        self.loop_test_summary_lbl.setStyleSheet("font-weight:bold; font-size:13px; color:#264653;")
         self.loop_test_summary_lbl.setWordWrap(True)
 
         self.loop_test_meter_lbl = QtWidgets.QLabel("")
-        self.loop_test_meter_lbl.setStyleSheet("font-size:12px;")
+        self.loop_test_meter_lbl.setStyleSheet("font-size:13px;")
         self.loop_test_meter_lbl.setWordWrap(True)
 
         self.loop_test_feedback_lbl = QtWidgets.QLabel("")
-        self.loop_test_feedback_lbl.setStyleSheet("font-size:12px; color:#444444;")
+        self.loop_test_feedback_lbl.setStyleSheet("font-size:13px; color:#444444;")
         self.loop_test_feedback_lbl.setWordWrap(True)
 
         sg_lay.addWidget(self.loop_test_summary_lbl)
@@ -439,7 +443,7 @@ class WidgetBuilderMixin:
         # ── 步骤列表 ──────────────────────────────────────────────────────
         steps_grp = QtWidgets.QGroupBox("测试步骤")
         steps_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:12px;}"
+            "QGroupBox{background:white; color:#264653; font-size:13px;}"
             "QGroupBox::title{font-weight:bold;}"
             "QGroupBox *{font-weight:normal; font-size:12px;}"
         )
@@ -447,7 +451,7 @@ class WidgetBuilderMixin:
         self.loop_test_step_labels = []
         for _ in range(8):
             lbl = QtWidgets.QLabel("")
-            lbl.setStyleSheet("font-size:12px; color:#666666;")
+            lbl.setStyleSheet("font-size:13px; color:#666666;")
             sl_lay.addWidget(lbl)
             self.loop_test_step_labels.append(lbl)
         outer.addWidget(steps_grp)
@@ -455,7 +459,7 @@ class WidgetBuilderMixin:
         # ── 三相记录 ──────────────────────────────────────────────────────
         rec_grp = QtWidgets.QGroupBox("三相回路测量记录")
         rec_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:12px;}"
+            "QGroupBox{background:white; color:#264653; font-size:13px;}"
             "QGroupBox::title{font-weight:bold;}"
             "QGroupBox *{font-weight:normal; font-size:12px;}"
         )
@@ -469,14 +473,14 @@ class WidgetBuilderMixin:
 
             ph_lbl = QtWidgets.QLabel(f"{phase} 相")
             ph_lbl.setFixedWidth(60)
-            ph_lbl.setStyleSheet("font-weight:bold; font-size:12px;")
+            ph_lbl.setStyleSheet("font-weight:bold; font-size:13px;")
 
             val_lbl = QtWidgets.QLabel("未记录")
             val_lbl.setFixedWidth(280)
-            val_lbl.setStyleSheet("font-size:12px; color:#999999;")
+            val_lbl.setStyleSheet("font-size:13px; color:#999999;")
 
             rec_btn = QtWidgets.QPushButton(f"记录 {phase} 相")
-            rec_btn.setStyleSheet("background:#d8f3dc; font-size:12px;")
+            rec_btn.setStyleSheet("background:#d8f3dc; font-size:13px;")
             rec_btn.clicked.connect(
                 lambda _, ph=phase: self.ctrl.record_loop_measurement(ph))
 
@@ -499,7 +503,7 @@ class WidgetBuilderMixin:
         outer.setSpacing(8)
 
         hdr = QtWidgets.QLabel("隔离母排合闸前 - 第三步：同步功能测试")
-        hdr.setStyleSheet("font-size:15px; font-weight:bold; color:#7a4f00;")
+        hdr.setStyleSheet("font-size:17px; font-weight:bold; color:#7a4f00;")
         outer.addWidget(hdr)
 
         desc = QtWidgets.QLabel(
@@ -508,7 +512,7 @@ class WidgetBuilderMixin:
             "两轮均记录后测试完成。"
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color:#5a3a00; font-size:12px;")
+        desc.setStyleSheet("color:#5a3a00; font-size:13px;")
         outer.addWidget(desc)
 
         # ── 操作按钮 ──────────────────────────────────────────────────────
@@ -522,29 +526,33 @@ class WidgetBuilderMixin:
         btn_reset = QtWidgets.QPushButton("重置同步测试")
         btn_reset.setStyleSheet("background:#ffd6d6;")
         btn_reset.clicked.connect(lambda: self.ctrl.reset_sync_test())
+        btn_done = QtWidgets.QPushButton("完成第三步测试")
+        btn_done.setStyleSheet("background:#cdeccf; font-size:13px; font-weight:bold;")
+        btn_done.clicked.connect(lambda: self.ctrl.finalize_sync_test())
         ar.addWidget(btn_wave)
         ar.addWidget(btn_reset)
+        ar.addWidget(btn_done)
         outer.addWidget(act_row)
 
         # ── 实时状态 ──────────────────────────────────────────────────────
         status_grp = QtWidgets.QGroupBox("实时同步状态")
         status_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:12px;}"
+            "QGroupBox{background:white; color:#264653; font-size:13px;}"
             "QGroupBox::title{font-weight:bold;}"
             "QGroupBox *{font-weight:normal; font-size:12px;}"
         )
         sg_lay = QtWidgets.QVBoxLayout(status_grp)
 
         self.sync_test_summary_lbl = QtWidgets.QLabel("")
-        self.sync_test_summary_lbl.setStyleSheet("font-weight:bold; font-size:12px; color:#264653;")
+        self.sync_test_summary_lbl.setStyleSheet("font-weight:bold; font-size:13px; color:#264653;")
         self.sync_test_summary_lbl.setWordWrap(True)
 
         self.sync_test_live_lbl = QtWidgets.QLabel("")
-        self.sync_test_live_lbl.setStyleSheet("font-size:12px; color:#444444;")
+        self.sync_test_live_lbl.setStyleSheet("font-size:13px; color:#444444;")
         self.sync_test_live_lbl.setWordWrap(True)
 
         self.sync_test_feedback_lbl = QtWidgets.QLabel("")
-        self.sync_test_feedback_lbl.setStyleSheet("font-size:12px; color:#444444;")
+        self.sync_test_feedback_lbl.setStyleSheet("font-size:13px; color:#444444;")
         self.sync_test_feedback_lbl.setWordWrap(True)
 
         sg_lay.addWidget(self.sync_test_summary_lbl)
@@ -555,7 +563,7 @@ class WidgetBuilderMixin:
         # ── 步骤列表 ──────────────────────────────────────────────────────
         steps_grp = QtWidgets.QGroupBox("测试步骤（共两轮，需按顺序完成）")
         steps_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:12px;}"
+            "QGroupBox{background:white; color:#264653; font-size:13px;}"
             "QGroupBox::title{font-weight:bold;}"
             "QGroupBox *{font-weight:normal; font-size:12px;}"
         )
@@ -563,7 +571,7 @@ class WidgetBuilderMixin:
         self.sync_test_step_labels = []
         for _ in range(10):
             lbl = QtWidgets.QLabel("")
-            lbl.setStyleSheet("font-size:12px; color:#666666;")
+            lbl.setStyleSheet("font-size:13px; color:#666666;")
             sl_lay.addWidget(lbl)
             self.sync_test_step_labels.append(lbl)
         outer.addWidget(steps_grp)
@@ -571,7 +579,7 @@ class WidgetBuilderMixin:
         # ── 记录按钮 ──────────────────────────────────────────────────────
         rec_grp = QtWidgets.QGroupBox("记录测试结果")
         rec_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:12px;}"
+            "QGroupBox{background:white; color:#264653; font-size:13px;}"
             "QGroupBox::title{font-weight:bold;}"
             "QGroupBox *{font-weight:normal; font-size:12px;}"
         )
@@ -583,9 +591,9 @@ class WidgetBuilderMixin:
         row1 = QtWidgets.QHBoxLayout(row1_w)
         row1.setContentsMargins(0, 0, 0, 0)
         self.sync_round1_lbl = QtWidgets.QLabel("Gen 1 基准 → Gen 2 同步：未记录")
-        self.sync_round1_lbl.setStyleSheet("font-size:12px; color:#999999;")
+        self.sync_round1_lbl.setStyleSheet("font-size:13px; color:#999999;")
         btn_r1 = QtWidgets.QPushButton("记录第一轮")
-        btn_r1.setStyleSheet("background:#d8f3dc; font-size:12px;")
+        btn_r1.setStyleSheet("background:#d8f3dc; font-size:13px;")
         btn_r1.clicked.connect(lambda: self.ctrl.record_sync_round(1))
         row1.addWidget(self.sync_round1_lbl, 1)
         row1.addWidget(btn_r1)
@@ -597,9 +605,9 @@ class WidgetBuilderMixin:
         row2 = QtWidgets.QHBoxLayout(row2_w)
         row2.setContentsMargins(0, 0, 0, 0)
         self.sync_round2_lbl = QtWidgets.QLabel("Gen 2 基准 → Gen 1 同步：未记录")
-        self.sync_round2_lbl.setStyleSheet("font-size:12px; color:#999999;")
+        self.sync_round2_lbl.setStyleSheet("font-size:13px; color:#999999;")
         btn_r2 = QtWidgets.QPushButton("记录第二轮")
-        btn_r2.setStyleSheet("background:#d8f3dc; font-size:12px;")
+        btn_r2.setStyleSheet("background:#d8f3dc; font-size:13px;")
         btn_r2.clicked.connect(lambda: self.ctrl.record_sync_round(2))
         row2.addWidget(self.sync_round2_lbl, 1)
         row2.addWidget(btn_r2)
@@ -612,28 +620,28 @@ class WidgetBuilderMixin:
     def _setup_tab_pt_exam(self):
         tab = QtWidgets.QWidget()
         tab.setStyleSheet("background:#f8fbff;")
-        self.tab_widget.addTab(tab, " 🧪 第二步：PT二次端子压差考核 ")
+        self.tab_widget.addTab(tab, " 🧪 第二步：PT二次端子压差测试 ")
         outer = QtWidgets.QVBoxLayout(tab)
         outer.setContentsMargins(18, 14, 18, 14)
         outer.setSpacing(8)
 
         # 标题
-        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第二步：PT二次端子压差考核")
-        hdr.setStyleSheet("font-size:15px; font-weight:bold; color:#16324f;")
+        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第二步：PT二次端子压差测试")
+        hdr.setStyleSheet("font-size:17px; font-weight:bold; color:#16324f;")
         outer.addWidget(hdr)
 
         desc = QtWidgets.QLabel(
-            "用于合闸前教学考核：先将开关柜切至试验位置，在母排拓扑页完成三相 PT 二次端子压差"
-            "测量并记录，最后切回工作位置后方可合闸。"
+            "完成第一步后，恢复中性点小电阻接地，并将机组切至工作位置并入母排。"
+            "随后在母排拓扑页使用万用表测量并记录三相 PT 二次端子压差。"
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color:#334e68; font-size:12px;")
+        desc.setStyleSheet("color:#334e68; font-size:13px;")
         outer.addWidget(desc)
 
         # ── 考核对象选择 ──────────────────────────────────────────────────
-        target_grp = QtWidgets.QGroupBox("考核对象")
+        target_grp = QtWidgets.QGroupBox("测试对象")
         target_grp.setStyleSheet(
-            "QGroupBox{background:#eef4ff; color:#264653; font-size:12px;}"
+            "QGroupBox{background:#eef4ff; color:#264653; font-size:13px;}"
             "QGroupBox::title{font-weight:bold;}"
             "QGroupBox *{font-weight:normal; font-size:12px;}"
         )
@@ -661,34 +669,39 @@ class WidgetBuilderMixin:
         btn_mm.setStyleSheet("background:#fff3bf;")
         btn_mm.clicked.connect(
             lambda: self.multimeter_cb.setChecked(not self.multimeter_cb.isChecked()))
-        btn_reset = QtWidgets.QPushButton("重置当前机组考核")
+        btn_reset = QtWidgets.QPushButton("重置当前机组测试")
         btn_reset.setStyleSheet("background:#ffd6d6;")
         btn_reset.clicked.connect(
             lambda: self.ctrl.reset_pt_exam(self._pt_target_bg.checkedId()))
+        btn_done = QtWidgets.QPushButton("完成第二步测试")
+        btn_done.setStyleSheet("background:#cdeccf; font-size:13px; font-weight:bold;")
+        btn_done.clicked.connect(
+            lambda: self.ctrl.finalize_pt_exam(self._pt_target_bg.checkedId()))
         ar.addWidget(btn_topo)
         ar.addWidget(btn_mm)
         ar.addWidget(btn_reset)
+        ar.addWidget(btn_done)
         outer.addWidget(act_row)
 
         # ── 实时状态 ──────────────────────────────────────────────────────
         status_grp = QtWidgets.QGroupBox("实时状态")
         status_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:12px;}"
+            "QGroupBox{background:white; color:#264653; font-size:13px;}"
             "QGroupBox::title{font-weight:bold;}"
             "QGroupBox *{font-weight:normal; font-size:12px;}"
         )
         sg_lay = QtWidgets.QVBoxLayout(status_grp)
 
         self.pt_exam_summary_lbl = QtWidgets.QLabel("")
-        self.pt_exam_summary_lbl.setStyleSheet("font-weight:bold; font-size:12px; color:#264653;")
+        self.pt_exam_summary_lbl.setStyleSheet("font-weight:bold; font-size:13px; color:#264653;")
         self.pt_exam_summary_lbl.setWordWrap(True)
 
         self.pt_exam_meter_lbl = QtWidgets.QLabel("")
-        self.pt_exam_meter_lbl.setStyleSheet("font-size:12px;")
+        self.pt_exam_meter_lbl.setStyleSheet("font-size:13px;")
         self.pt_exam_meter_lbl.setWordWrap(True)
 
         self.pt_exam_feedback_lbl = QtWidgets.QLabel("")
-        self.pt_exam_feedback_lbl.setStyleSheet("font-size:12px; color:#444444;")
+        self.pt_exam_feedback_lbl.setStyleSheet("font-size:13px; color:#444444;")
         self.pt_exam_feedback_lbl.setWordWrap(True)
 
         sg_lay.addWidget(self.pt_exam_summary_lbl)
@@ -697,9 +710,9 @@ class WidgetBuilderMixin:
         outer.addWidget(status_grp)
 
         # ── 步骤列表 ──────────────────────────────────────────────────────
-        steps_grp = QtWidgets.QGroupBox("考核步骤")
+        steps_grp = QtWidgets.QGroupBox("测试步骤")
         steps_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:12px;}"
+            "QGroupBox{background:white; color:#264653; font-size:13px;}"
             "QGroupBox::title{font-weight:bold;}"
             "QGroupBox *{font-weight:normal; font-size:12px;}"
         )
@@ -707,7 +720,7 @@ class WidgetBuilderMixin:
         self.pt_exam_step_labels = []
         for _ in range(6):
             lbl = QtWidgets.QLabel("")
-            lbl.setStyleSheet("font-size:12px; color:#666666;")
+            lbl.setStyleSheet("font-size:13px; color:#666666;")
             sl_lay.addWidget(lbl)
             self.pt_exam_step_labels.append(lbl)
         outer.addWidget(steps_grp)
@@ -715,7 +728,7 @@ class WidgetBuilderMixin:
         # ── 三相记录 ──────────────────────────────────────────────────────
         rec_grp = QtWidgets.QGroupBox("三相记录")
         rec_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:12px;}"
+            "QGroupBox{background:white; color:#264653; font-size:13px;}"
             "QGroupBox::title{font-weight:bold;}"
             "QGroupBox *{font-weight:normal; font-size:12px;}"
         )
@@ -729,14 +742,14 @@ class WidgetBuilderMixin:
 
             ph_lbl = QtWidgets.QLabel(f"{phase} 相")
             ph_lbl.setFixedWidth(60)
-            ph_lbl.setStyleSheet("font-weight:bold; font-size:12px;")
+            ph_lbl.setStyleSheet("font-weight:bold; font-size:13px;")
 
             val_lbl = QtWidgets.QLabel("未记录")
             val_lbl.setFixedWidth(230)
-            val_lbl.setStyleSheet("font-size:12px; color:#999999;")
+            val_lbl.setStyleSheet("font-size:13px; color:#999999;")
 
             rec_btn = QtWidgets.QPushButton(f"记录 {phase} 相")
-            rec_btn.setStyleSheet("background:#d8f3dc; font-size:12px;")
+            rec_btn.setStyleSheet("background:#d8f3dc; font-size:13px;")
             rec_btn.clicked.connect(
                 lambda _, ph=phase: self.ctrl.record_pt_measurement(ph))
 

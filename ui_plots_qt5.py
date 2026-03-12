@@ -621,7 +621,7 @@ class PlotBuilderMixin:
         sim = self.ctrl.sim_state
 
         if self.ctrl.is_loop_test_complete():
-            summary = "三相回路连通性测试全部完成，电路连通正常。"
+            summary = "第一步已确认完成：三相回路连通性测试通过，后续操作不再影响本步骤。"
             sc = '#006400'
         elif sim.gen1.breaker_closed and sim.gen2.breaker_closed:
             summary = "两台发电机已合闸，可开始测量三相回路。"
@@ -630,30 +630,30 @@ class PlotBuilderMixin:
             summary = "请按步骤操作：断开小电阻 → 手动模式 → 起机合闸 → 万用表测量。"
             sc = '#264653'
         self.loop_test_summary_lbl.setText(summary)
-        self.loop_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:12px; color:{sc};")
+        self.loop_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:13px; color:{sc};")
 
         meter_text = p.meter_reading
         if current_phase:
             meter_text = f"当前表笔对准 {current_phase} 相回路。{meter_text}"
         self.loop_test_meter_lbl.setText(f"实时测量：{meter_text}")
         self.loop_test_meter_lbl.setStyleSheet(
-            f"font-size:12px; color:{_qs(getattr(p, 'meter_color', 'black'))};")
+            f"font-size:13px; color:{_qs(getattr(p, 'meter_color', 'black'))};")
         self.loop_test_feedback_lbl.setText(f"操作提示：{feedback}")
-        self.loop_test_feedback_lbl.setStyleSheet(f"font-size:12px; color:{_qs(fb_color)};")
+        self.loop_test_feedback_lbl.setStyleSheet(f"font-size:13px; color:{_qs(fb_color)};")
 
         for lbl, (text, done) in zip(self.loop_test_step_labels,
                                      self.ctrl.get_loop_test_steps()):
             lbl.setText(("√ " if done else "□ ") + text)
-            lbl.setStyleSheet(f"font-size:12px; color:{'#006400' if done else '#666666'};")
+            lbl.setStyleSheet(f"font-size:13px; color:{'#006400' if done else '#666666'};")
 
         for phase, lbl in self.loop_test_record_labels.items():
             record = records[phase]
             if record is None:
                 lbl.setText("未记录")
-                lbl.setStyleSheet("font-size:12px; color:#999999;")
+                lbl.setStyleSheet("font-size:13px; color:#999999;")
             else:
                 lbl.setText("回路导通 [连通正常]")
-                lbl.setStyleSheet("font-size:12px; color:#006400;")
+                lbl.setStyleSheet("font-size:13px; color:#006400;")
 
     def _render_sync_test(self, p):
         state    = self.ctrl.sync_test_state
@@ -664,8 +664,11 @@ class PlotBuilderMixin:
 
         # 总状态摘要
         if self.ctrl.is_sync_test_complete():
-            summary = "两台发电机同步功能测试全部完成！"
+            summary = "第三步已确认完成：同步功能测试通过，系统已恢复正常自动合闸逻辑。"
             sc = '#006400'
+        elif state['round1_done'] and state['round2_done']:
+            summary = "两轮同步测试记录已完成，请点击“完成第三步测试”。"
+            sc = '#cc6600'
         elif state['round1_done']:
             summary = "第一轮已完成，请互换角色进行第二轮测试。"
             sc = '#cc6600'
@@ -673,7 +676,7 @@ class PlotBuilderMixin:
             summary = "请按步骤完成两轮同步测试。"
             sc = '#264653'
         self.sync_test_summary_lbl.setText(summary)
-        self.sync_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:12px; color:{sc};")
+        self.sync_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:13px; color:{sc};")
 
         # 实时同步偏差显示
         ref_gen = getattr(p, 'bus_reference_gen', None)
@@ -685,7 +688,7 @@ class PlotBuilderMixin:
             self.sync_test_live_lbl.setText(
                 f"[第一轮] Gen2跟踪Gen1 — Δf={df:.3f} Hz，ΔV={dv:.0f} V  "
                 f"{'[已同步 ✓]' if ok else '[同步中…]'}")
-            self.sync_test_live_lbl.setStyleSheet(f"font-size:12px; color:{color};")
+            self.sync_test_live_lbl.setStyleSheet(f"font-size:13px; color:{color};")
         elif ref_gen == 2 and gen1.mode == "auto":
             df = abs(gen1.freq - gen2.freq)
             dv = abs(gen1.amp - gen2.amp)
@@ -694,49 +697,50 @@ class PlotBuilderMixin:
             self.sync_test_live_lbl.setText(
                 f"[第二轮] Gen1跟踪Gen2 — Δf={df:.3f} Hz，ΔV={dv:.0f} V  "
                 f"{'[已同步 ✓]' if ok else '[同步中…]'}")
-            self.sync_test_live_lbl.setStyleSheet(f"font-size:12px; color:{color};")
+            self.sync_test_live_lbl.setStyleSheet(f"font-size:13px; color:{color};")
         else:
             self.sync_test_live_lbl.setText(
                 f"母排基准: {'Gen ' + str(ref_gen) if ref_gen else '无（死母线）'}  "
                 f"| Gen1: {gen1.freq:.2f}Hz/{gen1.amp:.0f}V ({gen1.mode})  "
                 f"| Gen2: {gen2.freq:.2f}Hz/{gen2.amp:.0f}V ({gen2.mode})")
-            self.sync_test_live_lbl.setStyleSheet("font-size:12px; color:#444444;")
+            self.sync_test_live_lbl.setStyleSheet("font-size:13px; color:#444444;")
 
         self.sync_test_feedback_lbl.setText(f"操作提示：{feedback}")
-        self.sync_test_feedback_lbl.setStyleSheet(f"font-size:12px; color:{_qs(fb_color)};")
+        self.sync_test_feedback_lbl.setStyleSheet(f"font-size:13px; color:{_qs(fb_color)};")
 
         for lbl, (text, done) in zip(self.sync_test_step_labels,
                                      self.ctrl.get_sync_test_steps()):
             lbl.setText(("√ " if done else "□ ") + text)
-            lbl.setStyleSheet(f"font-size:12px; color:{'#006400' if done else '#666666'};")
+            lbl.setStyleSheet(f"font-size:13px; color:{'#006400' if done else '#666666'};")
 
         # 记录状态标签
         if state['round1_done']:
             self.sync_round1_lbl.setText("Gen 1 基准 → Gen 2 同步：已记录 ✓")
-            self.sync_round1_lbl.setStyleSheet("font-size:12px; color:#006400;")
+            self.sync_round1_lbl.setStyleSheet("font-size:13px; color:#006400;")
         else:
             self.sync_round1_lbl.setText("Gen 1 基准 → Gen 2 同步：未记录")
-            self.sync_round1_lbl.setStyleSheet("font-size:12px; color:#999999;")
+            self.sync_round1_lbl.setStyleSheet("font-size:13px; color:#999999;")
 
         if state['round2_done']:
             self.sync_round2_lbl.setText("Gen 2 基准 → Gen 1 同步：已记录 ✓")
-            self.sync_round2_lbl.setStyleSheet("font-size:12px; color:#006400;")
+            self.sync_round2_lbl.setStyleSheet("font-size:13px; color:#006400;")
         else:
             self.sync_round2_lbl.setText("Gen 2 基准 → Gen 1 同步：未记录")
-            self.sync_round2_lbl.setStyleSheet("font-size:12px; color:#999999;")
+            self.sync_round2_lbl.setStyleSheet("font-size:13px; color:#999999;")
 
     def _render_pt_exam(self, p):
         gen_id = self._pt_target_bg.checkedId()
         if gen_id <= 0:
             gen_id = 1
-        records   = self.ctrl.pt_exam_states[gen_id]['records']
-        feedback  = self.ctrl.pt_exam_states[gen_id]['feedback']
-        fb_color  = self.ctrl.pt_exam_states[gen_id]['feedback_color']
+        state     = self.ctrl.pt_exam_states[gen_id]
+        records   = state['records']
+        feedback  = state['feedback']
+        fb_color  = state['feedback_color']
         generator = self.ctrl._get_generator_state(gen_id)
         current_phase = self.ctrl._get_current_pt_phase_match(gen_id)
 
         if self.ctrl.is_pt_exam_ready(gen_id):
-            summary = f"Gen {gen_id} 已完成 PT 二次端子压差考核，允许执行工作位合闸。"
+            summary = f"第二步已确认完成：Gen {gen_id} PT 二次端子压差测试通过，后续操作不再影响本步骤。"
             sc = '#006400'
         elif all(records[ph] is not None for ph in ('A', 'B', 'C')):
             summary = (f"Gen {gen_id} 三相 PT 二次端子压差已记录，"
@@ -746,30 +750,30 @@ class PlotBuilderMixin:
             summary = f"Gen {gen_id} 当前开关柜位置：{generator.breaker_position}。"
             sc = '#264653'
         self.pt_exam_summary_lbl.setText(summary)
-        self.pt_exam_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:12px; color:{sc};")
+        self.pt_exam_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:13px; color:{sc};")
 
         meter_text = p.meter_reading
         if current_phase:
             meter_text = f"当前表笔对准 Gen {gen_id} {current_phase} 相。{meter_text}"
         self.pt_exam_meter_lbl.setText(f"实时测量：{meter_text}")
         self.pt_exam_meter_lbl.setStyleSheet(
-            f"font-size:12px; color:{_qs(getattr(p, 'meter_color', 'black'))};")
+            f"font-size:13px; color:{_qs(getattr(p, 'meter_color', 'black'))};")
         self.pt_exam_feedback_lbl.setText(f"考核提示：{feedback}")
-        self.pt_exam_feedback_lbl.setStyleSheet(f"font-size:12px; color:{_qs(fb_color)};")
+        self.pt_exam_feedback_lbl.setStyleSheet(f"font-size:13px; color:{_qs(fb_color)};")
 
         for lbl, (text, done) in zip(self.pt_exam_step_labels,
                                      self.ctrl.get_pt_exam_steps(gen_id)):
             lbl.setText(("√ " if done else "□ ") + text)
-            lbl.setStyleSheet(f"font-size:12px; color:{'#006400' if done else '#666666'};")
+            lbl.setStyleSheet(f"font-size:13px; color:{'#006400' if done else '#666666'};")
 
         for phase, lbl in self.pt_exam_record_labels.items():
             record = records[phase]
             if record is None:
                 lbl.setText("未记录")
-                lbl.setStyleSheet("font-size:12px; color:#999999;")
+                lbl.setStyleSheet("font-size:13px; color:#999999;")
             else:
                 lbl.setText(f"{record['voltage']:.1f} V  [可合闸]")
-                lbl.setStyleSheet("font-size:12px; color:#006400;")
+                lbl.setStyleSheet("font-size:13px; color:#006400;")
 
     def _update_generator_buttons(self):
         for gen_id in (1, 2):

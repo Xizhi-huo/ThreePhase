@@ -160,7 +160,8 @@ class PowerSyncController:
     def _create_pt_exam_state(self):
         return {
             'records': {'A': None, 'B': None, 'C': None},
-            'feedback': "请先切到试验位置，并在母排拓扑页完成三相 PT 二次端子压差测量。",
+            'completed': False,
+            'feedback': "请先恢复小电阻接地，并将机组并入母排后，在母排拓扑页完成三相 PT 二次端子压差测量。",
             'feedback_color': '#444444',
         }
 
@@ -204,12 +205,21 @@ class PowerSyncController:
         for gid in target_ids:
             self.pt_exam_states[gid] = self._create_pt_exam_state()
 
+    def _is_pt_exam_setup_ready(self, gen_id):
+        generator = self._get_generator_state(gen_id)
+        return (
+            self.sim_state.grounding_mode == "小电阻接地" and
+            generator.breaker_position == BreakerPosition.WORKING and
+            generator.breaker_closed
+        )
+
     # ════════════════════════════════════════════════════════════════════════
     # 回路连通性测试辅助
     # ════════════════════════════════════════════════════════════════════════
     def _create_loop_test_state(self):
         return {
             'records': {'A': None, 'B': None, 'C': None},
+            'completed': False,
             'feedback': "请先断开中性点小电阻，将两台发电机切至手动模式，起机并合闸后，用万用表测量三相回路连通性。",
             'feedback_color': '#444444',
         }
@@ -236,9 +246,10 @@ class PowerSyncController:
     def get_loop_test_steps(self):
         sim = self.sim_state
         gen1, gen2 = sim.gen1, sim.gen2
-        records = self.loop_test_state['records']
+        state = self.loop_test_state
+        records = state['records']
         all_rec = all(records[ph] is not None for ph in ('A', 'B', 'C'))
-        return [
+        steps = [
             ("1. 断开中性点小电阻连接",
              sim.grounding_mode == "断开"),
             ("2. 将 Gen 1 切至手动工作模式",
@@ -256,6 +267,9 @@ class PowerSyncController:
             ("8. 记录 A/B/C 三相回路连通性结果",
              all_rec),
         ]
+        if state.get('completed'):
+            return [(text, True) for text, _ in steps]
+        return steps
 
     def record_loop_measurement(self, phase):
         sim = self.sim_state
@@ -311,6 +325,7 @@ class PowerSyncController:
             'status': meter_status,
             'reading': self.physics.meter_reading,
         }
+        self.loop_test_state['completed'] = False
         all_rec = all(self.loop_test_state['records'][ph] is not None for ph in ('A', 'B', 'C'))
         if all_rec:
             self._set_loop_test_feedback(
@@ -322,7 +337,15 @@ class PowerSyncController:
         self.loop_test_state = self._create_loop_test_state()
 
     def is_loop_test_complete(self):
-        return all(self.loop_test_state['records'][ph] is not None for ph in ('A', 'B', 'C'))
+        return self.loop_test_state.get('completed', False)
+
+    def finalize_loop_test(self):
+        records = self.loop_test_state['records']
+        if not all(records[ph] is not None for ph in ('A', 'B', 'C')):
+            self._set_loop_test_feedback("请先完成 A/B/C 三相回路连通性记录，再点击“完成第一步测试”。", "red")
+            return
+        self.loop_test_state['completed'] = True
+        self._set_loop_test_feedback("第一步【回路连通性测试】已确认完成，后续操作将不再影响该步骤状态。", "#006600")
 
     # ════════════════════════════════════════════════════════════════════════
     # 同步功能测试辅助
@@ -331,6 +354,7 @@ class PowerSyncController:
         return {
             'round1_done': False,   # Gen1基准 → Gen2同步
             'round2_done': False,   # Gen2基准 → Gen1同步
+            'completed': False,
             'feedback': "请先完成第一步（回路测试）和第二步（PT测试），再进行同步功能测试。",
             'feedback_color': '#444444',
         }
@@ -375,7 +399,7 @@ class PowerSyncController:
         r2_synced       = (r2_master_ok and r2_follower_ok and
                            self._is_gen_synced(gen1, gen2))
 
-        return [
+        steps = [
             ("1. 前提：第一步回路连通性测试已完成",
              loop_done),
             ("2. 前提：第二步 PT 二次端子压差测试已完成（Gen1 & Gen2）",
@@ -397,6 +421,9 @@ class PowerSyncController:
             ("10. [第二轮] 记录结果：Gen 2 基准 → Gen 1 同步完成",
              state['round2_done']),
         ]
+        if state.get('completed'):
+            return [(text, True) for text, _ in steps]
+        return steps
 
     def record_sync_round(self, round_num):
         sim = self.sim_state
@@ -432,6 +459,7 @@ class PowerSyncController:
                     "red")
                 return
             state['round1_done'] = True
+            state['completed'] = False
             self._set_sync_test_feedback(
                 "第一轮记录成功：Gen 1 作基准，Gen 2 同步功能正常。"
                 "请断开 Gen 1，互换角色进行第二轮测试。", "#006600")
@@ -460,6 +488,7 @@ class PowerSyncController:
                     "red")
                 return
             state['round2_done'] = True
+            state['completed'] = False
             self._set_sync_test_feedback(
                 "第二轮记录成功：Gen 2 作基准，Gen 1 同步功能正常。两台发电机同步功能测试全部完成！",
                 "#006600")
@@ -468,8 +497,18 @@ class PowerSyncController:
         self.sync_test_state = self._create_sync_test_state()
 
     def is_sync_test_complete(self):
+        return self.sync_test_state.get('completed', False)
+
+    def is_sync_test_rounds_done(self):
         return (self.sync_test_state['round1_done'] and
                 self.sync_test_state['round2_done'])
+
+    def finalize_sync_test(self):
+        if not self.is_sync_test_rounds_done():
+            self._set_sync_test_feedback("请先完成并记录两轮同步测试，再点击“完成第三步测试”。", "red")
+            return
+        self.sync_test_state['completed'] = True
+        self._set_sync_test_feedback("第三步【同步功能测试】已确认完成，系统恢复正常自动合闸逻辑。", "#006600")
 
     def record_pt_measurement(self, phase):
         gen_id    = self.ui._pt_target_bg.checkedId()
@@ -497,8 +536,11 @@ class PowerSyncController:
                     "red")
                 return
 
-        if generator.breaker_position != BreakerPosition.TEST:
-            self._set_pt_exam_feedback(gen_id, "请先将开关柜切到试验位置，再记录 PT 二次端子压差。", "red")
+        if self.sim_state.grounding_mode != "小电阻接地":
+            self._set_pt_exam_feedback(gen_id, "请先恢复中性点小电阻接地，再进行 PT 二次端子压差测量。", "red")
+            return
+        if generator.breaker_position != BreakerPosition.WORKING or not generator.breaker_closed:
+            self._set_pt_exam_feedback(gen_id, "请先将机组切至工作位置并完成并网合闸，再记录 PT 二次端子压差。", "red")
             return
         if not self.sim_state.multimeter_mode:
             self._set_pt_exam_feedback(gen_id, "请先开启万用表，再到母排拓扑页放置表笔。", "red")
@@ -529,6 +571,7 @@ class PowerSyncController:
             'voltage': meter_v,
             'reading': self.physics.meter_reading,
         }
+        self.pt_exam_states[gen_id]['completed'] = False
         if self.is_pt_exam_ready(gen_id):
             msg = f"Gen {gen_id} 三相 PT 二次端子压差已完成记录，可执行合闸。"
         elif all(self.pt_exam_states[gen_id]['records'][ph] is not None for ph in ('A', 'B', 'C')):
@@ -539,28 +582,33 @@ class PowerSyncController:
 
     def get_pt_exam_steps(self, gen_id):
         generator = self._get_generator_state(gen_id)
-        records   = self.pt_exam_states[gen_id]['records']
+        state     = self.pt_exam_states[gen_id]
+        records   = state['records']
         has_any   = any(records[ph] is not None for ph in ('A', 'B', 'C'))
-        all_rec   = all(records[ph] is not None for ph in ('A', 'B', 'C'))
-        return [
-            (f"1. 将 Gen {gen_id} 开关柜切到试验位置",
-             generator.breaker_position == BreakerPosition.TEST or has_any),
-            ("2. 开启万用表并在母排拓扑页连接 PT 二次端子排上的同相端子",
+        steps = [
+            ("1. 恢复中性点小电阻接地",
+             self.sim_state.grounding_mode == "小电阻接地" or has_any),
+            (f"2. 将 Gen {gen_id} 切至工作位置并并入母排",
+             self._is_pt_exam_setup_ready(gen_id) or has_any),
+            ("3. 开启万用表并在母排拓扑页连接 PT 二次端子排上的同相端子",
              self.sim_state.multimeter_mode or has_any),
-            ("3. 记录 A 相 PT 二次端子压差", records['A'] is not None),
-            ("4. 记录 B 相 PT 二次端子压差", records['B'] is not None),
-            ("5. 记录 C 相 PT 二次端子压差", records['C'] is not None),
-            (f"6. 切回 Gen {gen_id} 工作位置并准备合闸",
-             all_rec and generator.breaker_position == BreakerPosition.WORKING),
+            ("4. 记录 A 相 PT 二次端子压差", records['A'] is not None),
+            ("5. 记录 B 相 PT 二次端子压差", records['B'] is not None),
+            ("6. 记录 C 相 PT 二次端子压差", records['C'] is not None),
         ]
+        if state.get('completed'):
+            return [(text, True) for text, _ in steps]
+        return steps
 
     def get_pt_exam_close_blockers(self, gen_id):
         generator = self._get_generator_state(gen_id)
         records   = self.pt_exam_states[gen_id]['records']
         blockers  = []
         if not any(records[ph] is not None for ph in ('A', 'B', 'C')):
-            if generator.breaker_position != BreakerPosition.TEST:
-                blockers.append("未切至试验位置完成 PT 二次端子测量")
+            if self.sim_state.grounding_mode != "小电阻接地":
+                blockers.append("未恢复中性点小电阻接地")
+            if generator.breaker_position != BreakerPosition.WORKING or not generator.breaker_closed:
+                blockers.append("未在工作位置并入母排完成 PT 二次端子测量")
             if not self.sim_state.multimeter_mode:
                 blockers.append("未开启万用表")
         for phase in ('A', 'B', 'C'):
@@ -568,16 +616,44 @@ class PowerSyncController:
                 blockers.append(f"未记录 {phase} 相 PT 二次端子压差")
         return blockers
 
+    def get_loop_test_blockers(self):
+        return [text for text, done in self.get_loop_test_steps() if not done]
+
+    def get_sync_test_blockers(self):
+        return [text for text, done in self.get_sync_test_steps() if not done]
+
+    def get_preclose_flow_blockers(self, gen_id):
+        sections = []
+
+        loop_blockers = self.get_loop_test_blockers()
+        if loop_blockers:
+            sections.append(("第一步：回路连通性测试", loop_blockers))
+
+        return sections
+
     def is_pt_exam_ready(self, gen_id):
-        generator = self._get_generator_state(gen_id)
-        records   = self.pt_exam_states[gen_id]['records']
-        return (
-            generator.breaker_position == BreakerPosition.WORKING and
-            all(records[ph] is not None for ph in ('A', 'B', 'C'))
-        )
+        return self.pt_exam_states[gen_id].get('completed', False)
+
+    def finalize_pt_exam(self, gen_id):
+        state = self.pt_exam_states[gen_id]
+        records = state['records']
+        if not all(records[ph] is not None for ph in ('A', 'B', 'C')):
+            self._set_pt_exam_feedback(gen_id, "请先完成 A/B/C 三相 PT 二次端子压差记录，再点击“完成第二步测试”。", "red")
+            return
+        state['completed'] = True
+        self._set_pt_exam_feedback(gen_id, f"第二步【Gen {gen_id} PT 二次端子压差测试】已确认完成，后续操作将不再影响该步骤状态。", "#006600")
 
     def _should_enforce_pt_exam_before_close(self):
         return self.sim_state.grounding_mode != "断开"
+
+    def _should_limit_close_to_selected_pt_target(self):
+        sim = self.sim_state
+        return (
+            sim.grounding_mode == "小电阻接地" and
+            sim.gen1.mode == "manual" and
+            sim.gen2.mode == "manual" and
+            not self.is_sync_test_complete()
+        )
 
     # ════════════════════════════════════════════════════════════════════════
     # 控制动作
@@ -602,15 +678,33 @@ class PowerSyncController:
         if getattr(self, attr_closed):
             setattr(self, attr_closed, False)
         else:
+            if self._should_limit_close_to_selected_pt_target():
+                target_gen_id = self.ui._pt_target_bg.checkedId()
+                if target_gen_id in (1, 2) and gen_id != target_gen_id:
+                    self._set_pt_exam_feedback(
+                        target_gen_id,
+                        f"当前第二步正在测试 Gen {target_gen_id}，请先完成该机组的 PT 二次端子压差测试；"
+                        f"若需合闸 Gen {gen_id}，请先在第二步页面切换测试对象。",
+                        "red"
+                    )
+                    self.ui.tab_widget.setCurrentIndex(3)
+                    self.ui.show_warning(
+                        "当前机组不允许合闸",
+                        f"第二步 PT 测试当前锁定在 Gen {target_gen_id}。\n"
+                        f"请先完成 Gen {target_gen_id} 的测试，或先切换测试对象后再合闸 Gen {gen_id}。"
+                    )
+                    return
             if (generator.breaker_position == BreakerPosition.WORKING
                     and self._should_enforce_pt_exam_before_close()):
-                blockers = self.get_pt_exam_close_blockers(gen_id)
-                if blockers:
-                    warn_msg = "PT 二次端子压差考核未完成，当前不能合闸：\n" + "\n".join(
-                        f"{i}. {item}" for i, item in enumerate(blockers, 1)
-                    )
+                blocker_sections = self.get_preclose_flow_blockers(gen_id)
+                if blocker_sections:
+                    msg_lines = ["隔离母排模式下合闸前流程尚未完成，当前不能合闸："]
+                    for section_title, items in blocker_sections:
+                        msg_lines.append(f"\n{section_title}")
+                        msg_lines.extend(f"{i}. {item}" for i, item in enumerate(items, 1))
+                    warn_msg = "\n".join(msg_lines)
                     self._set_pt_exam_feedback(gen_id, warn_msg.replace("\n", "；"), "red")
-                    self.ui.tab_widget.setCurrentIndex(3)   # 跳到 PT 考核 Tab
+                    self.ui.tab_widget.setCurrentIndex(2)   # 跳到第一步流程页
                     self.ui.show_warning("合闸前步骤未完成", warn_msg)
                     return
             setattr(self, attr_cmd, True)

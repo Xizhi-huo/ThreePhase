@@ -503,7 +503,13 @@ class PhysicsEngine:
                 if abs(generator.freq - GRID_FREQ) < 0.1 and abs(GRID_AMP - a_value) <= 150.0 and not generator.breaker_closed:
                     generator.breaker_closed = True
             else:
-                if abs(generator.freq - ref_freq) < 0.1 and abs(ref_amp - a_value) <= 150.0 and abs(diff_deg) <= 5.0 and not generator.breaker_closed:
+                # 第三步同步功能测试期间，Auto 机组只做同步跟踪，不自动真实合闸；
+                # 点击“完成第三步测试”后，恢复正常自动合闸逻辑。
+                if (self.ctrl.is_sync_test_complete()
+                        and abs(generator.freq - ref_freq) < 0.1
+                        and abs(ref_amp - a_value) <= 150.0
+                        and abs(diff_deg) <= 1.5
+                        and not generator.breaker_closed):
                     generator.breaker_closed = True
             generator.cmd_close = False
         elif generator.mode == "manual" and generator.cmd_close:
