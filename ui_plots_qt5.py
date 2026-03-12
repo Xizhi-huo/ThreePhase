@@ -59,9 +59,7 @@ class MplCanvas(FigureCanvas):
         FigureCanvas.updateGeometry(self)
 
 
-# ════════════════════════════════════════════════════════════════════════════
 # Mixin：图形搭建 + 渲染
-# ════════════════════════════════════════════════════════════════════════════
 class PlotBuilderMixin:
     """
     混入类，为 PowerSyncUI 提供所有 matplotlib 相关方法。
