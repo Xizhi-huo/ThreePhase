@@ -590,7 +590,8 @@ class PhysicsEngine:
                     frozenset({'PT3_A', 'PT2_A'}), frozenset({'PT3_B', 'PT2_B'}), frozenset({'PT3_C', 'PT2_C'}),
                 }
                 if loop_pair:
-                    if sim.grounding_mode != "断开":
+                    loop_done = self.ctrl.loop_test_state.get('completed', False)
+                    if sim.grounding_mode != "断开" and not loop_done:
                         self.meter_status = "invalid"
                         self.meter_color = "red"
                         self.meter_reading = "回路演示前请先断开中性点接地"

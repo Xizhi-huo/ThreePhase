@@ -134,6 +134,35 @@ class PlotBuilderMixin:
         self.canvas2.mpl_connect('button_press_event', self._on_circuit_click)
         self._draw_circuit_content()
 
+        # ── 快速记录栏 ──────────────────────────────────────────────────────
+        quick_bar = QtWidgets.QWidget()
+        quick_bar.setStyleSheet(
+            "background:#f0f4f8; border-top:1px solid #bbb;")
+        qlay = QtWidgets.QHBoxLayout(quick_bar)
+        qlay.setContentsMargins(10, 4, 10, 4)
+        qlay.setSpacing(8)
+
+        self.circuit_mode_lbl = QtWidgets.QLabel("万用表未开启")
+        self.circuit_mode_lbl.setStyleSheet("font-size:13px; color:#666;")
+        qlay.addWidget(self.circuit_mode_lbl)
+        qlay.addStretch()
+
+        for ph in ('A', 'B', 'C'):
+            btn = QtWidgets.QPushButton(f"记录 {ph} 相")
+            btn.setFixedSize(88, 28)
+            btn.setStyleSheet("font-size:13px;")
+            btn.setEnabled(False)
+            btn.clicked.connect(lambda _checked, p=ph: self._on_quick_record(p))
+            setattr(self, f'circuit_rec_btn_{ph}', btn)
+            qlay.addWidget(btn)
+
+        self.circuit_rec_feedback = QtWidgets.QLabel("")
+        self.circuit_rec_feedback.setStyleSheet(
+            "font-size:13px; color:#006400; min-width:220px;")
+        qlay.addWidget(self.circuit_rec_feedback)
+
+        lay.addWidget(quick_bar)
+
     # ── 波形线 / 相量线初始化 ────────────────────────────────────────────────
     def _init_lines(self):
         self._init_waveform_lines()
@@ -222,7 +251,7 @@ class PlotBuilderMixin:
         CT_Y_TOP   = 0.88;  CT_DY = 0.055
 
         # ── 内部绘图辅助函数 ──────────────────────────────────────────────
-        def draw_pt_y_symbol(cx, cy, size, color='#cc6600'):
+        def draw_pt_y_symbol(cx, cy, size, color='#cc6600', yn_side='right'):
             arm_a   = (cx - size*0.90, cy + size*0.85)
             arm_b   = (cx,             cy + size)
             arm_c   = (cx + size*0.90, cy + size*0.85)
@@ -231,7 +260,9 @@ class PlotBuilderMixin:
                 ax.plot([cx, tip[0]], [cy, tip[1]], color=color, lw=2.0)
             ax.plot([cx, neutral[0]], [cy, neutral[1]], color=color, lw=1.6, ls='--')
             ax.plot(*neutral, 'o', color=color, markersize=3)
-            ax.text(neutral[0]+0.012, neutral[1], "Yn", fontsize=6, color='#888', va='center')
+            yn_x  = neutral[0] + (0.012 if yn_side == 'right' else -0.012)
+            yn_ha = 'left'     if yn_side == 'right' else 'right'
+            ax.text(yn_x, neutral[1], "Yn", fontsize=6, color='#888', va='center', ha=yn_ha)
             return {'A': arm_a, 'B': arm_b, 'C': arm_c, 'N': neutral, 'C_xy': (cx, cy)}
 
         def draw_pt_blackbox_symbol(cx, cy, size, color='#cc6600'):
@@ -262,30 +293,30 @@ class PlotBuilderMixin:
             ax.plot(src_x, src_y, 'o', color='k', markersize=3)
 
         def draw_pt_full(cx, cy, src_xs, src_ys, channels, label, sub_label,
-                         lbl_y, phase_order, ls='-', side='center'):
+                         lbl_y, phase_order, ls='-', side='right'):
+            # side controls where Yn + PT label appear: 'right' or 'left'
+            yn_side = side if side in ('left', 'right') else 'right'
             if pt_blackbox_mode:
                 sym       = draw_pt_blackbox_symbol(cx, cy, PT_SIZE)
                 terminals = sym['terms']
             else:
-                sym       = draw_pt_y_symbol(cx, cy, PT_SIZE)
+                sym       = draw_pt_y_symbol(cx, cy, PT_SIZE, yn_side=yn_side)
                 terminals = [sym['A'], sym['B'], sym['C']]
             for sx, sy, ph, color in zip(src_xs, src_ys, BUS_PHASES, BUS_COLORS):
                 draw_pt_wired(sx, sy, terminals[phase_order.index(ph)],
                               channels[ph], color, ls=ls)
-            ax.text(cx, lbl_y,       label,     fontsize=7, ha='center', color='#cc6600', weight='bold')
-            ax.text(cx, lbl_y-0.03,  sub_label, fontsize=6, ha='center', color='#666')
+            offset = PT_SIZE * 1.5
+            if side == 'right':
+                lbl_x, lbl_ha = cx + offset, 'left'
+            elif side == 'left':
+                lbl_x, lbl_ha = cx - offset, 'right'
+            else:
+                lbl_x, lbl_ha = cx, 'center'
+            ax.text(lbl_x, cy + PT_SIZE*0.4,  label,    fontsize=7, ha=lbl_ha, color='#cc6600', weight='bold')
+            ax.text(lbl_x, cy - PT_SIZE*0.4,  "PT本体", fontsize=6, ha=lbl_ha, color='#555')
+            ax.text(lbl_x, cy - PT_SIZE*1.1,  "一次侧", fontsize=6, ha=lbl_ha, color='#666')
             if pt_blackbox_mode:
-                ax.text(cx, lbl_y-0.055, "黑盒教学模式", fontsize=5.5, ha='center', color='#555')
-            # "PT本体" / "一次侧" 标注在 Y 型图案旁边（黑盒模式下不显示）
-            if not pt_blackbox_mode:
-                if side == 'left':
-                    lbl_x, lbl_ha = cx - PT_SIZE*1.1, 'right'
-                elif side == 'right':
-                    lbl_x, lbl_ha = cx + PT_SIZE*1.1, 'left'
-                else:
-                    lbl_x, lbl_ha = cx, 'center'
-                ax.text(lbl_x, cy + PT_SIZE*0.15, "PT本体", fontsize=10, ha=lbl_ha, color='#555')
-                ax.text(lbl_x, cy - PT_SIZE*0.35, "一次侧", fontsize=10, ha=lbl_ha, color='#666')
+                ax.text(lbl_x, cy - PT_SIZE*1.8, "黑盒教学模式", fontsize=5.5, ha=lbl_ha, color='#555')
             return sym
 
         def draw_pt_secondary_terminal_strip(cx, cy, prefix, section_y, line_y, color='#cc6600'):
@@ -302,7 +333,6 @@ class PlotBuilderMixin:
                 facecolor='#fffdf5', edgecolor=color, lw=1.2, linestyle='--', alpha=0.95))
             ax.plot([box_left, box_left+box_w], [line_y, line_y], color='#888', lw=1.0, ls=':')
             ax.text(cx, line_y+0.045, "二次端子排", fontsize=6, ha='center', color=color, weight='bold')
-            ax.text(cx, box_bottom+box_h+0.015, f"{prefix}二次端子", fontsize=5.5, ha='center', color='#444')
             source_y = cy + PT_SIZE*0.75
             for phase, x in zip(('A', 'B', 'C'), xs):
                 ax.plot([cx, x], [source_y, section_y], color=color, lw=1.0, alpha=0.9)
@@ -373,10 +403,7 @@ class PlotBuilderMixin:
                     weight='bold', color='#111', path_effects=_gen_stroke)
         for cx, side, ha in [(G1_CX, -1, 'right'), (G2_CX, 1, 'left')]:
             xpos = cx + side * (GEN_R + 0.025)
-            lbl  = "G1" if side == -1 else "G2"
-            ax.text(xpos, GEN_CY+0.02, lbl,   fontsize=11, ha=ha, va='center',
-                    weight='bold', color='#111', path_effects=_side_stroke)
-            ax.text(xpos, GEN_CY-0.02, "机端", fontsize=9,  ha=ha, va='center',
+            ax.text(xpos, GEN_CY, "机端", fontsize=9, ha=ha, va='center',
                     weight='bold', color='#444', path_effects=_side_stroke)
 
         for node_name in ('LOOP_G1_A', 'LOOP_G1_B', 'LOOP_G1_C',
@@ -386,7 +413,6 @@ class PlotBuilderMixin:
             ax.plot(x, y, 'o', color='k', markersize=4.5, zorder=6)
             ax.text(x, y+0.018, phase, fontsize=6, ha='center', color=phase_color, weight='bold')
         ax.text(0.50, 0.438, "三相回路连通测点", fontsize=7, ha='center', color='#444')
-        ax.text(0.50, 0.423, "断开接地并闭合两台开关后，用于演示相序对应", fontsize=6, ha='center', color='#666')
 
         # ── 3. 中性点接地 ─────────────────────────────────────────────────
         draw_generator_neutral_ground(G1_CX)
@@ -395,34 +421,34 @@ class PlotBuilderMixin:
         # ── 4. PT ─────────────────────────────────────────────────────────
         PT_GEN_CHANNELS = {'A': CB_BOT-0.015, 'B': CB_BOT-0.030, 'C': CB_BOT-0.045}
 
-        draw_pt_full(cx=PT1_CX, cy=PT_GEN_CY, src_xs=G1_X, src_ys=[CB_BOT]*3,
+        draw_pt_full(cx=PT1_CX, cy=PT_GEN_CY, src_xs=G1_X, src_ys=[CB_TOP]*3,
                      channels=PT_GEN_CHANNELS, label="PT1", sub_label="G1机端",
-                     phase_order=pt_orders['PT1'], lbl_y=PT_LBL_Y, ls='--', side='left')
+                     phase_order=pt_orders['PT1'], lbl_y=PT_LBL_Y, ls='--', side='right')
         draw_pt_secondary_terminal_strip(PT1_CX, PT_GEN_CY, "PT1", section_y=0.512, line_y=0.500)
 
         if pt_blackbox_mode:
             sym2  = draw_pt_blackbox_symbol(PT2_CX, PT2_CY, PT_SIZE)
             arms2 = sym2['terms']
         else:
-            sym2  = draw_pt_y_symbol(PT2_CX, PT2_CY, PT_SIZE)
+            sym2  = draw_pt_y_symbol(PT2_CX, PT2_CY, PT_SIZE, yn_side='right')
             arms2 = [sym2['A'], sym2['B'], sym2['C']]
 
         for ph, bus_y_val, color in zip(BUS_PHASES, BUS_YL, BUS_COLORS):
             arm_tx, arm_ty = arms2[pt_orders['PT2'].index(ph)]
             ax.plot(arm_tx, bus_y_val, 'o', color='k', markersize=3)
             ax.plot([arm_tx, arm_tx], [bus_y_val, arm_ty], color=color, lw=1.2, alpha=0.85)
-        ax.text(PT2_CX, PT2_LBL_Y,       "PT2", fontsize=7, ha='center', color='#cc6600', weight='bold')
-        ax.text(PT2_CX, PT2_LBL_Y-0.03,  "母排", fontsize=6, ha='center', color='#666')
+        _pt2_lbl_x = PT2_CX + PT_SIZE * 1.5
+        ax.text(_pt2_lbl_x, PT2_CY + PT_SIZE*0.4,  "PT2", fontsize=7, ha='left', color='#cc6600', weight='bold')
+        ax.text(_pt2_lbl_x, PT2_CY - PT_SIZE*0.4,  "母排", fontsize=6, ha='left', color='#666')
         if pt_blackbox_mode:
-            ax.text(PT2_CX, PT2_LBL_Y-0.055, "黑盒教学模式", fontsize=5.5, ha='center', color='#555')
+            ax.text(_pt2_lbl_x, PT2_CY - PT_SIZE*1.1, "黑盒教学模式", fontsize=5.5, ha='left', color='#555')
         draw_pt_secondary_terminal_strip(PT2_CX, PT2_CY, "PT2", section_y=0.372, line_y=0.360)
 
-        draw_pt_full(cx=PT3_CX, cy=PT_GEN_CY, src_xs=G2_X, src_ys=[CB_BOT]*3,
+        draw_pt_full(cx=PT3_CX, cy=PT_GEN_CY, src_xs=G2_X, src_ys=[CB_TOP]*3,
                      channels=PT_GEN_CHANNELS, label="PT3", sub_label="G2机端",
-                     phase_order=pt_orders['PT3'], lbl_y=PT_LBL_Y, ls='-.', side='right')
+                     phase_order=pt_orders['PT3'], lbl_y=PT_LBL_Y, ls='-.', side='left')
         draw_pt_secondary_terminal_strip(PT3_CX, PT_GEN_CY, "PT3", section_y=0.512, line_y=0.500)
 
-        ax.text(0.50, 0.415, "仅允许在 PT 二次端子排上进行测量", fontsize=7, ha='center', color='#444')
 
         # PT 电压读数文字
         PT_V_LBL_Y  = PT_GEN_CY + PT_SIZE + 0.245
@@ -487,6 +513,7 @@ class PlotBuilderMixin:
         self._render_breakers(p)
         self._render_grounding_and_pt(p)
         self._render_multimeter(p)
+        self._render_circuit_quick_record(p)
         self._render_loop_test(p)
         self._render_sync_test(p)
         self._render_pt_exam(p)
@@ -613,10 +640,100 @@ class PlotBuilderMixin:
             self.probe1_plot.set_data([], [])
             self.probe2_plot.set_data([], [])
 
+    def _render_circuit_quick_record(self, p):
+        """更新母排拓扑页底部快速记录栏的按钮状态与提示文字。"""
+        sim = self.ctrl.sim_state
+        if not sim.multimeter_mode or not (sim.probe1_node and sim.probe2_node):
+            self.circuit_mode_lbl.setText("万用表未开启或表笔未放置")
+            for ph in ('A', 'B', 'C'):
+                btn = getattr(self, f'circuit_rec_btn_{ph}')
+                btn.setEnabled(False)
+                btn.setStyleSheet("font-size:13px;")
+            return
+
+        info1 = NODES[sim.probe1_node]
+        loop_pair = info1[2].startswith('Loop')
+
+        if loop_pair:
+            state = self.ctrl.loop_test_state
+            if state.get('completed'):
+                self.circuit_mode_lbl.setText("第一步已完成，数据已锁定")
+                for ph in ('A', 'B', 'C'):
+                    getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
+                return
+            self.circuit_mode_lbl.setText("第一步：回路连通性 — 快速记录")
+            for ph in ('A', 'B', 'C'):
+                recorded = state['records'][ph] is not None
+                btn = getattr(self, f'circuit_rec_btn_{ph}')
+                btn.setEnabled(not recorded)
+                btn.setStyleSheet(
+                    f"font-size:13px; background:{'#c8f0c8' if recorded else '#ffffff'};")
+        else:
+            gen_id = getattr(self, '_pt_target_bg').checkedId()
+            if gen_id <= 0:
+                gen_id = 1
+            state = self.ctrl.pt_exam_states[gen_id]
+            if state.get('completed'):
+                self.circuit_mode_lbl.setText(f"第二步 Gen {gen_id} 已完成，数据已锁定")
+                for ph in ('A', 'B', 'C'):
+                    getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
+                return
+            self.circuit_mode_lbl.setText(f"第二步：Gen {gen_id} PT 二次 — 快速记录")
+            for ph in ('A', 'B', 'C'):
+                recorded = state['records'][ph] is not None
+                btn = getattr(self, f'circuit_rec_btn_{ph}')
+                btn.setEnabled(not recorded)
+                btn.setStyleSheet(
+                    f"font-size:13px; background:{'#c8f0c8' if recorded else '#ffffff'};")
+
+    def _on_quick_record(self, phase):
+        """母排拓扑页快速记录按钮回调。"""
+        sim = self.ctrl.sim_state
+        if not (sim.probe1_node and sim.probe2_node):
+            return
+        info1 = NODES[sim.probe1_node]
+        loop_pair = info1[2].startswith('Loop')
+        if loop_pair:
+            self.ctrl.record_loop_measurement(phase)
+            st = self.ctrl.loop_test_state
+            self.circuit_rec_feedback.setText(st['feedback'])
+            self.circuit_rec_feedback.setStyleSheet(
+                f"font-size:13px; color:{_qs(st['feedback_color'])}; min-width:220px;")
+        else:
+            self.ctrl.record_pt_measurement(phase)
+            gen_id = getattr(self, '_pt_target_bg').checkedId()
+            if gen_id <= 0:
+                gen_id = 1
+            st = self.ctrl.pt_exam_states[gen_id]
+            self.circuit_rec_feedback.setText(st['feedback'])
+            self.circuit_rec_feedback.setStyleSheet(
+                f"font-size:13px; color:{_qs(st['feedback_color'])}; min-width:220px;")
+
     def _render_loop_test(self, p):
-        records  = self.ctrl.loop_test_state['records']
-        feedback = self.ctrl.loop_test_state['feedback']
-        fb_color = self.ctrl.loop_test_state['feedback_color']
+        state    = self.ctrl.loop_test_state
+        records  = state['records']
+
+        # ── 已完成锁定：不再响应任何硬件状态变化 ──────────────────────────
+        if state.get('completed'):
+            self.loop_test_summary_lbl.setText(
+                "✅ 第一步已确认完成：三相回路连通性测试通过，数据已锁定。")
+            self.loop_test_summary_lbl.setStyleSheet(
+                "font-weight:bold; font-size:15px; color:#006400;")
+            self.loop_test_meter_lbl.setText("")
+            self.loop_test_feedback_lbl.setText("操作提示：第一步测试已完成，请继续进行第二步。")
+            self.loop_test_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
+            for lbl, (text, _) in zip(self.loop_test_step_labels,
+                                      self.ctrl.get_loop_test_steps()):
+                lbl.setText("√ " + text)
+                lbl.setStyleSheet("font-size:15px; color:#006400;")
+            for phase, lbl in self.loop_test_record_labels.items():
+                lbl.setText("回路导通 [连通正常]")
+                lbl.setStyleSheet("font-size:15px; color:#006400;")
+            return
+        # ── 动态显示 ──────────────────────────────────────────────────────
+
+        feedback = state['feedback']
+        fb_color = state['feedback_color']
         current_phase = self.ctrl._get_current_loop_phase_match()
         sim = self.ctrl.sim_state
 
@@ -630,33 +747,54 @@ class PlotBuilderMixin:
             summary = "请按步骤操作：断开小电阻 → 手动模式 → 起机合闸 → 万用表测量。"
             sc = '#264653'
         self.loop_test_summary_lbl.setText(summary)
-        self.loop_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:13px; color:{sc};")
+        self.loop_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:15px; color:{sc};")
 
         meter_text = p.meter_reading
         if current_phase:
             meter_text = f"当前表笔对准 {current_phase} 相回路。{meter_text}"
         self.loop_test_meter_lbl.setText(f"实时测量：{meter_text}")
         self.loop_test_meter_lbl.setStyleSheet(
-            f"font-size:13px; color:{_qs(getattr(p, 'meter_color', 'black'))};")
+            f"font-size:15px; color:{_qs(getattr(p, 'meter_color', 'black'))};")
         self.loop_test_feedback_lbl.setText(f"操作提示：{feedback}")
-        self.loop_test_feedback_lbl.setStyleSheet(f"font-size:13px; color:{_qs(fb_color)};")
+        self.loop_test_feedback_lbl.setStyleSheet(f"font-size:15px; color:{_qs(fb_color)};")
 
         for lbl, (text, done) in zip(self.loop_test_step_labels,
                                      self.ctrl.get_loop_test_steps()):
             lbl.setText(("√ " if done else "□ ") + text)
-            lbl.setStyleSheet(f"font-size:13px; color:{'#006400' if done else '#666666'};")
+            lbl.setStyleSheet(f"font-size:15px; color:{'#006400' if done else '#666666'};")
 
         for phase, lbl in self.loop_test_record_labels.items():
             record = records[phase]
             if record is None:
                 lbl.setText("未记录")
-                lbl.setStyleSheet("font-size:13px; color:#999999;")
+                lbl.setStyleSheet("font-size:15px; color:#999999;")
             else:
                 lbl.setText("回路导通 [连通正常]")
-                lbl.setStyleSheet("font-size:13px; color:#006400;")
+                lbl.setStyleSheet("font-size:15px; color:#006400;")
 
     def _render_sync_test(self, p):
         state    = self.ctrl.sync_test_state
+
+        # ── 已完成锁定：不再响应任何硬件状态变化 ──────────────────────────
+        if state.get('completed'):
+            self.sync_test_summary_lbl.setText(
+                "✅ 第三步已确认完成：同步功能测试通过，数据已锁定。")
+            self.sync_test_summary_lbl.setStyleSheet(
+                "font-weight:bold; font-size:15px; color:#006400;")
+            self.sync_test_live_lbl.setText("")
+            self.sync_test_feedback_lbl.setText("操作提示：第三步测试已完成，全部预合闸测量流程通过。")
+            self.sync_test_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
+            for lbl, (text, _) in zip(self.sync_test_step_labels,
+                                      self.ctrl.get_sync_test_steps()):
+                lbl.setText("√ " + text)
+                lbl.setStyleSheet("font-size:15px; color:#006400;")
+            self.sync_round1_lbl.setText("Gen 1 基准 → Gen 2 同步：已记录 ✓")
+            self.sync_round1_lbl.setStyleSheet("font-size:15px; color:#006400;")
+            self.sync_round2_lbl.setText("Gen 2 基准 → Gen 1 同步：已记录 ✓")
+            self.sync_round2_lbl.setStyleSheet("font-size:15px; color:#006400;")
+            return
+        # ── 动态显示 ──────────────────────────────────────────────────────
+
         feedback = state['feedback']
         fb_color = state['feedback_color']
         sim      = self.ctrl.sim_state
@@ -676,7 +814,7 @@ class PlotBuilderMixin:
             summary = "请按步骤完成两轮同步测试。"
             sc = '#264653'
         self.sync_test_summary_lbl.setText(summary)
-        self.sync_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:13px; color:{sc};")
+        self.sync_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:15px; color:{sc};")
 
         # 实时同步偏差显示
         ref_gen = getattr(p, 'bus_reference_gen', None)
@@ -688,7 +826,7 @@ class PlotBuilderMixin:
             self.sync_test_live_lbl.setText(
                 f"[第一轮] Gen2跟踪Gen1 — Δf={df:.3f} Hz，ΔV={dv:.0f} V  "
                 f"{'[已同步 ✓]' if ok else '[同步中…]'}")
-            self.sync_test_live_lbl.setStyleSheet(f"font-size:13px; color:{color};")
+            self.sync_test_live_lbl.setStyleSheet(f"font-size:15px; color:{color};")
         elif ref_gen == 2 and gen1.mode == "auto":
             df = abs(gen1.freq - gen2.freq)
             dv = abs(gen1.amp - gen2.amp)
@@ -697,36 +835,36 @@ class PlotBuilderMixin:
             self.sync_test_live_lbl.setText(
                 f"[第二轮] Gen1跟踪Gen2 — Δf={df:.3f} Hz，ΔV={dv:.0f} V  "
                 f"{'[已同步 ✓]' if ok else '[同步中…]'}")
-            self.sync_test_live_lbl.setStyleSheet(f"font-size:13px; color:{color};")
+            self.sync_test_live_lbl.setStyleSheet(f"font-size:15px; color:{color};")
         else:
             self.sync_test_live_lbl.setText(
                 f"母排基准: {'Gen ' + str(ref_gen) if ref_gen else '无（死母线）'}  "
                 f"| Gen1: {gen1.freq:.2f}Hz/{gen1.amp:.0f}V ({gen1.mode})  "
                 f"| Gen2: {gen2.freq:.2f}Hz/{gen2.amp:.0f}V ({gen2.mode})")
-            self.sync_test_live_lbl.setStyleSheet("font-size:13px; color:#444444;")
+            self.sync_test_live_lbl.setStyleSheet("font-size:15px; color:#444444;")
 
         self.sync_test_feedback_lbl.setText(f"操作提示：{feedback}")
-        self.sync_test_feedback_lbl.setStyleSheet(f"font-size:13px; color:{_qs(fb_color)};")
+        self.sync_test_feedback_lbl.setStyleSheet(f"font-size:15px; color:{_qs(fb_color)};")
 
         for lbl, (text, done) in zip(self.sync_test_step_labels,
                                      self.ctrl.get_sync_test_steps()):
             lbl.setText(("√ " if done else "□ ") + text)
-            lbl.setStyleSheet(f"font-size:13px; color:{'#006400' if done else '#666666'};")
+            lbl.setStyleSheet(f"font-size:15px; color:{'#006400' if done else '#666666'};")
 
         # 记录状态标签
         if state['round1_done']:
             self.sync_round1_lbl.setText("Gen 1 基准 → Gen 2 同步：已记录 ✓")
-            self.sync_round1_lbl.setStyleSheet("font-size:13px; color:#006400;")
+            self.sync_round1_lbl.setStyleSheet("font-size:15px; color:#006400;")
         else:
             self.sync_round1_lbl.setText("Gen 1 基准 → Gen 2 同步：未记录")
-            self.sync_round1_lbl.setStyleSheet("font-size:13px; color:#999999;")
+            self.sync_round1_lbl.setStyleSheet("font-size:15px; color:#999999;")
 
         if state['round2_done']:
             self.sync_round2_lbl.setText("Gen 2 基准 → Gen 1 同步：已记录 ✓")
-            self.sync_round2_lbl.setStyleSheet("font-size:13px; color:#006400;")
+            self.sync_round2_lbl.setStyleSheet("font-size:15px; color:#006400;")
         else:
             self.sync_round2_lbl.setText("Gen 2 基准 → Gen 1 同步：未记录")
-            self.sync_round2_lbl.setStyleSheet("font-size:13px; color:#999999;")
+            self.sync_round2_lbl.setStyleSheet("font-size:15px; color:#999999;")
 
     def _render_pt_exam(self, p):
         gen_id = self._pt_target_bg.checkedId()
@@ -734,6 +872,28 @@ class PlotBuilderMixin:
             gen_id = 1
         state     = self.ctrl.pt_exam_states[gen_id]
         records   = state['records']
+
+        # ── 已完成锁定：不再响应任何硬件状态变化 ──────────────────────────
+        if state.get('completed'):
+            self.pt_exam_summary_lbl.setText(
+                f"✅ 第二步已确认完成：Gen {gen_id} PT 二次端子压差测试通过，数据已锁定。")
+            self.pt_exam_summary_lbl.setStyleSheet(
+                "font-weight:bold; font-size:15px; color:#006400;")
+            self.pt_exam_meter_lbl.setText("")
+            self.pt_exam_feedback_lbl.setText("考核提示：第二步测试已完成，请继续进行第三步。")
+            self.pt_exam_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
+            for lbl, (text, _) in zip(self.pt_exam_step_labels,
+                                      self.ctrl.get_pt_exam_steps(gen_id)):
+                lbl.setText("√ " + text)
+                lbl.setStyleSheet("font-size:15px; color:#006400;")
+            for phase, lbl in self.pt_exam_record_labels.items():
+                rec = records[phase]
+                if rec is not None:
+                    lbl.setText(f"{rec['voltage']:.1f} V  [可合闸]")
+                    lbl.setStyleSheet("font-size:15px; color:#006400;")
+            return
+        # ── 动态显示 ──────────────────────────────────────────────────────
+
         feedback  = state['feedback']
         fb_color  = state['feedback_color']
         generator = self.ctrl._get_generator_state(gen_id)
@@ -750,30 +910,30 @@ class PlotBuilderMixin:
             summary = f"Gen {gen_id} 当前开关柜位置：{generator.breaker_position}。"
             sc = '#264653'
         self.pt_exam_summary_lbl.setText(summary)
-        self.pt_exam_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:13px; color:{sc};")
+        self.pt_exam_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:15px; color:{sc};")
 
         meter_text = p.meter_reading
         if current_phase:
             meter_text = f"当前表笔对准 Gen {gen_id} {current_phase} 相。{meter_text}"
         self.pt_exam_meter_lbl.setText(f"实时测量：{meter_text}")
         self.pt_exam_meter_lbl.setStyleSheet(
-            f"font-size:13px; color:{_qs(getattr(p, 'meter_color', 'black'))};")
+            f"font-size:15px; color:{_qs(getattr(p, 'meter_color', 'black'))};")
         self.pt_exam_feedback_lbl.setText(f"考核提示：{feedback}")
-        self.pt_exam_feedback_lbl.setStyleSheet(f"font-size:13px; color:{_qs(fb_color)};")
+        self.pt_exam_feedback_lbl.setStyleSheet(f"font-size:15px; color:{_qs(fb_color)};")
 
         for lbl, (text, done) in zip(self.pt_exam_step_labels,
                                      self.ctrl.get_pt_exam_steps(gen_id)):
             lbl.setText(("√ " if done else "□ ") + text)
-            lbl.setStyleSheet(f"font-size:13px; color:{'#006400' if done else '#666666'};")
+            lbl.setStyleSheet(f"font-size:15px; color:{'#006400' if done else '#666666'};")
 
         for phase, lbl in self.pt_exam_record_labels.items():
             record = records[phase]
             if record is None:
                 lbl.setText("未记录")
-                lbl.setStyleSheet("font-size:13px; color:#999999;")
+                lbl.setStyleSheet("font-size:15px; color:#999999;")
             else:
                 lbl.setText(f"{record['voltage']:.1f} V  [可合闸]")
-                lbl.setStyleSheet("font-size:13px; color:#006400;")
+                lbl.setStyleSheet("font-size:15px; color:#006400;")
 
     def _update_generator_buttons(self):
         for gen_id in (1, 2):
