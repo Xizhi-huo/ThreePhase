@@ -719,3 +719,48 @@ class PhysicsEngine:
         self._update_plot_metadata(wave_state, a1, a2, shift_b, shift_c)
         self._update_pt_measurements(wave_state['bus_a'], a1, a2)
         self._update_multimeter(sim)
+
+    def build_render_state(self):
+        """将物理引擎当前帧的所有渲染属性打包为 RenderState 快照，供 UI 消费。"""
+        from adapters.render_state import RenderState
+        return RenderState(
+            plot_data         = self.plot_data,
+            fixed_deg         = self.fixed_deg,
+            bus_live          = self.bus_live,
+            bus_amp           = self.bus_amp,
+            bus_source        = self.bus_source,
+            bus_reference_gen = self.bus_reference_gen,
+            bus_status_msg    = self.bus_status_msg,
+            bus_reference_msg = self.bus_reference_msg,
+            brk1_text         = self.brk1_text,
+            brk1_bg           = self.brk1_bg,
+            brk1_visual       = self.brk1_visual,
+            color_sw1         = self.color_sw1,
+            brk2_text         = self.brk2_text,
+            brk2_bg           = self.brk2_bg,
+            brk2_visual       = self.brk2_visual,
+            color_sw2         = self.color_sw2,
+            arb_msg           = self.arb_msg,
+            arb_color         = self.arb_color,
+            relay_msg         = self.relay_msg,
+            relay_color       = self.relay_color,
+            i1_rms            = self.i1_rms,
+            ip1               = self.ip1,
+            iq1               = self.iq1,
+            i2_rms            = self.i2_rms,
+            ip2               = self.ip2,
+            iq2               = self.iq2,
+            circ_msg          = self.circ_msg,
+            circ_color        = self.circ_color,
+            ground_msg        = self.ground_msg,
+            ground_color      = self.ground_color,
+            pt1_v             = self.pt1_v,
+            pt2_v             = self.pt2_v,
+            pt3_v             = self.pt3_v,
+            meter_reading     = self.meter_reading,
+            meter_color       = self.meter_color,
+            meter_voltage     = self.meter_voltage,
+            meter_status      = self.meter_status,
+            meter_nodes       = self.meter_nodes,
+            meter_phase_match = self.meter_phase_match,
+        )

@@ -158,8 +158,10 @@ class PtPhaseCheckService:
                 "red")
             return
         state['completed'] = True
+        self._ctrl.exit_loop_test_mode()   # 退出测试模式，Gen2 未起机的断路器自动断开
         self._set_feedback(
-            "第二步【PT 相序检查】已确认完成，后续操作将不再影响该步骤状态。", "#006600")
+            "第二步【PT 相序检查】已确认完成，测试模式已退出，后续操作将不再影响该步骤状态。",
+            "#006600")
 
     def get_pt_phase_check_blockers(self):
         return [text for text, done in self.get_pt_phase_check_steps() if not done]

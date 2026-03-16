@@ -50,3 +50,4 @@ class RenderState:
     meter_voltage: Optional[float] = None
     meter_status: str = "idle"
     meter_nodes: object = None
+    meter_phase_match: Optional[bool] = None

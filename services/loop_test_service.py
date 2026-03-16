@@ -80,6 +80,10 @@ class LoopTestService:
         if gen1.mode != "manual" or gen2.mode != "manual":
             self._set_loop_test_feedback("请先将两台发电机都切至手动（Manual）模式。", "red")
             return
+        if gen1.running or gen2.running:
+            self._set_loop_test_feedback(
+                "回路测试期间发电机不应起机！合闸但不起机，处于高压侧断路状态。", "red")
+            return
         if not (gen1.breaker_closed and gen1.breaker_position == BreakerPosition.WORKING):
             self._set_loop_test_feedback("请先将 Gen 1 切至工作位置并合闸。", "red")
             return

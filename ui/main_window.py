@@ -104,11 +104,11 @@ class PowerSyncUI(
         self._init_lines()                 # ← WaveformTabMixin
 
     # ── 渲染主入口（每帧由 QTimer 驱动）────────────────────────────────────
-    def render_visuals(self):
-        p   = self.ctrl.physics
-        deg = p.fixed_deg
-        d   = p.plot_data
-        bus_a_display = p.bus_amp if p.bus_live else 0.0
+    def render_visuals(self, rs):
+        p   = rs
+        deg = rs.fixed_deg
+        d   = rs.plot_data
+        bus_a_display = rs.bus_amp if rs.bus_live else 0.0
 
         self._render_waveforms(d, deg, bus_a_display)
         self._render_phasors(d, bus_a_display)

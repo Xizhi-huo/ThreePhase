@@ -37,7 +37,11 @@ class PtExamService:
         pt_name, terminal = node_name.split('_', 1)
         terminal_index = ('A', 'B', 'C').index(terminal)
         actual_phase = self._ctrl.pt_phase_orders[pt_name][terminal_index]
-        prefix = {'PT1': 'g1', 'PT2': 'g', 'PT3': 'g2'}[pt_name]
+        if pt_name == 'PT3':
+            gen2 = self._ctrl.sim_state.gen2
+            prefix = 'g' if (gen2.breaker_closed and not gen2.running) else 'g2'
+        else:
+            prefix = {'PT1': 'g1', 'PT2': 'g'}[pt_name]
         return f"{prefix}{actual_phase.lower()}"
 
     def resolve_loop_node_phase(self, node_name):
