@@ -4,7 +4,7 @@ ui/tabs/waveform_tab.py
 """
 
 import numpy as np
-from PyQt5 import QtWidgets
+from PyQt5 import QtWidgets, QtCore
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.gridspec as gridspec
@@ -18,12 +18,17 @@ class MplCanvas(FigureCanvas):
     def __init__(self, fig: Figure):
         super().__init__(fig)
         self.setMinimumSize(400, 300)
-        FigureCanvas.setSizePolicy(
-            self,
+        self.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Expanding,
         )
-        FigureCanvas.updateGeometry(self)
+        # 不调用 updateGeometry()，避免通知布局重算导致窗口被撑大
+
+    def minimumSizeHint(self):
+        return QtCore.QSize(400, 300)
+
+    def sizeHint(self):
+        return QtCore.QSize(400, 300)
 
 
 class WaveformTabMixin:

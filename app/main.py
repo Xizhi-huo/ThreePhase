@@ -414,7 +414,9 @@ if __name__ == "__main__":
     ctrl = PowerSyncController()
     # 使用屏幕可用区域（自动排除 macOS 菜单栏与 Dock），完整铺满
     screen = app.primaryScreen().availableGeometry()
-    ctrl.ui.setGeometry(screen)
+    target_h = screen.height() - 80
+    ctrl.ui.setMaximumHeight(target_h)   # 硬性锁死，防止 canvas sizeHint 撑大窗口
+    ctrl.ui.setGeometry(screen.x(), screen.y(), screen.width(), target_h)
     ctrl.ui.show()
 
     sys.exit(app.exec_())
