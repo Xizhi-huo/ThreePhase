@@ -62,6 +62,9 @@ class PowerSyncController:
         # 回路连通性测试状态
         self.loop_test_state = self._create_loop_test_state()
 
+        # PT 相序检查状态（第二步）
+        self.pt_phase_check_state = self._create_pt_phase_check_state()
+
         # 同步功能测试状态
         self.sync_test_state = self._create_sync_test_state()
 
@@ -184,7 +187,12 @@ class PowerSyncController:
         pt_name, terminal = node_name.split('_', 1)
         terminal_index = ('A', 'B', 'C').index(terminal)
         actual_phase = self.pt_phase_orders[pt_name][terminal_index]
-        prefix = {'PT1': 'g1', 'PT2': 'g', 'PT3': 'g2'}[pt_name]
+        if pt_name == 'PT3':
+            gen2 = self.sim_state.gen2
+            # Gen2 合闸但未起机 → 母线反向馈电 → PT3 读母线电压（经自身接线映射）
+            prefix = 'g' if (gen2.breaker_closed and not gen2.running) else 'g2'
+        else:
+            prefix = {'PT1': 'g1', 'PT2': 'g'}[pt_name]
         return f"{prefix}{actual_phase.lower()}"
 
     def resolve_loop_node_phase(self, node_name):
@@ -224,9 +232,186 @@ class PowerSyncController:
         return {
             'records': {'A': None, 'B': None, 'C': None},
             'completed': False,
-            'feedback': "请先断开中性点小电阻，将两台发电机切至手动模式，起机并合闸后，用万用表测量三相回路连通性。",
+            'feedback': "请先断开中性点小电阻，将两台发电机切至手动模式并合闸（不要起机），再用万用表测量三相回路连通性。",
             'feedback_color': '#444444',
         }
+
+    # ════════════════════════════════════════════════════════════════════════
+    # PT 相序检查辅助（第二步）
+    # ════════════════════════════════════════════════════════════════════════
+    def _create_pt_phase_check_state(self):
+        return {
+            'completed': False,
+            # 6组测量：PT1_A/B/C 和 PT3_A/B/C，各自对 PT2 同相端子
+            'records': {
+                'PT1_A': None, 'PT1_B': None, 'PT1_C': None,
+                'PT3_A': None, 'PT3_B': None, 'PT3_C': None,
+            },
+            'result': None,      # None | 'pass' | 'fail'
+            'feedback': (
+                "请先完成第一步回路检查，然后恢复小电阻接地，将 Gen1 并入母排，"
+                "进入测试模式后合闸 Gen2（不起机，母线反向馈入 PT3），"
+                "开启万用表，分别测量 PT1/PT2 和 PT3/PT2 各相端子相序。"
+            ),
+            'feedback_color': '#444444',
+        }
+
+    def _set_pt_phase_check_feedback(self, message, color='#444444'):
+        self.pt_phase_check_state['feedback'] = message
+        self.pt_phase_check_state['feedback_color'] = color
+
+    def get_pt_phase_check_steps(self):
+        sim = self.sim_state
+        gen1, gen2 = sim.gen1, sim.gen2
+        state = self.pt_phase_check_state
+        loop_done = self.is_loop_test_complete()
+        gnd_ok = sim.grounding_mode == "小电阻接地"
+        gen1_on_bus = (gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed)
+        # Gen2：不起机 + 合闸（母线反向馈入 PT3）
+        gen2_backfeed = not gen2.running and gen2.breaker_closed
+        test_mode = sim.loop_test_mode
+        rec = state['records']
+        steps = [
+            ("1. 前提：第一步回路连通性测试已完成", loop_done),
+            ("2. 恢复中性点小电阻接地", gnd_ok),
+            ("3. 确认 Gen1 在母排上（运行+合闸，提供 PT1/PT2 参考）", gen1_on_bus),
+            ("4. 进入测试模式，合闸 Gen2（不起机，母线反向馈入 PT3）", gen2_backfeed and test_mode),
+            ("5. 开启万用表，在母排拓扑页测量同相端子", sim.multimeter_mode),
+            ("6. 记录 PT1 A 相相序（PT1_A ↔ PT2_A）", rec['PT1_A'] is not None),
+            ("7. 记录 PT1 B 相相序（PT1_B ↔ PT2_B）", rec['PT1_B'] is not None),
+            ("8. 记录 PT1 C 相相序（PT1_C ↔ PT2_C）", rec['PT1_C'] is not None),
+            ("9. 记录 PT3 A 相相序（PT3_A ↔ PT2_A）", rec['PT3_A'] is not None),
+            ("10. 记录 PT3 B 相相序（PT3_B ↔ PT2_B）", rec['PT3_B'] is not None),
+            ("11. 记录 PT3 C 相相序（PT3_C ↔ PT2_C）", rec['PT3_C'] is not None),
+        ]
+        if state.get('completed'):
+            return [(text, True) for text, _ in steps]
+        return steps
+
+    def record_pt_phase_check(self, pt_name, phase):
+        """逐相手动测量记录 PT 相序。
+        pt_name: 'PT1' 或 'PT3'
+        phase:   'A' / 'B' / 'C'
+        PT1：Gen1 并网即可；PT3：Gen2 不起机+合闸（母线反向馈入）。
+        """
+        pt_name = pt_name.upper()
+        phase = phase.upper()
+        key = f"{pt_name}_{phase}"
+        sim = self.sim_state
+        gen1, gen2 = sim.gen1, sim.gen2
+        state = self.pt_phase_check_state
+
+        if not self.is_loop_test_complete():
+            self._set_pt_phase_check_feedback(
+                "请先完成第一步【回路连通性测试】，再进行 PT 相序检查。", "red")
+            return
+        if sim.grounding_mode != "小电阻接地":
+            self._set_pt_phase_check_feedback(
+                "请先恢复中性点小电阻接地，再进行 PT 相序检查。", "red")
+            return
+        if gen1.breaker_position != BreakerPosition.WORKING or not gen1.breaker_closed:
+            self._set_pt_phase_check_feedback(
+                "请先确认 Gen1 已并入母排（工作位置+合闸），建立 PT1/PT2 参考电压。", "red")
+            return
+
+        # PT3 额外要求：Gen2 不起机 + 合闸（母线反向馈入），且须在测试模式下
+        if pt_name == 'PT3':
+            if gen2.running:
+                self._set_pt_phase_check_feedback(
+                    "测量 PT3 相序时 Gen2 应保持停机（不起机），利用母线反向馈电。", "red")
+                return
+            if not gen2.breaker_closed:
+                self._set_pt_phase_check_feedback(
+                    "请先进入测试模式并合闸 Gen2（不起机），使母线电压反向馈入 PT3 端子。", "red")
+                return
+            if not sim.loop_test_mode:
+                self._set_pt_phase_check_feedback(
+                    "请先点击\u201c进入测试模式\u201d，再合闸 Gen2 进行 PT3 相序测量。", "red")
+                return
+
+        if not sim.multimeter_mode:
+            self._set_pt_phase_check_feedback("请先开启万用表。", "red")
+            return
+
+        # 同一 PT 内强制 A→B→C 顺序
+        phase_order = ('A', 'B', 'C')
+        for prev in phase_order[:phase_order.index(phase)]:
+            prev_key = f"{pt_name}_{prev}"
+            if state['records'][prev_key] is None:
+                self._set_pt_phase_check_feedback(
+                    f"请先完成 {pt_name} {prev} 相的测量记录，再记录 {phase} 相。", "red")
+                return
+
+        # 验证表笔位置：必须在 {pt_name}_{phase} 与 PT2_{phase} 上
+        expected_pair = {key, f"PT2_{phase}"}
+        actual_pair = (
+            {sim.probe1_node, sim.probe2_node}
+            if sim.probe1_node and sim.probe2_node else set()
+        )
+        if actual_pair != expected_pair:
+            self._set_pt_phase_check_feedback(
+                f"请在母排拓扑页将表笔放在 {key} 和 PT2_{phase} 端子上，再点击记录。",
+                "red")
+            return
+
+        # 从物理引擎读取相位一致性
+        phase_match = getattr(self.physics, 'meter_phase_match', None)
+        if phase_match is None:
+            self._set_pt_phase_check_feedback(
+                "当前测量结果无效，请确认表笔接在 PT 和 PT2 同相端子上。", "red")
+            return
+
+        state['records'][key] = {
+            'phase_match': phase_match,
+            'reading': self.physics.meter_reading,
+        }
+
+        all_six_keys = ('PT1_A', 'PT1_B', 'PT1_C', 'PT3_A', 'PT3_B', 'PT3_C')
+        all_rec = all(state['records'][k] is not None for k in all_six_keys)
+        any_fail = any(
+            r is not None and not r['phase_match'] for r in state['records'].values()
+        )
+
+        if any_fail:
+            state['result'] = 'fail'
+            self._set_pt_phase_check_feedback(
+                f"⚠️ 相序异常！{key} 检测到端子接线错误，请检查对应侧 B/C 接线。", "red")
+        elif all_rec:
+            state['result'] = 'pass'
+            self._set_pt_phase_check_feedback(
+                "PT 相序检查通过：PT1/PT3 各相连线均正确，可点击\u201c完成第二步测试\u201d继续。",
+                "#006600")
+        elif phase_match:
+            self._set_pt_phase_check_feedback(
+                f"{key} 相序正确，请继续测量其余项目。", "#006600")
+        else:
+            state['result'] = 'fail'
+            self._set_pt_phase_check_feedback(
+                f"⚠️ {key} 相序异常！请检查对应侧接线。", "red")
+
+    def reset_pt_phase_check(self):
+        self.pt_phase_check_state = self._create_pt_phase_check_state()
+
+    def is_pt_phase_check_complete(self):
+        records = self.pt_phase_check_state.get('records', {})
+        all_six_keys = ('PT1_A', 'PT1_B', 'PT1_C', 'PT3_A', 'PT3_B', 'PT3_C')
+        return all(
+            records.get(k) is not None and records[k]['phase_match']
+            for k in all_six_keys
+        )
+
+    def finalize_pt_phase_check(self):
+        state = self.pt_phase_check_state
+        if not self.is_pt_phase_check_complete():
+            self._set_pt_phase_check_feedback(
+                '请先完成 PT1/PT3 全部六相相序测量（且全部通过），再点击\u201c完成第二步测试\u201d。',
+                "red")
+            return
+        state['completed'] = True
+        self.exit_loop_test_mode()   # 退出测试模式，Gen2 未起机的断路器自动断开
+        self._set_pt_phase_check_feedback(
+            "第二步【PT 相序检查】已确认完成，测试模式已退出，后续操作将不再影响该步骤状态。",
+            "#006600")
 
     def _set_loop_test_feedback(self, message, color='#444444'):
         self.loop_test_state['feedback'] = message
@@ -256,19 +441,17 @@ class PowerSyncController:
         steps = [
             ("1. 断开中性点小电阻连接",
              sim.grounding_mode == "断开"),
-            ("2. 将 Gen 1 切至手动工作模式",
+            ("2. 将 Gen 1 切至手动模式并切至工作位置",
              gen1.mode == "manual" and gen1.breaker_position == BreakerPosition.WORKING),
-            ("3. 将 Gen 2 切至手动工作模式",
+            ("3. 将 Gen 2 切至手动模式并切至工作位置",
              gen2.mode == "manual" and gen2.breaker_position == BreakerPosition.WORKING),
-            ("4. 设置频率/幅值/相位并起机运行",
-             gen1.running and gen2.running),
-            ("5. 依次合闸 Gen 1（切至工作位置后合闸）",
+            ("4. 合闸 Gen 1（不要起机，仅闭合开关）",
              gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed),
-            ("6. 依次合闸 Gen 2（切至工作位置后合闸）",
+            ("5. 合闸 Gen 2（不要起机，仅闭合开关）",
              gen2.breaker_position == BreakerPosition.WORKING and gen2.breaker_closed),
-            ("7. 开启万用表，在母排拓扑页测量三相回路",
+            ("6. 开启万用表，在母排拓扑页测量三相回路",
              sim.multimeter_mode),
-            ("8. 记录 A/B/C 三相回路连通性结果",
+            ("7. 记录 A/B/C 三相回路连通性结果",
              all_rec),
         ]
         if state.get('completed'):
@@ -286,8 +469,9 @@ class PowerSyncController:
         if gen1.mode != "manual" or gen2.mode != "manual":
             self._set_loop_test_feedback("请先将两台发电机都切至手动（Manual）模式。", "red")
             return
-        if not (gen1.running and gen2.running):
-            self._set_loop_test_feedback("请先起动两台发电机。", "red")
+        if gen1.running or gen2.running:
+            self._set_loop_test_feedback(
+                "回路测试期间发电机不应起机！合闸但不起机，处于高压侧断路状态。", "red")
             return
         if not (gen1.breaker_closed and gen1.breaker_position == BreakerPosition.WORKING):
             self._set_loop_test_feedback("请先将 Gen 1 切至工作位置并合闸。", "red")
@@ -332,12 +516,24 @@ class PowerSyncController:
         all_rec = all(self.loop_test_state['records'][ph] is not None for ph in ('A', 'B', 'C'))
         if all_rec:
             self._set_loop_test_feedback(
-                "三相回路连通性测试全部完成，电路连通正常，可进行第二步 PT 二次端子压差测试。", "#006600")
+                "三相回路连通性测试全部完成，电路连通正常，可进行第二步 PT 相序检查。", "#006600")
         else:
             self._set_loop_test_feedback(f"{phase} 相回路连通正常，请继续测量其余相别。", "#006600")
 
+    def enter_loop_test_mode(self):
+        """进入回路检查模式：跳过失压联锁，允许不起机合闸。"""
+        self.sim_state.loop_test_mode = True
+
+    def exit_loop_test_mode(self):
+        """退出回路检查模式：恢复失压联锁保护，未起机的断路器自动断开。"""
+        self.sim_state.loop_test_mode = False
+        for gen in (self.sim_state.gen1, self.sim_state.gen2):
+            if gen.breaker_closed and not gen.running:
+                gen.breaker_closed = False
+
     def reset_loop_test(self):
         self.loop_test_state = self._create_loop_test_state()
+        self.exit_loop_test_mode()
 
     def is_loop_test_complete(self):
         records = self.loop_test_state['records']
@@ -346,9 +542,10 @@ class PowerSyncController:
     def finalize_loop_test(self):
         records = self.loop_test_state['records']
         if not all(records[ph] is not None for ph in ('A', 'B', 'C')):
-            self._set_loop_test_feedback('请先完成 A/B/C 三相回路连通性记录，再点击“完成第一步测试”。', "red")
+            self._set_loop_test_feedback('请先完成 A/B/C 三相回路连通性记录，再点击"完成第一步测试"。', "red")
             return
         self.loop_test_state['completed'] = True
+        self.exit_loop_test_mode()   # 完成后自动退出回路检查模式
         self._set_loop_test_feedback("第一步【回路连通性测试】已确认完成，后续操作将不再影响该步骤状态。", "#006600")
 
     # ════════════════════════════════════════════════════════════════════════
@@ -359,7 +556,7 @@ class PowerSyncController:
             'round1_done': False,   # Gen1基准 → Gen2同步
             'round2_done': False,   # Gen2基准 → Gen1同步
             'completed': False,
-            'feedback': "请先完成第一步（回路测试）和第二步（PT测试），再进行同步功能测试。",
+            'feedback': "请先完成第一步（回路测试）、第二步（PT相序检查）和第三步（PT压差测试），再进行同步功能测试。",
             'feedback_color': '#444444',
         }
 
@@ -383,8 +580,9 @@ class PowerSyncController:
         p = self.physics
         state = self.sync_test_state
 
-        loop_done = self.is_loop_test_complete()
-        pt_done   = self.is_pt_exam_recorded(1) and self.is_pt_exam_recorded(2)
+        loop_done       = self.is_loop_test_complete()
+        phase_chk_done  = self.is_pt_phase_check_complete()
+        pt_done         = self.is_pt_exam_recorded(1) and self.is_pt_exam_recorded(2)
 
         # 第一轮实时状态
         r1_master_ok    = (gen1.breaker_closed and
@@ -406,23 +604,25 @@ class PowerSyncController:
         steps = [
             ("1. 前提：第一步回路连通性测试已完成",
              loop_done),
-            ("2. 前提：第二步 PT 二次端子压差测试已完成（Gen1 & Gen2）",
+            ("2. 前提：第二步 PT 相序检查已完成",
+             phase_chk_done),
+            ("3. 前提：第三步 PT 二次端子压差测试已完成（Gen1 & Gen2）",
              pt_done),
-            ("3. [第一轮] 将 Gen 1 切至手动模式并在工作位置合闸（建立母排电压）",
+            ("4. [第一轮] 将 Gen 1 切至手动模式并在工作位置合闸（建立母排电压）",
              r1_master_ok or state['round1_done']),
-            ("4. [第一轮] 将 Gen 2 切至自动（Auto）同步模式",
+            ("5. [第一轮] 将 Gen 2 切至自动（Auto）同步模式",
              r1_follower_ok or state['round1_done']),
-            ("5. [第一轮] 确认 Gen 2 已同步完成（频率/幅值与 Gen 1 匹配）",
+            ("6. [第一轮] 确认 Gen 2 已同步完成（频率/幅值与 Gen 1 匹配）",
              r1_synced or state['round1_done']),
-            ("6. [第一轮] 记录结果：Gen 1 基准 → Gen 2 同步完成",
+            ("7. [第一轮] 记录结果：Gen 1 基准 → Gen 2 同步完成",
              state['round1_done']),
-            ("7. [第二轮] 断开 Gen 1，将 Gen 2 切至手动模式并合闸（互换基准）",
+            ("8. [第二轮] 断开 Gen 1，将 Gen 2 切至手动模式并合闸（互换基准）",
              r2_master_ok or state['round2_done']),
-            ("8. [第二轮] 将 Gen 1 切至自动（Auto）同步模式",
+            ("9. [第二轮] 将 Gen 1 切至自动（Auto）同步模式",
              r2_follower_ok or state['round2_done']),
-            ("9. [第二轮] 确认 Gen 1 已同步完成（频率/幅值与 Gen 2 匹配）",
+            ("10. [第二轮] 确认 Gen 1 已同步完成（频率/幅值与 Gen 2 匹配）",
              r2_synced or state['round2_done']),
-            ("10. [第二轮] 记录结果：Gen 2 基准 → Gen 1 同步完成",
+            ("11. [第二轮] 记录结果：Gen 2 基准 → Gen 1 同步完成",
              state['round2_done']),
         ]
         if state.get('completed'):
@@ -435,13 +635,16 @@ class PowerSyncController:
         p = self.physics
         state = self.sync_test_state
 
-        # 前提：第一步、第二步必须已完成
+        # 前提：第一、二、三步必须已完成
         if not self.is_loop_test_complete():
             self._set_sync_test_feedback("请先完成第一步【回路连通性测试】。", "red")
             return
+        if not self.is_pt_phase_check_complete():
+            self._set_sync_test_feedback("请先完成第二步【PT 相序检查】。", "red")
+            return
         if not (self.is_pt_exam_recorded(1) and self.is_pt_exam_recorded(2)):
             self._set_sync_test_feedback(
-                "请先完成第二步【PT二次端子压差测试】（Gen1 和 Gen2 均需完成）。", "red")
+                "请先完成第三步【PT二次端子压差测试】（Gen1 和 Gen2 均需完成）。", "red")
             return
 
         if round_num == 1:
@@ -508,10 +711,10 @@ class PowerSyncController:
 
     def finalize_sync_test(self):
         if not self.is_sync_test_rounds_done():
-            self._set_sync_test_feedback('请先完成并记录两轮同步测试，再点击“完成第三步测试”。', "red")
+            self._set_sync_test_feedback("请先完成并记录两轮同步测试，再点击[完成第四步测试]。", "red")
             return
         self.sync_test_state['completed'] = True
-        self._set_sync_test_feedback("第三步【同步功能测试】已确认完成，系统恢复正常自动合闸逻辑。", "#006600")
+        self._set_sync_test_feedback("第四步【同步功能测试】已确认完成，系统恢复正常自动合闸逻辑。", "#006600")
 
     def record_pt_measurement(self, phase):
         gen_id    = self.ui._pt_target_bg.checkedId()
@@ -525,6 +728,13 @@ class PowerSyncController:
             self._set_pt_exam_feedback(
                 gen_id,
                 "请先完成第一步【回路连通性测试】，再进行 PT 二次端子压差测量。",
+                "red")
+            return
+        # 第二步（PT 相序检查）必须先完成
+        if not self.is_pt_phase_check_complete():
+            self._set_pt_exam_feedback(
+                gen_id,
+                "请先完成第二步【PT 相序检查】，确认 ABC 相序正确后再进行 PT 二次端子压差测量。",
                 "red")
             return
 
@@ -677,10 +887,10 @@ class PowerSyncController:
         state = self.pt_exam_states[gen_id]
         records = state['records']
         if not all(records[ph] is not None for ph in ('A', 'B', 'C')):
-            self._set_pt_exam_feedback(gen_id, '请先完成 A/B/C 三相 PT 二次端子压差记录，再点击“完成第二步测试”。', "red")
+            self._set_pt_exam_feedback(gen_id, '请先完成 A/B/C 三相 PT 二次端子压差记录，再点击"完成第三步测试"。', "red")
             return
         state['completed'] = True
-        self._set_pt_exam_feedback(gen_id, f"第二步【Gen {gen_id} PT 二次端子压差测试】已确认完成，后续操作将不再影响该步骤状态。", "#006600")
+        self._set_pt_exam_feedback(gen_id, f"第三步【Gen {gen_id} PT 二次端子压差测试】已确认完成，后续操作将不再影响该步骤状态。", "#006600")
 
     def _should_enforce_pt_exam_before_close(self):
         return self.sim_state.grounding_mode != "断开"

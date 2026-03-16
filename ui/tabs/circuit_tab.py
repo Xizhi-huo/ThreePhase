@@ -503,17 +503,45 @@ class CircuitTabMixin:
                 btn.setEnabled(not recorded)
                 btn.setStyleSheet(
                     f"font-size:13px; background:{'#c8f0c8' if recorded else '#ffffff'};")
+        elif not self.ctrl.is_pt_phase_check_complete():
+            # ── 第二步：PT 相序检查 ────────────────────────────────────────────
+            pt_name = None
+            for node in (sim.probe1_node, sim.probe2_node):
+                if node and node.startswith('PT') and not node.startswith('PT2'):
+                    pt_name = node.split('_')[0]  # 'PT1' or 'PT3'
+                    break
+            if pt_name is None:
+                self.circuit_mode_lbl.setText("第二步：请将表笔放在 PT1_X 或 PT3_X 与 PT2_X 上")
+                for ph in ('A', 'B', 'C'):
+                    getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
+                return
+            state = self.ctrl.pt_phase_check_state
+            if state.get('completed'):
+                self.circuit_mode_lbl.setText("第二步 PT相序已完成，数据已锁定")
+                for ph in ('A', 'B', 'C'):
+                    getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
+                return
+            self.circuit_mode_lbl.setText(f"第二步：{pt_name}/PT2 相序 — 快速记录")
+            records = state['records']
+            for ph in ('A', 'B', 'C'):
+                key = f"{pt_name}_{ph}"
+                recorded = records.get(key) is not None
+                btn = getattr(self, f'circuit_rec_btn_{ph}')
+                btn.setEnabled(not recorded)
+                btn.setStyleSheet(
+                    f"font-size:13px; background:{'#c8f0c8' if recorded else '#ffffff'};")
         else:
+            # ── 第三步：PT 压差测试 ────────────────────────────────────────────
             gen_id = getattr(self, '_pt_target_bg').checkedId()
             if gen_id <= 0:
                 gen_id = 1
             state = self.ctrl.pt_exam_states[gen_id]
             if state.get('completed'):
-                self.circuit_mode_lbl.setText(f"第二步 Gen {gen_id} 已完成，数据已锁定")
+                self.circuit_mode_lbl.setText(f"第三步 Gen {gen_id} 已完成，数据已锁定")
                 for ph in ('A', 'B', 'C'):
                     getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
                 return
-            self.circuit_mode_lbl.setText(f"第二步：Gen {gen_id} PT 二次 — 快速记录")
+            self.circuit_mode_lbl.setText(f"第三步：Gen {gen_id} PT 二次压差 — 快速记录")
             for ph in ('A', 'B', 'C'):
                 recorded = state['records'][ph] is not None
                 btn = getattr(self, f'circuit_rec_btn_{ph}')
@@ -534,7 +562,22 @@ class CircuitTabMixin:
             self.circuit_rec_feedback.setText(st['feedback'])
             self.circuit_rec_feedback.setStyleSheet(
                 f"font-size:13px; color:{_qs(st['feedback_color'])}; min-width:220px;")
+        elif not self.ctrl.is_pt_phase_check_complete():
+            # 第二步：PT 相序检查快速记录
+            pt_name = None
+            for node in (sim.probe1_node, sim.probe2_node):
+                if node and node.startswith('PT') and not node.startswith('PT2'):
+                    pt_name = node.split('_')[0]
+                    break
+            if pt_name is None:
+                return
+            self.ctrl.record_pt_phase_check(pt_name, phase)
+            st = self.ctrl.pt_phase_check_state
+            self.circuit_rec_feedback.setText(st['feedback'])
+            self.circuit_rec_feedback.setStyleSheet(
+                f"font-size:13px; color:{_qs(st['feedback_color'])}; min-width:220px;")
         else:
+            # 第三步：PT 压差测试
             self.ctrl.record_pt_measurement(phase)
             gen_id = getattr(self, '_pt_target_bg').checkedId()
             if gen_id <= 0:

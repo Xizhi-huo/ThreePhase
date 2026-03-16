@@ -39,3 +39,4 @@ class SimulationState:
     grounding_mode: str = "小电阻接地"
     probe1_node: Optional[str] = None
     probe2_node: Optional[str] = None
+    loop_test_mode: bool = False   # 回路检查模式：允许不起机合闸，跳过失压联锁

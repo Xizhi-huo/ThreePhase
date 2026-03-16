@@ -1,0 +1,286 @@
+"""
+ui/tabs/pt_phase_check_tab.py
+PT 相序检查 Tab (Tab 3 — 第二步)
+"""
+
+from PyQt5 import QtWidgets
+
+from ui.tabs.circuit_tab import _qs
+
+_ALL_KEYS = ('PT1_A', 'PT1_B', 'PT1_C', 'PT3_A', 'PT3_B', 'PT3_C')
+
+
+class PtPhaseCheckTabMixin:
+    """
+    混入类，提供 PT 相序检查 Tab 的构建和渲染方法。
+    """
+
+    # ── Tab3：PT 相序检查 ─────────────────────────────────────────────────────
+    def _setup_tab_pt_phase_check(self):
+        tab = QtWidgets.QWidget()
+        tab.setStyleSheet("background:#fff8f0;")
+        self.tab_widget.addTab(tab, " 🔀 第二步：PT相序检查 ")
+        outer = QtWidgets.QVBoxLayout(tab)
+        outer.setContentsMargins(18, 14, 18, 14)
+        outer.setSpacing(8)
+
+        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第二步：PT 相序检查")
+        hdr.setStyleSheet("font-size:18px; font-weight:bold; color:#7a3800;")
+        outer.addWidget(hdr)
+
+        desc = QtWidgets.QLabel(
+            "完成第一步后：① 恢复小电阻接地；② Gen1 起机并入母排（建立 PT1/PT2 参考）；"
+            "③ 点击「进入测试模式」，手动合闸 Gen2（不起机）——母线电压将反向馈入 Gen2 端子，"
+            "PT3 即可获得与 PT2 同频同幅的参考电压；④ 开启万用表，"
+            "依次测量 PT1_A/PT2_A、PT1_B/PT2_B、PT1_C/PT2_C 和 PT3_A/PT2_A、PT3_B/PT2_B、PT3_C/PT2_C，"
+            "逐项记录相序结果；⑤ 全部通过后点击「完成第二步测试」。\n"
+            "此时测量压差：接线正确 ≈ 0V，B/C 接反 ≈ 线电压（约173V），判断直观。"
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color:#7a3800; font-size:14px;")
+        outer.addWidget(desc)
+
+        # ── 测试模式横幅 ──────────────────────────────────────────────────
+        self.pt_phase_test_mode_banner = QtWidgets.QLabel(
+            "⚡ 测试模式已激活 — Gen2 可不起机合闸，母线电压反向馈入 PT3 端子"
+        )
+        self.pt_phase_test_mode_banner.setWordWrap(True)
+        self.pt_phase_test_mode_banner.setStyleSheet(
+            "background:#fff3cd; color:#7a4f00; font-size:14px; "
+            "font-weight:bold; padding:6px; border:1px solid #e6b800; border-radius:4px;"
+        )
+        self.pt_phase_test_mode_banner.setVisible(False)
+        outer.addWidget(self.pt_phase_test_mode_banner)
+
+        # ── 操作按钮 ──────────────────────────────────────────────────────
+        act_row = QtWidgets.QWidget()
+        act_row.setStyleSheet("background:#fff8f0;")
+        ar = QtWidgets.QHBoxLayout(act_row)
+        ar.setContentsMargins(0, 0, 0, 0)
+
+        self.btn_pt_phase_test_mode = QtWidgets.QPushButton("进入测试模式")
+        self.btn_pt_phase_test_mode.setStyleSheet(
+            "background:#ffe082; font-size:14px; font-weight:bold; padding:4px;")
+        self.btn_pt_phase_test_mode.clicked.connect(self._on_toggle_pt_phase_test_mode)
+
+        btn_topo = QtWidgets.QPushButton("打开母排拓扑页")
+        btn_topo.setStyleSheet("background:#d9ecff;")
+        btn_topo.clicked.connect(lambda: self.tab_widget.setCurrentIndex(1))
+
+        btn_mm = QtWidgets.QPushButton("开启/关闭万用表")
+        btn_mm.setStyleSheet("background:#fff3bf;")
+        btn_mm.clicked.connect(
+            lambda: self.multimeter_cb.setChecked(not self.multimeter_cb.isChecked()))
+
+        btn_reset = QtWidgets.QPushButton("重置相序检查")
+        btn_reset.setStyleSheet("background:#ffd6d6;")
+        btn_reset.clicked.connect(lambda: self.ctrl.reset_pt_phase_check())
+
+        btn_done = QtWidgets.QPushButton("完成第二步测试")
+        btn_done.setStyleSheet("background:#ffe0b2; font-size:15px; font-weight:bold;")
+        btn_done.clicked.connect(lambda: self.ctrl.finalize_pt_phase_check())
+
+        ar.addWidget(self.btn_pt_phase_test_mode)
+        ar.addWidget(btn_topo)
+        ar.addWidget(btn_mm)
+        ar.addWidget(btn_reset)
+        ar.addWidget(btn_done)
+        outer.addWidget(act_row)
+
+        # ── 实时状态 ──────────────────────────────────────────────────────
+        status_grp = QtWidgets.QGroupBox("实时状态")
+        status_grp.setStyleSheet(
+            "QGroupBox{background:white; color:#264653; font-size:15px;}"
+            "QGroupBox::title{font-weight:bold;}"
+            "QGroupBox *{font-weight:normal; font-size:12px;}"
+        )
+        sg_lay = QtWidgets.QVBoxLayout(status_grp)
+
+        self.pt_phase_check_summary_lbl = QtWidgets.QLabel("")
+        self.pt_phase_check_summary_lbl.setStyleSheet(
+            "font-weight:bold; font-size:15px; color:#264653;")
+        self.pt_phase_check_summary_lbl.setWordWrap(True)
+
+        self.pt_phase_check_meter_lbl = QtWidgets.QLabel("")
+        self.pt_phase_check_meter_lbl.setStyleSheet("font-size:13px;")
+        self.pt_phase_check_meter_lbl.setWordWrap(True)
+
+        self.pt_phase_check_feedback_lbl = QtWidgets.QLabel("")
+        self.pt_phase_check_feedback_lbl.setStyleSheet("font-size:15px; color:#444444;")
+        self.pt_phase_check_feedback_lbl.setWordWrap(True)
+
+        sg_lay.addWidget(self.pt_phase_check_summary_lbl)
+        sg_lay.addWidget(self.pt_phase_check_meter_lbl)
+        sg_lay.addWidget(self.pt_phase_check_feedback_lbl)
+        outer.addWidget(status_grp)
+
+        # ── 步骤列表 ──────────────────────────────────────────────────────
+        steps_grp = QtWidgets.QGroupBox("测试步骤")
+        steps_grp.setStyleSheet(
+            "QGroupBox{background:white; color:#264653; font-size:15px;}"
+            "QGroupBox::title{font-weight:bold;}"
+            "QGroupBox *{font-weight:normal; font-size:12px;}"
+        )
+        sl_lay = QtWidgets.QVBoxLayout(steps_grp)
+        self.pt_phase_check_step_labels = []
+        for _ in range(11):
+            lbl = QtWidgets.QLabel("")
+            lbl.setStyleSheet("font-size:14px; color:#666666;")
+            sl_lay.addWidget(lbl)
+            self.pt_phase_check_step_labels.append(lbl)
+        outer.addWidget(steps_grp)
+
+        # ── 六相逐相测量记录（PT1 + PT3） ─────────────────────────────────
+        rec_grp = QtWidgets.QGroupBox("PT 相序测量记录（PT1/PT3 各三相，共六组）")
+        rec_grp.setStyleSheet(
+            "QGroupBox{background:white; color:#264653; font-size:15px;}"
+            "QGroupBox::title{font-weight:bold;}"
+            "QGroupBox *{font-weight:normal; font-size:12px;}"
+        )
+        rec_lay = QtWidgets.QVBoxLayout(rec_grp)
+        self.pt_phase_check_record_labels = {}
+
+        for pt_name, pt_color in (('PT1', '#e8f4f8'), ('PT3', '#fff3e0')):
+            pt_grp = QtWidgets.QGroupBox(
+                f"{pt_name} 侧（{pt_name}_X ↔ PT2_X）"
+                + ("  ←Gen1在母排，两侧同频同源，接线正确≈0V" if pt_name == 'PT1'
+                   else "  ←Gen2不起机合闸，母线反向馈入，接线正确≈0V，接错≈173V")
+            )
+            pt_grp.setStyleSheet(
+                f"QGroupBox{{background:{pt_color}; color:#444; font-size:13px;}}"
+                "QGroupBox *{font-weight:normal; font-size:12px;}"
+            )
+            pt_lay = QtWidgets.QVBoxLayout(pt_grp)
+
+            for phase in ('A', 'B', 'C'):
+                key = f"{pt_name}_{phase}"
+                row_w = QtWidgets.QWidget()
+                row_w.setStyleSheet(f"background:{pt_color};")
+                row = QtWidgets.QHBoxLayout(row_w)
+                row.setContentsMargins(0, 0, 0, 0)
+
+                ph_lbl = QtWidgets.QLabel(f"{phase} 相")
+                ph_lbl.setFixedWidth(50)
+                ph_lbl.setStyleSheet("font-weight:bold; font-size:15px;")
+
+                probe_hint = QtWidgets.QLabel(f"（{key} ↔ PT2_{phase}）")
+                probe_hint.setFixedWidth(170)
+                probe_hint.setStyleSheet("font-size:12px; color:#888888;")
+
+                val_lbl = QtWidgets.QLabel("未记录")
+                val_lbl.setFixedWidth(240)
+                val_lbl.setStyleSheet("font-size:14px; color:#999999;")
+
+                rec_btn = QtWidgets.QPushButton(f"记录 {key}")
+                rec_btn.setStyleSheet("background:#ffe4c4; font-size:14px;")
+                rec_btn.clicked.connect(
+                    lambda _, pt=pt_name, ph=phase: self.ctrl.record_pt_phase_check(pt, ph))
+
+                row.addWidget(ph_lbl)
+                row.addWidget(probe_hint)
+                row.addWidget(val_lbl)
+                row.addWidget(rec_btn)
+                pt_lay.addWidget(row_w)
+                self.pt_phase_check_record_labels[key] = val_lbl
+
+            rec_lay.addWidget(pt_grp)
+
+        outer.addWidget(rec_grp)
+        outer.addStretch()
+
+    def _on_toggle_pt_phase_test_mode(self):
+        if self.ctrl.sim_state.loop_test_mode:
+            self.ctrl.exit_loop_test_mode()
+        else:
+            self.ctrl.enter_loop_test_mode()
+
+    def _render_pt_phase_check(self, p):
+        state = self.ctrl.pt_phase_check_state
+        records = state['records']
+        in_mode = self.ctrl.sim_state.loop_test_mode
+
+        # ── 更新测试模式横幅和按钮文字 ────────────────────────────────────
+        self.pt_phase_test_mode_banner.setVisible(in_mode)
+        if in_mode:
+            self.btn_pt_phase_test_mode.setText("退出测试模式")
+            self.btn_pt_phase_test_mode.setStyleSheet(
+                "background:#f4a261; color:white; font-size:14px; "
+                "font-weight:bold; padding:4px;")
+        else:
+            self.btn_pt_phase_test_mode.setText("进入测试模式")
+            self.btn_pt_phase_test_mode.setStyleSheet(
+                "background:#ffe082; font-size:14px; font-weight:bold; padding:4px;")
+
+        # ── 已完成锁定 ────────────────────────────────────────────────────
+        if state.get('completed'):
+            self.pt_phase_check_summary_lbl.setText(
+                "✅ 第二步已确认完成：PT1/PT3 相序检查通过，数据已锁定。")
+            self.pt_phase_check_summary_lbl.setStyleSheet(
+                "font-weight:bold; font-size:15px; color:#006400;")
+            self.pt_phase_check_meter_lbl.setText("")
+            self.pt_phase_check_feedback_lbl.setText(
+                "操作提示：第二步测试已完成，请继续进行第三步 PT 二次端子压差测试。")
+            self.pt_phase_check_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
+            for lbl, (text, _) in zip(self.pt_phase_check_step_labels,
+                                      self.ctrl.get_pt_phase_check_steps()):
+                lbl.setText("√ " + text)
+                lbl.setStyleSheet("font-size:14px; color:#006400;")
+            for key, lbl in self.pt_phase_check_record_labels.items():
+                lbl.setText("相序正确 ✓")
+                lbl.setStyleSheet("font-size:14px; color:#006400;")
+            return
+
+        # ── 动态显示 ──────────────────────────────────────────────────────
+        feedback = state['feedback']
+        fb_color = state['feedback_color']
+        result = state.get('result')
+
+        if result == 'pass':
+            summary = 'PT1/PT3 相序检查均通过，可点击\u201c完成第二步测试\u201d继续。'
+            sc = '#006400'
+        elif result == 'fail':
+            summary = "⚠️ 检测到相序异常，请检查对应 PT 侧接线后重新记录。"
+            sc = '#cc0000'
+        else:
+            summary = "请按步骤：Gen1并网 → 起机Gen2(不合闸) → 万用表 → 逐项记录PT1和PT3相序。"
+            sc = '#264653'
+
+        self.pt_phase_check_summary_lbl.setText(summary)
+        self.pt_phase_check_summary_lbl.setStyleSheet(
+            f"font-weight:bold; font-size:15px; color:{sc};")
+
+        # 实时万用表读数
+        meter_text = p.meter_reading
+        phase_match = getattr(p, 'meter_phase_match', None)
+        if phase_match is True:
+            match_color = "green"
+        elif phase_match is False:
+            match_color = "red"
+        else:
+            match_color = _qs(getattr(p, 'meter_color', 'black'))
+        self.pt_phase_check_meter_lbl.setText(f"实时测量：{meter_text}")
+        self.pt_phase_check_meter_lbl.setStyleSheet(
+            f"font-size:13px; color:{match_color};")
+
+        self.pt_phase_check_feedback_lbl.setText(f"操作提示：{feedback}")
+        self.pt_phase_check_feedback_lbl.setStyleSheet(
+            f"font-size:15px; color:{_qs(fb_color)};")
+
+        for lbl, (text, done) in zip(self.pt_phase_check_step_labels,
+                                     self.ctrl.get_pt_phase_check_steps()):
+            lbl.setText(("√ " if done else "□ ") + text)
+            lbl.setStyleSheet(
+                f"font-size:14px; color:{'#006400' if done else '#666666'};")
+
+        # 六相记录状态
+        for key, lbl in self.pt_phase_check_record_labels.items():
+            record = records.get(key)
+            if record is None:
+                lbl.setText("未记录")
+                lbl.setStyleSheet("font-size:14px; color:#999999;")
+            elif record['phase_match']:
+                lbl.setText("相序正确 ✓")
+                lbl.setStyleSheet("font-size:14px; color:#006400;")
+            else:
+                lbl.setText("相序错误 ✗（接线有误）")
+                lbl.setStyleSheet("font-size:14px; color:#cc0000;")

@@ -20,7 +20,7 @@ class LoopTestService:
         return {
             'records': {'A': None, 'B': None, 'C': None},
             'completed': False,
-            'feedback': "请先断开中性点小电阻，将两台发电机切至手动模式，起机并合闸后，用万用表测量三相回路连通性。",
+            'feedback': "请先断开中性点小电阻，将两台发电机切至手动模式并合闸（不要起机），再用万用表测量三相回路连通性。",
             'feedback_color': '#444444',
         }
 
@@ -52,19 +52,17 @@ class LoopTestService:
         steps = [
             ("1. 断开中性点小电阻连接",
              sim.grounding_mode == "断开"),
-            ("2. 将 Gen 1 切至手动工作模式",
+            ("2. 将 Gen 1 切至手动模式并切至工作位置",
              gen1.mode == "manual" and gen1.breaker_position == BreakerPosition.WORKING),
-            ("3. 将 Gen 2 切至手动工作模式",
+            ("3. 将 Gen 2 切至手动模式并切至工作位置",
              gen2.mode == "manual" and gen2.breaker_position == BreakerPosition.WORKING),
-            ("4. 设置频率/幅值/相位并起机运行",
-             gen1.running and gen2.running),
-            ("5. 依次合闸 Gen 1（切至工作位置后合闸）",
+            ("4. 合闸 Gen 1（不要起机，仅闭合开关）",
              gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed),
-            ("6. 依次合闸 Gen 2（切至工作位置后合闸）",
+            ("5. 合闸 Gen 2（不要起机，仅闭合开关）",
              gen2.breaker_position == BreakerPosition.WORKING and gen2.breaker_closed),
-            ("7. 开启万用表，在母排拓扑页测量三相回路",
+            ("6. 开启万用表，在母排拓扑页测量三相回路",
              sim.multimeter_mode),
-            ("8. 记录 A/B/C 三相回路连通性结果",
+            ("7. 记录 A/B/C 三相回路连通性结果",
              all_rec),
         ]
         if state.get('completed'):
@@ -81,9 +79,6 @@ class LoopTestService:
             return
         if gen1.mode != "manual" or gen2.mode != "manual":
             self._set_loop_test_feedback("请先将两台发电机都切至手动（Manual）模式。", "red")
-            return
-        if not (gen1.running and gen2.running):
-            self._set_loop_test_feedback("请先起动两台发电机。", "red")
             return
         if not (gen1.breaker_closed and gen1.breaker_position == BreakerPosition.WORKING):
             self._set_loop_test_feedback("请先将 Gen 1 切至工作位置并合闸。", "red")
@@ -128,7 +123,7 @@ class LoopTestService:
         all_rec = all(self._ctrl.loop_test_state['records'][ph] is not None for ph in ('A', 'B', 'C'))
         if all_rec:
             self._set_loop_test_feedback(
-                "三相回路连通性测试全部完成，电路连通正常，可进行第二步 PT 二次端子压差测试。", "#006600")
+                "三相回路连通性测试全部完成，电路连通正常，可进行第二步 PT 相序检查。", "#006600")
         else:
             self._set_loop_test_feedback(f"{phase} 相回路连通正常，请继续测量其余相别。", "#006600")
 

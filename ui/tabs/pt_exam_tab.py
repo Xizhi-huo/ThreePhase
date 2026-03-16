@@ -17,18 +17,18 @@ class PtExamTabMixin:
     def _setup_tab_pt_exam(self):
         tab = QtWidgets.QWidget()
         tab.setStyleSheet("background:#f8fbff;")
-        self.tab_widget.addTab(tab, " 🧪 第二步：PT二次端子压差测试 ")
+        self.tab_widget.addTab(tab, " 🧪 第三步：PT二次端子压差测试 ")
         outer = QtWidgets.QVBoxLayout(tab)
         outer.setContentsMargins(18, 14, 18, 14)
         outer.setSpacing(8)
 
         # 标题
-        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第二步：PT二次端子压差测试")
+        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第三步：PT二次端子压差测试")
         hdr.setStyleSheet("font-size:18px; font-weight:bold; color:#16324f;")
         outer.addWidget(hdr)
 
         desc = QtWidgets.QLabel(
-            "完成第一步后，恢复中性点小电阻接地，并将机组切至工作位置并入母排。"
+            "完成第二步PT相序检查后，恢复中性点小电阻接地，并将机组切至工作位置并入母排。"
             "随后在母排拓扑页使用万用表测量并记录三相 PT 二次端子压差。"
         )
         desc.setWordWrap(True)
@@ -70,7 +70,7 @@ class PtExamTabMixin:
         btn_reset.setStyleSheet("background:#ffd6d6;")
         btn_reset.clicked.connect(
             lambda: self.ctrl.reset_pt_exam(self._pt_target_bg.checkedId()))
-        btn_done = QtWidgets.QPushButton("完成第二步测试")
+        btn_done = QtWidgets.QPushButton("完成第三步测试")
         btn_done.setStyleSheet("background:#cdeccf; font-size:15px; font-weight:bold;")
         btn_done.clicked.connect(
             lambda: self.ctrl.finalize_pt_exam(self._pt_target_bg.checkedId()))
@@ -169,11 +169,11 @@ class PtExamTabMixin:
         # ── 已完成锁定：不再响应任何硬件状态变化 ──────────────────────────
         if state.get('completed'):
             self.pt_exam_summary_lbl.setText(
-                f"✅ 第二步已确认完成：Gen {gen_id} PT 二次端子压差测试通过，数据已锁定。")
+                f"✅ 第三步已确认完成：Gen {gen_id} PT 二次端子压差测试通过，数据已锁定。")
             self.pt_exam_summary_lbl.setStyleSheet(
                 "font-weight:bold; font-size:15px; color:#006400;")
             self.pt_exam_meter_lbl.setText("")
-            self.pt_exam_feedback_lbl.setText("考核提示：第二步测试已完成，请继续进行第三步。")
+            self.pt_exam_feedback_lbl.setText("考核提示：第三步测试已完成，请继续进行第四步。")
             self.pt_exam_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
             for lbl, (text, _) in zip(self.pt_exam_step_labels,
                                       self.ctrl.get_pt_exam_steps(gen_id)):
@@ -193,7 +193,7 @@ class PtExamTabMixin:
         current_phase = self.ctrl._get_current_pt_phase_match(gen_id)
 
         if self.ctrl.is_pt_exam_ready(gen_id):
-            summary = f"第二步已确认完成：Gen {gen_id} PT 二次端子压差测试通过，后续操作不再影响本步骤。"
+            summary = f"第三步已确认完成：Gen {gen_id} PT 二次端子压差测试通过，后续操作不再影响本步骤。"
             sc = '#006400'
         elif all(records[ph] is not None for ph in ('A', 'B', 'C')):
             summary = (f"Gen {gen_id} 三相 PT 二次端子压差已记录，"

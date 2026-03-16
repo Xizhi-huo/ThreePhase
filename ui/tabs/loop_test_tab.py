@@ -28,18 +28,36 @@ class LoopTestTabMixin:
 
         desc = QtWidgets.QLabel(
             "合闸前首先验证三相回路连通性：断开中性点小电阻，将两台发电机切至手动模式，"
-            "设置频率/幅值/相位后依次合闸，再用万用表分别测量 A/B/C 三相回路，"
+            "依次合闸（不要起机，合闸时处于高压侧），再用万用表分别测量 A/B/C 三相回路，"
             "确认 G1 与 G2 同相回路导通正常。"
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color:#2d5a27; font-size:15px;")
         outer.addWidget(desc)
 
+        # ── 回路检查模式横幅 ──────────────────────────────────────────────
+        self.loop_test_mode_banner = QtWidgets.QLabel(
+            "⚡ 回路检查模式已激活 — 开关机械合闸，发电机未起机，母排无电压（高压侧悬空）"
+        )
+        self.loop_test_mode_banner.setWordWrap(True)
+        self.loop_test_mode_banner.setStyleSheet(
+            "background:#fff3cd; color:#7a4f00; font-size:14px; "
+            "font-weight:bold; padding:6px; border:1px solid #e6b800; border-radius:4px;"
+        )
+        self.loop_test_mode_banner.setVisible(False)
+        outer.addWidget(self.loop_test_mode_banner)
+
         # ── 操作按钮 ──────────────────────────────────────────────────────
         act_row = QtWidgets.QWidget()
         act_row.setStyleSheet("background:#f5fff5;")
         ar = QtWidgets.QHBoxLayout(act_row)
         ar.setContentsMargins(0, 0, 0, 0)
+
+        self.btn_loop_mode = QtWidgets.QPushButton("进入回路检查模式")
+        self.btn_loop_mode.setStyleSheet(
+            "background:#ffe082; font-size:14px; font-weight:bold; padding:4px;")
+        self.btn_loop_mode.clicked.connect(self._on_toggle_loop_test_mode)
+
         btn_topo = QtWidgets.QPushButton("打开母排拓扑页")
         btn_topo.setStyleSheet("background:#d9ecff;")
         btn_topo.clicked.connect(lambda: self.tab_widget.setCurrentIndex(1))
@@ -53,6 +71,8 @@ class LoopTestTabMixin:
         btn_done = QtWidgets.QPushButton("完成第一步测试")
         btn_done.setStyleSheet("background:#cdeccf; font-size:15px; font-weight:bold;")
         btn_done.clicked.connect(lambda: self.ctrl.finalize_loop_test())
+
+        ar.addWidget(self.btn_loop_mode)
         ar.addWidget(btn_topo)
         ar.addWidget(btn_mm)
         ar.addWidget(btn_reset)
@@ -94,7 +114,7 @@ class LoopTestTabMixin:
         )
         sl_lay = QtWidgets.QVBoxLayout(steps_grp)
         self.loop_test_step_labels = []
-        for _ in range(8):
+        for _ in range(7):
             lbl = QtWidgets.QLabel("")
             lbl.setStyleSheet("font-size:15px; color:#666666;")
             sl_lay.addWidget(lbl)
@@ -138,9 +158,28 @@ class LoopTestTabMixin:
         outer.addWidget(rec_grp)
         outer.addStretch()
 
+    def _on_toggle_loop_test_mode(self):
+        if self.ctrl.sim_state.loop_test_mode:
+            self.ctrl.exit_loop_test_mode()
+        else:
+            self.ctrl.enter_loop_test_mode()
+
     def _render_loop_test(self, p):
         state    = self.ctrl.loop_test_state
         records  = state['records']
+        in_mode  = self.ctrl.sim_state.loop_test_mode
+
+        # ── 更新模式横幅和按钮文字 ────────────────────────────────────────
+        self.loop_test_mode_banner.setVisible(in_mode)
+        if in_mode:
+            self.btn_loop_mode.setText("退出回路检查模式")
+            self.btn_loop_mode.setStyleSheet(
+                "background:#f4a261; color:white; font-size:14px; "
+                "font-weight:bold; padding:4px;")
+        else:
+            self.btn_loop_mode.setText("进入回路检查模式")
+            self.btn_loop_mode.setStyleSheet(
+                "background:#ffe082; font-size:14px; font-weight:bold; padding:4px;")
 
         # ── 已完成锁定：不再响应任何硬件状态变化 ──────────────────────────
         if state.get('completed'):
@@ -149,7 +188,7 @@ class LoopTestTabMixin:
             self.loop_test_summary_lbl.setStyleSheet(
                 "font-weight:bold; font-size:15px; color:#006400;")
             self.loop_test_meter_lbl.setText("")
-            self.loop_test_feedback_lbl.setText("操作提示：第一步测试已完成，请继续进行第二步。")
+            self.loop_test_feedback_lbl.setText("操作提示：第一步测试已完成，请继续进行第二步 PT 相序检查。")
             self.loop_test_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
             for lbl, (text, _) in zip(self.loop_test_step_labels,
                                       self.ctrl.get_loop_test_steps()):
@@ -173,7 +212,7 @@ class LoopTestTabMixin:
             summary = "两台发电机已合闸，可开始测量三相回路。"
             sc = '#cc6600'
         else:
-            summary = "请按步骤操作：断开小电阻 → 手动模式 → 起机合闸 → 万用表测量。"
+            summary = "请按步骤操作：断开小电阻 → 手动模式 → 合闸（不起机）→ 万用表测量。"
             sc = '#264653'
         self.loop_test_summary_lbl.setText(summary)
         self.loop_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:15px; color:{sc};")

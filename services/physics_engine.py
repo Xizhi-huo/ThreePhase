@@ -47,6 +47,7 @@ class PhysicsEngine:
         self.meter_voltage = None
         self.meter_status = "idle"
         self.meter_nodes = None
+        self.meter_phase_match = None   # PT端子相位一致性（用于PT相序检查）
 
         self.bus_freq = 0.0
         self.bus_amp = 0.0
@@ -303,6 +304,9 @@ class PhysicsEngine:
         return sim.gen1.actual_amp, sim.gen2.actual_amp
 
     def _apply_engine_trip_interlocks(self, sim):
+        # 回路检查模式：发电机未起机也允许机械合闸，跳过失压联锁
+        if sim.loop_test_mode:
+            return
         if sim.gen1.breaker_closed and not sim.gen1.running:
             sim.gen1.breaker_closed = False
             self.relay_msg, self.relay_color = "⚠️ 保护: Gen 1 引擎停机失压，断路器自动脱扣！", "orange"
@@ -519,7 +523,9 @@ class PhysicsEngine:
         elif generator.mode == "manual" and generator.cmd_close:
             generator.cmd_close = False
             if not generator.breaker_closed:
-                if generator.breaker_position != BreakerPosition.WORKING or sync_ok:
+                # 回路检查模式：允许不起机机械合闸，跳过同期检查
+                loop_mode = getattr(self.ctrl.sim_state, 'loop_test_mode', False)
+                if generator.breaker_position != BreakerPosition.WORKING or sync_ok or loop_mode:
                     generator.breaker_closed = True
                 else:
                     self.relay_msg, self.relay_color = f"非同期合闸爆炸！频差:{abs(generator.freq-ref_freq):.1f}Hz, 压差:{abs(ref_amp-a_value):.0f}V, 角差:{abs(diff_deg):.0f}°", "red"
@@ -574,7 +580,10 @@ class PhysicsEngine:
         pt_ratio = PT_RATIO
         self.pt1_v = (a1  / np.sqrt(2) * np.sqrt(3)) / pt_ratio
         self.pt2_v = (bus_a / np.sqrt(2) * np.sqrt(3)) / pt_ratio
-        self.pt3_v = (a2  / np.sqrt(2) * np.sqrt(3)) / pt_ratio
+        # Gen2 不起机但合闸 → 母线反向馈电 → PT3 电压等于母线电压
+        gen2 = self.ctrl.sim_state.gen2
+        pt3_amp = bus_a if (gen2.breaker_closed and not gen2.running) else a2
+        self.pt3_v = (pt3_amp / np.sqrt(2) * np.sqrt(3)) / pt_ratio
 
     def _update_multimeter(self, sim):
         _UI_NODES = NODES
@@ -583,6 +592,7 @@ class PhysicsEngine:
         self.meter_voltage = None
         self.meter_status = "idle"
         self.meter_nodes = None
+        self.meter_phase_match = None
         if sim.multimeter_mode:
             n1, n2 = sim.probe1_node, sim.probe2_node
             if n1 and n2:
@@ -620,6 +630,18 @@ class PhysicsEngine:
                 elif frozenset({n1, n2}) in valid_pairs:
                     key1 = self.ctrl.resolve_pt_node_plot_key(n1)
                     key2 = self.ctrl.resolve_pt_node_plot_key(n2)
+                    # 相位一致性：从 plot_key 末位提取实际电气相，与端子标签比较
+                    actual_ph1 = key1[-1].upper()   # 'g2c'[-1] → 'C'
+                    actual_ph2 = key2[-1].upper()
+                    labeled1 = n1.split('_')[1]     # 'PT3_B' → 'B'
+                    labeled2 = n2.split('_')[1]
+                    phases_match = (actual_ph1 == actual_ph2)
+                    self.meter_phase_match = phases_match
+                    # 相位注释（仅当实际相与标签不一致时显示）
+                    ann1 = f"[实际{actual_ph1}相]" if actual_ph1 != labeled1 else ""
+                    ann2 = f"[实际{actual_ph2}相]" if actual_ph2 != labeled2 else ""
+                    seq_note = "" if phases_match else f" ⚠相序:{actual_ph1}≠{actual_ph2}"
+                    # 电压幅值（供 PT压差测试 使用）
                     diff_data = self.plot_data[key1] - self.plot_data[key2]
                     primary_rms_diff = np.sqrt(np.mean(diff_data**2))
                     sec_rms_diff = primary_rms_diff / ((PRIMARY_AMP / np.sqrt(2)) / 100.0)
@@ -634,7 +656,18 @@ class PhysicsEngine:
                         status = "异相 (危险!)"
                         self.meter_color = "red"
                         self.meter_status = "danger"
-                    self.meter_reading = f"PT二次端子压差: {info1[4]} ↔ {info2[4]} = {meter_v:.1f} V [{status}]"
+                    # 相序状态作为主信息，电压作为次要参考
+                    if phases_match:
+                        seq_status = f"相序✓ ({actual_ph1}相匹配)"
+                    else:
+                        seq_status = (
+                            f"相序✗ (端子标{labeled1}/实际{actual_ph1}相"
+                            f" ≠ 端子标{labeled2}/实际{actual_ph2}相)"
+                        )
+                    self.meter_reading = (
+                        f"PT端子: {info1[4]}{ann1} ↔ {info2[4]}{ann2}"
+                        f" | {seq_status} | 压差={meter_v:.1f}V"
+                    )
                 else:
                     self.meter_status = "invalid"
                     self.meter_reading = "测量无效: PT压差请测 PT 二次端子；回路演示请测 G1/G2 三相回路测点"

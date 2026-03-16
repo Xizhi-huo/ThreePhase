@@ -17,12 +17,12 @@ class SyncTestTabMixin:
     def _setup_tab_sync_test(self):
         tab = QtWidgets.QWidget()
         tab.setStyleSheet("background:#fffbf0;")
-        self.tab_widget.addTab(tab, " ⚡ 第三步：同步功能测试 ")
+        self.tab_widget.addTab(tab, " ⚡ 第四步：同步功能测试 ")
         outer = QtWidgets.QVBoxLayout(tab)
         outer.setContentsMargins(18, 14, 18, 14)
         outer.setSpacing(8)
 
-        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第三步：同步功能测试")
+        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第四步：同步功能测试")
         hdr.setStyleSheet("font-size:18px; font-weight:bold; color:#7a4f00;")
         outer.addWidget(hdr)
 
@@ -46,7 +46,7 @@ class SyncTestTabMixin:
         btn_reset = QtWidgets.QPushButton("重置同步测试")
         btn_reset.setStyleSheet("background:#ffd6d6;")
         btn_reset.clicked.connect(lambda: self.ctrl.reset_sync_test())
-        btn_done = QtWidgets.QPushButton("完成第三步测试")
+        btn_done = QtWidgets.QPushButton("完成第四步测试")
         btn_done.setStyleSheet("background:#cdeccf; font-size:15px; font-weight:bold;")
         btn_done.clicked.connect(lambda: self.ctrl.finalize_sync_test())
         ar.addWidget(btn_wave)
@@ -89,7 +89,7 @@ class SyncTestTabMixin:
         )
         sl_lay = QtWidgets.QVBoxLayout(steps_grp)
         self.sync_test_step_labels = []
-        for _ in range(10):
+        for _ in range(11):
             lbl = QtWidgets.QLabel("")
             lbl.setStyleSheet("font-size:15px; color:#666666;")
             sl_lay.addWidget(lbl)
@@ -142,11 +142,11 @@ class SyncTestTabMixin:
         # ── 已完成锁定：不再响应任何硬件状态变化 ──────────────────────────
         if state.get('completed'):
             self.sync_test_summary_lbl.setText(
-                "✅ 第三步已确认完成：同步功能测试通过，数据已锁定。")
+                "✅ 第四步已确认完成：同步功能测试通过，数据已锁定。")
             self.sync_test_summary_lbl.setStyleSheet(
                 "font-weight:bold; font-size:15px; color:#006400;")
             self.sync_test_live_lbl.setText("")
-            self.sync_test_feedback_lbl.setText("操作提示：第三步测试已完成，全部预合闸测量流程通过。")
+            self.sync_test_feedback_lbl.setText("操作提示：第四步测试已完成，全部预合闸测量流程通过。")
             self.sync_test_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
             for lbl, (text, _) in zip(self.sync_test_step_labels,
                                       self.ctrl.get_sync_test_steps()):
@@ -166,10 +166,10 @@ class SyncTestTabMixin:
 
         # 总状态摘要
         if self.ctrl.is_sync_test_complete():
-            summary = "第三步已确认完成：同步功能测试通过，系统已恢复正常自动合闸逻辑。"
+            summary = "第四步已确认完成：同步功能测试通过，系统已恢复正常自动合闸逻辑。"
             sc = '#006400'
         elif state['round1_done'] and state['round2_done']:
-            summary = '两轮同步测试记录已完成，请点击\u201c完成第三步测试\u201d。'
+            summary = '两轮同步测试记录已完成，请点击\u201c完成第四步测试\u201d。'
             sc = '#cc6600'
         elif state['round1_done']:
             summary = "第一轮已完成，请互换角色进行第二轮测试。"

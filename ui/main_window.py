@@ -18,11 +18,14 @@ PowerSyncUI 通过多重继承组合各个 Mixin：
   LoopTestTabMixin    (ui/tabs/loop_test_tab.py)
     └── Tab2(回路测试) 的 QWidget 构建 + 渲染
 
+  PtPhaseCheckTabMixin (ui/tabs/pt_phase_check_tab.py)
+    └── Tab3(PT相序检查) 的 QWidget 构建 + 渲染
+
   PtExamTabMixin      (ui/tabs/pt_exam_tab.py)
-    └── Tab3(PT考核) 的 QWidget 构建 + 渲染
+    └── Tab4(PT考核) 的 QWidget 构建 + 渲染
 
   SyncTestTabMixin    (ui/tabs/sync_test_tab.py)
-    └── Tab4(同步测试) 的 QWidget 构建 + 渲染
+    └── Tab5(同步测试) 的 QWidget 构建 + 渲染
 
 本文件只负责：
   - 窗口框架（QMainWindow）
@@ -37,6 +40,7 @@ from ui.panels.control_panel import WidgetBuilderMixin
 from ui.tabs.waveform_tab import WaveformTabMixin
 from ui.tabs.circuit_tab import CircuitTabMixin
 from ui.tabs.loop_test_tab import LoopTestTabMixin
+from ui.tabs.pt_phase_check_tab import PtPhaseCheckTabMixin
 from ui.tabs.pt_exam_tab import PtExamTabMixin
 from ui.tabs.sync_test_tab import SyncTestTabMixin
 
@@ -46,6 +50,7 @@ class PowerSyncUI(
     WaveformTabMixin,
     CircuitTabMixin,
     LoopTestTabMixin,
+    PtPhaseCheckTabMixin,
     PtExamTabMixin,
     SyncTestTabMixin,
     QtWidgets.QMainWindow,
@@ -89,13 +94,14 @@ class PowerSyncUI(
         self.ctrl_layout.setSpacing(4)
 
         # ── 构建各区域 ────────────────────────────────────────────────────
-        self._build_control_panel()   # ← WidgetBuilderMixin
-        self._setup_tab_waveforms()   # ← WaveformTabMixin    Tab 0
-        self._setup_tab_circuit()     # ← CircuitTabMixin     Tab 1
-        self._setup_tab_loop_test()   # ← LoopTestTabMixin    Tab 2
-        self._setup_tab_pt_exam()     # ← PtExamTabMixin      Tab 3
-        self._setup_tab_sync_test()   # ← SyncTestTabMixin    Tab 4
-        self._init_lines()            # ← WaveformTabMixin
+        self._build_control_panel()        # ← WidgetBuilderMixin
+        self._setup_tab_waveforms()        # ← WaveformTabMixin       Tab 0
+        self._setup_tab_circuit()          # ← CircuitTabMixin        Tab 1
+        self._setup_tab_loop_test()        # ← LoopTestTabMixin       Tab 2
+        self._setup_tab_pt_phase_check()   # ← PtPhaseCheckTabMixin   Tab 3
+        self._setup_tab_pt_exam()          # ← PtExamTabMixin         Tab 4
+        self._setup_tab_sync_test()        # ← SyncTestTabMixin       Tab 5
+        self._init_lines()                 # ← WaveformTabMixin
 
     # ── 渲染主入口（每帧由 QTimer 驱动）────────────────────────────────────
     def render_visuals(self):
@@ -113,6 +119,7 @@ class PowerSyncUI(
         self._render_multimeter(p)
         self._render_circuit_quick_record(p)
         self._render_loop_test(p)
+        self._render_pt_phase_check(p)
         self._render_sync_test(p)
         self._render_pt_exam(p)
         self._update_generator_buttons()
