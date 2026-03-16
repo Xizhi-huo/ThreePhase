@@ -304,8 +304,8 @@ class PhysicsEngine:
         return sim.gen1.actual_amp, sim.gen2.actual_amp
 
     def _apply_engine_trip_interlocks(self, sim):
-        # 回路检查模式：发电机未起机也允许机械合闸，跳过失压联锁
-        if sim.loop_test_mode:
+        # 任一测试模式激活时：允许不起机机械合闸，跳过失压联锁
+        if sim.loop_test_mode or sim.pt_phase_test_mode:
             return
         if sim.gen1.breaker_closed and not sim.gen1.running:
             sim.gen1.breaker_closed = False
@@ -523,9 +523,10 @@ class PhysicsEngine:
         elif generator.mode == "manual" and generator.cmd_close:
             generator.cmd_close = False
             if not generator.breaker_closed:
-                # 回路检查模式：允许不起机机械合闸，跳过同期检查
-                loop_mode = getattr(self.ctrl.sim_state, 'loop_test_mode', False)
-                if generator.breaker_position != BreakerPosition.WORKING or sync_ok or loop_mode:
+                # 任一测试模式激活时：允许不起机机械合闸，跳过同期检查
+                test_mode = (getattr(self.ctrl.sim_state, 'loop_test_mode', False) or
+                             getattr(self.ctrl.sim_state, 'pt_phase_test_mode', False))
+                if generator.breaker_position != BreakerPosition.WORKING or sync_ok or test_mode:
                     generator.breaker_closed = True
                 else:
                     self.relay_msg, self.relay_color = f"非同期合闸爆炸！频差:{abs(generator.freq-ref_freq):.1f}Hz, 压差:{abs(ref_amp-a_value):.0f}V, 角差:{abs(diff_deg):.0f}°", "red"

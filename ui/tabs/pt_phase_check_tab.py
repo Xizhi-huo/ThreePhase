@@ -189,15 +189,15 @@ class PtPhaseCheckTabMixin:
         outer.addStretch()
 
     def _on_toggle_pt_phase_test_mode(self):
-        if self.ctrl.sim_state.loop_test_mode:
-            self.ctrl.exit_loop_test_mode()
+        if self.ctrl.sim_state.pt_phase_test_mode:
+            self.ctrl.exit_pt_phase_test_mode()
         else:
-            self.ctrl.enter_loop_test_mode()
+            self.ctrl.enter_pt_phase_test_mode()
 
     def _render_pt_phase_check(self, p):
         state = self.ctrl.pt_phase_check_state
         records = state['records']
-        in_mode = self.ctrl.sim_state.loop_test_mode
+        in_mode = self.ctrl.sim_state.pt_phase_test_mode
 
         # ── 更新测试模式横幅和按钮文字 ────────────────────────────────────
         self.pt_phase_test_mode_banner.setVisible(in_mode)

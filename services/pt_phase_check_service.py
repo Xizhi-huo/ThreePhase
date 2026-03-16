@@ -46,7 +46,7 @@ class PtPhaseCheckService:
         gen1_on_bus = (gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed)
         # Gen2：不起机 + 合闸（母线反向馈入 PT3）
         gen2_backfeed = not gen2.running and gen2.breaker_closed
-        test_mode = sim.loop_test_mode
+        test_mode = sim.pt_phase_test_mode
         rec = state['records']
 
         steps = [
@@ -86,7 +86,7 @@ class PtPhaseCheckService:
             self._set_feedback("请先确认 Gen1 已并入母排，建立 PT1/PT2 参考电压。", "red")
             return
 
-        # PT3 额外要求：Gen2 不起机 + 合闸（母线反向馈入），且须在测试模式下
+        # PT3 额外要求：Gen2 不起机 + 合闸（母线反向馈入），且须在PT相序测试模式下
         if pt_name == 'PT3':
             if gen2.running:
                 self._set_feedback(
@@ -96,7 +96,7 @@ class PtPhaseCheckService:
                 self._set_feedback(
                     "请先进入测试模式并合闸 Gen2（不起机），使母线电压反向馈入 PT3 端子。", "red")
                 return
-            if not sim.loop_test_mode:
+            if not sim.pt_phase_test_mode:
                 self._set_feedback(
                     "请先点击\u201c进入测试模式\u201d，再合闸 Gen2 进行 PT3 相序测量。", "red")
                 return
@@ -171,7 +171,7 @@ class PtPhaseCheckService:
                 "red")
             return
         state['completed'] = True
-        self._ctrl.exit_loop_test_mode()   # 退出测试模式，Gen2 未起机的断路器自动断开
+        self._ctrl.exit_pt_phase_test_mode()   # 退出PT相序测试模式，Gen2 未起机的断路器自动断开
         self._set_feedback(
             "第二步【PT 相序检查】已确认完成，测试模式已退出，后续操作将不再影响该步骤状态。",
             "#006600")

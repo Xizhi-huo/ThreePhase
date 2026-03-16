@@ -34,7 +34,7 @@ PowerSyncUI 通过多重继承组合各个 Mixin：
   - show_warning 等少量顶层接口
 """
 
-from PyQt5 import QtWidgets, QtCore
+from PyQt5 import QtWidgets, QtCore, QtGui
 
 from ui.panels.control_panel import WidgetBuilderMixin
 from ui.tabs.waveform_tab import WaveformTabMixin
@@ -64,7 +64,13 @@ class PowerSyncUI(
         super().__init__()
         self.ctrl = ctrl
         self.setWindowTitle("三相电并网仿真教学系统 (PyQt5)")
-        self.resize(1400, 860)
+
+        # 全屏/resize 防抖：resize 期间暂停 canvas 重绘，避免卡死
+        self._resize_timer = QtCore.QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(150)
+        self._resize_timer.timeout.connect(self._on_resize_done)
+        self._is_resizing = False
 
         # ── 中央 Widget + 水平主布局 ──────────────────────────────────────
         central = QtWidgets.QWidget()
@@ -103,6 +109,15 @@ class PowerSyncUI(
         self._setup_tab_sync_test()        # ← SyncTestTabMixin       Tab 5
         self._init_lines()                 # ← WaveformTabMixin
 
+    # ── resize 防抖回调 ─────────────────────────────────────────────────────
+    def resizeEvent(self, event: QtGui.QResizeEvent):
+        self._is_resizing = True
+        self._resize_timer.start()
+        super().resizeEvent(event)
+
+    def _on_resize_done(self):
+        self._is_resizing = False
+
     # ── 渲染主入口（每帧由 QTimer 驱动）────────────────────────────────────
     def render_visuals(self, rs):
         p   = rs
@@ -123,6 +138,10 @@ class PowerSyncUI(
         self._render_sync_test(p)
         self._render_pt_exam(p)
         self._update_generator_buttons()
+
+        # resize/全屏动画期间跳过 canvas 重绘，防止卡死
+        if self._is_resizing:
+            return
 
         idx = self.tab_widget.currentIndex()
         if idx == 0:

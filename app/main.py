@@ -173,15 +173,28 @@ class PowerSyncController:
         return self._loop_svc.get_loop_test_blockers()
 
     def enter_loop_test_mode(self):
-        """进入回路检查模式：跳过失压联锁，允许不起机合闸。"""
+        """进入第一步回路检查模式：跳过失压联锁，允许不起机合闸。"""
         self.sim_state.loop_test_mode = True
 
     def exit_loop_test_mode(self):
-        """退出回路检查模式：恢复失压联锁保护，未起机的断路器自动断开。"""
+        """退出第一步回路检查模式：恢复失压联锁保护，未起机的断路器自动断开。"""
         self.sim_state.loop_test_mode = False
-        for gen in (self.sim_state.gen1, self.sim_state.gen2):
-            if gen.breaker_closed and not gen.running:
-                gen.breaker_closed = False
+        if not self.sim_state.pt_phase_test_mode:
+            for gen in (self.sim_state.gen1, self.sim_state.gen2):
+                if gen.breaker_closed and not gen.running:
+                    gen.breaker_closed = False
+
+    def enter_pt_phase_test_mode(self):
+        """进入第二步PT相序测试模式：允许Gen2不起机合闸，母线反向馈入PT3。"""
+        self.sim_state.pt_phase_test_mode = True
+
+    def exit_pt_phase_test_mode(self):
+        """退出第二步PT相序测试模式：恢复失压联锁保护，未起机的断路器自动断开。"""
+        self.sim_state.pt_phase_test_mode = False
+        if not self.sim_state.loop_test_mode:
+            for gen in (self.sim_state.gen1, self.sim_state.gen2):
+                if gen.breaker_closed and not gen.running:
+                    gen.breaker_closed = False
 
     # ════════════════════════════════════════════════════════════════════════
     # 第二步：PT 相序检查 — 委托给 PtPhaseCheckService
@@ -257,16 +270,17 @@ class PowerSyncController:
     # ════════════════════════════════════════════════════════════════════════
     def get_preclose_flow_blockers(self, gen_id):
         sections = []
-        # 第一步：回路连通性测试
+        # 第一步：回路连通性测试（Gen1 和 Gen2 都必须完成）
         if not self.is_loop_test_complete():
             sections.append(("第一步：回路连通性测试", ["三相回路连通性测试尚未完成"]))
-        # 第二步：PT 相序检查
-        if not self.is_pt_phase_check_complete():
-            sections.append(("第二步：PT 相序检查", ["PT1/PT3 相序检查尚未完成"]))
-        # 第三步：PT 二次端子压差考核（当前机组必须已记录）
-        if not self.is_pt_exam_recorded(gen_id):
-            sections.append((f"第三步：PT 二次端子压差考核（Gen {gen_id}）",
-                             [f"Gen {gen_id} 三相 PT 二次端子压差尚未全部记录"]))
+        # Gen1 是母排参考源，合闸后才能进行第二步和第三步，因此只需第一步完成即可合闸。
+        # Gen2 需要第二步和第三步都完成后才能合闸。
+        if gen_id == 2:
+            if not self.is_pt_phase_check_complete():
+                sections.append(("第二步：PT 相序检查", ["PT1/PT3 相序检查尚未完成"]))
+            if not self.is_pt_exam_recorded(2):
+                sections.append(("第三步：PT 二次端子压差考核（Gen 2）",
+                                 ["Gen 2 三相 PT 二次端子压差尚未全部记录"]))
         return sections
 
     def _should_enforce_pt_exam_before_close(self):
@@ -299,20 +313,20 @@ class PowerSyncController:
         if generator.breaker_closed:
             generator.breaker_closed = False
         else:
-            if self._should_limit_close_to_selected_pt_target():
+            # Gen1 是母排参考源，任何时候都允许合闸；只限制 Gen2 在 Gen1 考核期间合闸
+            if gen_id == 2 and self._should_limit_close_to_selected_pt_target():
                 target_gen_id = self.ui._pt_target_bg.checkedId()
-                if target_gen_id in (1, 2) and gen_id != target_gen_id:
+                if target_gen_id == 1:
                     self._pt_exam_svc._set_pt_exam_feedback(
-                        target_gen_id,
-                        f"当前第二步正在测试 Gen {target_gen_id}，请先完成该机组的 PT 二次端子压差测试；"
-                        f"若需合闸 Gen {gen_id}，请先在第二步页面切换测试对象。",
+                        1,
+                        "当前第三步正在测试 Gen 1，请先完成 Gen 1 的 PT 二次端子压差测试，再合闸 Gen 2。",
                         "red"
                     )
                     self.ui.tab_widget.setCurrentIndex(4)
                     self.ui.show_warning(
                         "当前机组不允许合闸",
-                        f"第二步 PT 测试当前锁定在 Gen {target_gen_id}。\n"
-                        f"请先完成 Gen {target_gen_id} 的测试，或先切换测试对象后再合闸 Gen {gen_id}。"
+                        "第三步 PT 测试当前锁定在 Gen 1。\n"
+                        "请先完成 Gen 1 的测试，再合闸 Gen 2。"
                     )
                     return
             if (generator.breaker_position == BreakerPosition.WORKING
@@ -398,9 +412,9 @@ if __name__ == "__main__":
     app.setStyle("Fusion")
 
     ctrl = PowerSyncController()
-    # 使用可用屏幕区域（排除 macOS Dock 和菜单栏、Windows 任务栏）
-    available = app.primaryScreen().availableGeometry()
-    ctrl.ui.setGeometry(available)
+    # 使用屏幕可用区域（自动排除 macOS 菜单栏与 Dock），完整铺满
+    screen = app.primaryScreen().availableGeometry()
+    ctrl.ui.setGeometry(screen)
     ctrl.ui.show()
 
     sys.exit(app.exec_())
