@@ -398,6 +398,9 @@ if __name__ == "__main__":
     app.setStyle("Fusion")
 
     ctrl = PowerSyncController()
-    ctrl.ui.showMaximized()
+    # 使用可用屏幕区域（排除 macOS Dock 和菜单栏、Windows 任务栏）
+    available = app.primaryScreen().availableGeometry()
+    ctrl.ui.setGeometry(available)
+    ctrl.ui.show()
 
     sys.exit(app.exec_())
