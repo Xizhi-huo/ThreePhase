@@ -156,10 +156,11 @@ class SyncTestService:
         self._ctrl.sync_test_state = self._create_sync_test_state()
 
     def is_sync_test_complete(self):
-        return (self._ctrl.sync_test_state['round1_done'] and
-                self._ctrl.sync_test_state['round2_done'])
+        """用户已点击"完成第四步测试"才返回 True，用于解锁合闸约束。"""
+        return self._ctrl.sync_test_state.get('completed', False)
 
     def is_sync_test_rounds_done(self):
+        """两轮记录均已完成（但用户可能尚未点击完成按钮）。"""
         return (self._ctrl.sync_test_state['round1_done'] and
                 self._ctrl.sync_test_state['round2_done'])
 

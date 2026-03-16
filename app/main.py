@@ -257,9 +257,16 @@ class PowerSyncController:
     # ════════════════════════════════════════════════════════════════════════
     def get_preclose_flow_blockers(self, gen_id):
         sections = []
-        loop_blockers = self.get_loop_test_blockers()
-        if loop_blockers:
-            sections.append(("第一步：回路连通性测试", loop_blockers))
+        # 第一步：回路连通性测试
+        if not self.is_loop_test_complete():
+            sections.append(("第一步：回路连通性测试", ["三相回路连通性测试尚未完成"]))
+        # 第二步：PT 相序检查
+        if not self.is_pt_phase_check_complete():
+            sections.append(("第二步：PT 相序检查", ["PT1/PT3 相序检查尚未完成"]))
+        # 第三步：PT 二次端子压差考核（当前机组必须已记录）
+        if not self.is_pt_exam_recorded(gen_id):
+            sections.append((f"第三步：PT 二次端子压差考核（Gen {gen_id}）",
+                             [f"Gen {gen_id} 三相 PT 二次端子压差尚未全部记录"]))
         return sections
 
     def _should_enforce_pt_exam_before_close(self):
@@ -301,7 +308,7 @@ class PowerSyncController:
                         f"若需合闸 Gen {gen_id}，请先在第二步页面切换测试对象。",
                         "red"
                     )
-                    self.ui.tab_widget.setCurrentIndex(3)
+                    self.ui.tab_widget.setCurrentIndex(4)
                     self.ui.show_warning(
                         "当前机组不允许合闸",
                         f"第二步 PT 测试当前锁定在 Gen {target_gen_id}。\n"
@@ -319,7 +326,7 @@ class PowerSyncController:
                     warn_msg = "\n".join(msg_lines)
                     self._pt_exam_svc._set_pt_exam_feedback(
                         gen_id, warn_msg.replace("\n", "；"), "red")
-                    self.ui.tab_widget.setCurrentIndex(2)
+                    self.ui.tab_widget.setCurrentIndex(4)   # PT 压差考核页
                     self.ui.show_warning("合闸前步骤未完成", warn_msg)
                     return
             generator.cmd_close = True

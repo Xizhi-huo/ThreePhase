@@ -44,14 +44,17 @@ class PtPhaseCheckService:
         loop_done = self._ctrl.is_loop_test_complete()
         gnd_ok = sim.grounding_mode == "小电阻接地"
         gen1_on_bus = (gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed)
-        gen2_ready = gen2.running and not gen2.breaker_closed
+        # Gen2：不起机 + 合闸（母线反向馈入 PT3）
+        gen2_backfeed = not gen2.running and gen2.breaker_closed
+        test_mode = sim.loop_test_mode
         rec = state['records']
 
         steps = [
             ("1. 前提：第一步回路连通性测试已完成", loop_done),
             ("2. 恢复中性点小电阻接地", gnd_ok),
             ("3. 确认 Gen1 在母排上（运行+合闸，提供 PT1/PT2 参考）", gen1_on_bus),
-            ("4. 起机 Gen2，保持断路器断开（提供 PT3 侧电压）", gen2_ready),
+            ("4. 进入测试模式，合闸 Gen2（不起机，母线反向馈入 PT3）",
+             gen2_backfeed and test_mode),
             ("5. 开启万用表，在母排拓扑页测量同相端子", sim.multimeter_mode),
             ("6. 记录 PT1 A 相相序（PT1_A ↔ PT2_A）", rec['PT1_A'] is not None),
             ("7. 记录 PT1 B 相相序（PT1_B ↔ PT2_B）", rec['PT1_B'] is not None),
@@ -82,12 +85,22 @@ class PtPhaseCheckService:
         if gen1.breaker_position != BreakerPosition.WORKING or not gen1.breaker_closed:
             self._set_feedback("请先确认 Gen1 已并入母排，建立 PT1/PT2 参考电压。", "red")
             return
-        if not gen2.running:
-            self._set_feedback("请先起动 Gen2（不合闸），使 PT3 侧有电压。", "red")
-            return
-        if gen2.breaker_closed:
-            self._set_feedback("Gen2 断路器应保持断开，才能有效测量 PT3 相序。", "red")
-            return
+
+        # PT3 额外要求：Gen2 不起机 + 合闸（母线反向馈入），且须在测试模式下
+        if pt_name == 'PT3':
+            if gen2.running:
+                self._set_feedback(
+                    "测量 PT3 相序时 Gen2 应保持停机（不起机），利用母线反向馈电。", "red")
+                return
+            if not gen2.breaker_closed:
+                self._set_feedback(
+                    "请先进入测试模式并合闸 Gen2（不起机），使母线电压反向馈入 PT3 端子。", "red")
+                return
+            if not sim.loop_test_mode:
+                self._set_feedback(
+                    "请先点击\u201c进入测试模式\u201d，再合闸 Gen2 进行 PT3 相序测量。", "red")
+                return
+
         if not sim.multimeter_mode:
             self._set_feedback("请先开启万用表。", "red")
             return
