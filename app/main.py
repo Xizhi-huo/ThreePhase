@@ -68,20 +68,20 @@ class PowerSyncController:
         }
         self.pt_blackbox_mode_val: bool = False
 
-        # ── 业务服务（各服务通过 self._ctrl 回写状态字典）────────────────
+        # ── 业务服务（各服务通过 self._ctrl 回写状态 dataclass）─────────
         self._loop_svc       = LoopTestService(self)
         self._pt_phase_svc   = PtPhaseCheckService(self)
         self._pt_exam_svc    = PtExamService(self)
         self._sync_svc       = SyncTestService(self)
 
-        # ── 状态字典（UI 直接读取，服务通过 ctrl 写入）───────────────────
-        self.loop_test_state      = self._loop_svc._create_loop_test_state()
-        self.pt_phase_check_state = self._pt_phase_svc._create_pt_phase_check_state()
+        # ── 状态 dataclass（UI 直接读取属性，服务通过 ctrl 写入）────────
+        self.loop_test_state      = self._loop_svc.create_loop_test_state()
+        self.pt_phase_check_state = self._pt_phase_svc.create_pt_phase_check_state()
         self.pt_exam_states       = {
-            1: self._pt_exam_svc._create_pt_exam_state(),
-            2: self._pt_exam_svc._create_pt_exam_state(),
+            1: self._pt_exam_svc.create_pt_exam_state(),
+            2: self._pt_exam_svc.create_pt_exam_state(),
         }
-        self.sync_test_state      = self._sync_svc._create_sync_test_state()
+        self.sync_test_state      = self._sync_svc.create_sync_test_state()
 
         # ── 物理引擎 ──────────────────────────────────────────────────────
         self.physics = PhysicsEngine(self)
@@ -223,8 +223,8 @@ class PowerSyncController:
     def reset_pt_exam(self, gen_id=None):
         self._pt_exam_svc.reset_pt_exam(gen_id)
 
-    def record_pt_measurement(self, phase):
-        self._pt_exam_svc.record_pt_measurement(phase)
+    def record_pt_measurement(self, phase, gen_id):
+        self._pt_exam_svc.record_pt_measurement(phase, gen_id)
 
     def get_pt_exam_steps(self, gen_id):
         return self._pt_exam_svc.get_pt_exam_steps(gen_id)
@@ -261,8 +261,7 @@ class PowerSyncController:
 
     def is_sync_test_active(self):
         """同步测试已开始但尚未最终完成——此期间屏蔽自动合闸。"""
-        return (self.sync_test_state.get('started', False) and
-                not self.sync_test_state.get('completed', False))
+        return self.sync_test_state.started and not self.sync_test_state.completed
 
     def is_sync_test_rounds_done(self):
         return self._sync_svc.is_sync_test_rounds_done()
@@ -324,7 +323,7 @@ class PowerSyncController:
             sim.gen1.mode == "manual" and
             sim.gen2.mode == "manual" and
             not self.is_sync_test_complete() and
-            self.pt_exam_states[1].get('started', False)
+            self.pt_exam_states[1].started
         )
 
     # ════════════════════════════════════════════════════════════════════════
@@ -347,7 +346,8 @@ class PowerSyncController:
         else:
             # Gen1 是母排参考源，任何时候都允许合闸；只限制 Gen2 在 Gen1 考核期间合闸
             if gen_id == 2 and self._should_limit_close_to_selected_pt_target():
-                target_gen_id = self.ui._pt_target_bg.checkedId()
+                # 通过状态判断当前激活测试的机组，不再读取 UI 控件
+                target_gen_id = 1 if self.pt_exam_states[1].started else 2
                 if target_gen_id == 1:
                     self._pt_exam_svc._set_pt_exam_feedback(
                         1,

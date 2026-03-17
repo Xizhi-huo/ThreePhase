@@ -182,7 +182,7 @@ class PtExamTabMixin:
             rec_btn = QtWidgets.QPushButton(f"记录 {phase} 相")
             rec_btn.setStyleSheet(f"background:#d8f3dc; {_BTN}")
             rec_btn.clicked.connect(
-                lambda _, ph=phase: self.ctrl.record_pt_measurement(ph))
+                lambda _, ph=phase: self.ctrl.record_pt_measurement(ph, self._pt_target_bg.checkedId()))
 
             row.addWidget(ph_lbl)
             row.addWidget(val_lbl)
@@ -198,7 +198,7 @@ class PtExamTabMixin:
         if gen_id <= 0:
             gen_id = 1
         state = self.ctrl.pt_exam_states[gen_id]
-        if state.get('started'):
+        if state.started:
             self.ctrl.stop_pt_exam(gen_id)
         else:
             self.ctrl.start_pt_exam(gen_id)
@@ -208,11 +208,11 @@ class PtExamTabMixin:
         if gen_id <= 0:
             gen_id = 1
         state     = self.ctrl.pt_exam_states[gen_id]
-        records   = state['records']
-        started   = state.get('started', False)
+        records   = state.records
+        started   = state.started
 
         # ── 已完成锁定：所有 UI 完全冻结 ─────────────────────────────────
-        if state.get('completed'):
+        if state.completed:
             self.pt_exam_mode_banner.setVisible(False)
             self.btn_pt_exam_start.setText("开始第三步测试")
             self.btn_pt_exam_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
@@ -245,8 +245,8 @@ class PtExamTabMixin:
             self.btn_pt_exam_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
 
         # ── 动态显示 ──────────────────────────────────────────────────────
-        feedback  = state['feedback']
-        fb_color  = state['feedback_color']
+        feedback  = state.feedback
+        fb_color  = state.feedback_color
         generator = self.ctrl._get_generator_state(gen_id)
         current_phase = self.ctrl._get_current_pt_phase_match(gen_id)
 

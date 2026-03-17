@@ -491,14 +491,14 @@ class CircuitTabMixin:
 
         if loop_pair:
             state = self.ctrl.loop_test_state
-            if state.get('completed'):
+            if state.completed:
                 self.circuit_mode_lbl.setText("第一步已完成，数据已锁定")
                 for ph in ('A', 'B', 'C'):
                     getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
                 return
             self.circuit_mode_lbl.setText("第一步：回路连通性 — 快速记录")
             for ph in ('A', 'B', 'C'):
-                recorded = state['records'][ph] is not None
+                recorded = state.records[ph] is not None
                 btn = getattr(self, f'circuit_rec_btn_{ph}')
                 btn.setEnabled(not recorded)
                 btn.setStyleSheet(
@@ -516,13 +516,13 @@ class CircuitTabMixin:
                     getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
                 return
             state = self.ctrl.pt_phase_check_state
-            if state.get('completed'):
+            if state.completed:
                 self.circuit_mode_lbl.setText("第二步 PT相序已完成，数据已锁定")
                 for ph in ('A', 'B', 'C'):
                     getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
                 return
             self.circuit_mode_lbl.setText(f"第二步：{pt_name}/PT2 相序 — 快速记录")
-            records = state['records']
+            records = state.records
             for ph in ('A', 'B', 'C'):
                 key = f"{pt_name}_{ph}"
                 recorded = records.get(key) is not None
@@ -536,19 +536,19 @@ class CircuitTabMixin:
             if gen_id <= 0:
                 gen_id = 1
             state = self.ctrl.pt_exam_states[gen_id]
-            if state.get('completed'):
+            if state.completed:
                 self.circuit_mode_lbl.setText(f"第三步 Gen {gen_id} 已完成，数据已锁定")
                 for ph in ('A', 'B', 'C'):
                     getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
                 return
-            if not state.get('started'):
+            if not state.started:
                 self.circuit_mode_lbl.setText("第三步尚未开始 — 请在第三步标签页点击「开始第三步测试」")
                 for ph in ('A', 'B', 'C'):
                     getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
                 return
             self.circuit_mode_lbl.setText(f"第三步：Gen {gen_id} PT 二次压差 — 快速记录")
             for ph in ('A', 'B', 'C'):
-                recorded = state['records'][ph] is not None
+                recorded = state.records[ph] is not None
                 btn = getattr(self, f'circuit_rec_btn_{ph}')
                 btn.setEnabled(not recorded)
                 btn.setStyleSheet(
@@ -564,9 +564,9 @@ class CircuitTabMixin:
         if loop_pair:
             self.ctrl.record_loop_measurement(phase)
             st = self.ctrl.loop_test_state
-            self.circuit_rec_feedback.setText(st['feedback'])
+            self.circuit_rec_feedback.setText(st.feedback)
             self.circuit_rec_feedback.setStyleSheet(
-                f"font-size:13px; color:{_qs(st['feedback_color'])}; min-width:220px;")
+                f"font-size:13px; color:{_qs(st.feedback_color)}; min-width:220px;")
         elif not self.ctrl.is_pt_phase_check_complete():
             # 第二步：PT 相序检查快速记录
             pt_name = None
@@ -578,18 +578,18 @@ class CircuitTabMixin:
                 return
             self.ctrl.record_pt_phase_check(pt_name, phase)
             st = self.ctrl.pt_phase_check_state
-            self.circuit_rec_feedback.setText(st['feedback'])
+            self.circuit_rec_feedback.setText(st.feedback)
             self.circuit_rec_feedback.setStyleSheet(
-                f"font-size:13px; color:{_qs(st['feedback_color'])}; min-width:220px;")
+                f"font-size:13px; color:{_qs(st.feedback_color)}; min-width:220px;")
         else:
             # 第三步：PT 压差测试（只有已开始才记录）
             gen_id = getattr(self, '_pt_target_bg').checkedId()
             if gen_id <= 0:
                 gen_id = 1
-            if not self.ctrl.pt_exam_states[gen_id].get('started'):
+            if not self.ctrl.pt_exam_states[gen_id].started:
                 return
-            self.ctrl.record_pt_measurement(phase)
+            self.ctrl.record_pt_measurement(phase, gen_id)
             st = self.ctrl.pt_exam_states[gen_id]
-            self.circuit_rec_feedback.setText(st['feedback'])
+            self.circuit_rec_feedback.setText(st.feedback)
             self.circuit_rec_feedback.setStyleSheet(
-                f"font-size:13px; color:{_qs(st['feedback_color'])}; min-width:220px;")
+                f"font-size:13px; color:{_qs(st.feedback_color)}; min-width:220px;")

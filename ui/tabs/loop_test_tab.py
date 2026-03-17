@@ -180,11 +180,11 @@ class LoopTestTabMixin:
 
     def _render_loop_test(self, p):
         state    = self.ctrl.loop_test_state
-        records  = state['records']
+        records  = state.records
         in_mode  = self.ctrl.sim_state.loop_test_mode
 
         # ── 已完成锁定：所有 UI 完全冻结 ─────────────────────────────────
-        if state.get('completed'):
+        if state.completed:
             self.loop_test_mode_banner.setVisible(False)
             self.btn_loop_mode.setText("进入回路检查模式")
             self.btn_loop_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
@@ -215,8 +215,8 @@ class LoopTestTabMixin:
             self.btn_loop_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
 
         # ── 动态显示 ──────────────────────────────────────────────────────
-        feedback = state['feedback']
-        fb_color = state['feedback_color']
+        feedback = state.feedback
+        fb_color = state.feedback_color
         current_phase = self.ctrl._get_current_loop_phase_match()
         sim = self.ctrl.sim_state
 

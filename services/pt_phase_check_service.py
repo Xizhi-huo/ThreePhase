@@ -9,6 +9,7 @@ PT 相序检查服务（第二步）
 """
 
 from domain.enums import BreakerPosition
+from domain.test_states import PtPhaseCheckState
 
 _ALL_KEYS = ('PT1_A', 'PT1_B', 'PT1_C', 'PT3_A', 'PT3_B', 'PT3_C')
 
@@ -20,21 +21,12 @@ class PtPhaseCheckService:
         self._ctrl = ctrl
 
     # ── 状态工厂 ──────────────────────────────────────────────────────────────
-    def _create_pt_phase_check_state(self):
-        return {
-            'completed': False,
-            'records': {k: None for k in _ALL_KEYS},
-            'result': None,
-            'feedback': (
-                "请先完成第一步回路检查，然后恢复小电阻接地，将 Gen1 并入母排，"
-                "起机 Gen2（不合闸），开启万用表，分别测量 PT1/PT2 和 PT3/PT2 各相端子相序。"
-            ),
-            'feedback_color': '#444444',
-        }
+    def create_pt_phase_check_state(self) -> PtPhaseCheckState:
+        return PtPhaseCheckState()
 
     def _set_feedback(self, message, color='#444444'):
-        self._ctrl.pt_phase_check_state['feedback'] = message
-        self._ctrl.pt_phase_check_state['feedback_color'] = color
+        self._ctrl.pt_phase_check_state.feedback = message
+        self._ctrl.pt_phase_check_state.feedback_color = color
 
     # ── 步骤列表 ──────────────────────────────────────────────────────────────
     def get_pt_phase_check_steps(self):
@@ -44,10 +36,9 @@ class PtPhaseCheckService:
         loop_done = self._ctrl.is_loop_test_complete()
         gnd_ok = sim.grounding_mode == "小电阻接地"
         gen1_on_bus = (gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed)
-        # Gen2：不起机 + 合闸（母线反向馈入 PT3）
         gen2_backfeed = not gen2.running and gen2.breaker_closed
         test_mode = sim.pt_phase_test_mode
-        rec = state['records']
+        rec = state.records
 
         steps = [
             ("1. 前提：第一步回路连通性测试已完成", loop_done),
@@ -63,7 +54,7 @@ class PtPhaseCheckService:
             ("10. 记录 PT3 B 相相序（PT3_B ↔ PT2_B）", rec['PT3_B'] is not None),
             ("11. 记录 PT3 C 相相序（PT3_C ↔ PT2_C）", rec['PT3_C'] is not None),
         ]
-        if state.get('completed'):
+        if state.completed:
             return [(text, True) for text, _ in steps]
         return steps
 
@@ -86,7 +77,6 @@ class PtPhaseCheckService:
             self._set_feedback("请先确认 Gen1 已并入母排，建立 PT1/PT2 参考电压。", "red")
             return
 
-        # PT3 额外要求：Gen2 不起机 + 合闸（母线反向馈入），且须在PT相序测试模式下
         if pt_name == 'PT3':
             if gen2.running:
                 self._set_feedback(
@@ -108,7 +98,7 @@ class PtPhaseCheckService:
         phase_order = ('A', 'B', 'C')
         for prev in phase_order[:phase_order.index(phase)]:
             prev_key = f"{pt_name}_{prev}"
-            if state['records'][prev_key] is None:
+            if state.records[prev_key] is None:
                 self._set_feedback(
                     f"请先完成 {pt_name} {prev} 相的测量记录，再记录 {phase} 相。", "red")
                 return
@@ -128,36 +118,36 @@ class PtPhaseCheckService:
             self._set_feedback("当前测量结果无效，请确认表笔接在 PT 和 PT2 同相端子上。", "red")
             return
 
-        state['records'][key] = {
+        state.records[key] = {
             'phase_match': phase_match,
             'reading': self._ctrl.physics.meter_reading,
         }
 
-        all_rec = all(state['records'][k] is not None for k in _ALL_KEYS)
+        all_rec = all(state.records[k] is not None for k in _ALL_KEYS)
         any_fail = any(
-            r is not None and not r['phase_match'] for r in state['records'].values()
+            r is not None and not r['phase_match'] for r in state.records.values()
         )
 
         if any_fail:
-            state['result'] = 'fail'
+            state.result = 'fail'
             self._set_feedback(
                 f"⚠️ 相序异常！{key} 检测到端子接线错误，请检查对应侧 B/C 接线。", "red")
         elif all_rec:
-            state['result'] = 'pass'
+            state.result = 'pass'
             self._set_feedback(
                 "PT 相序检查通过：PT1/PT3 各相连线均正确，可点击\u201c完成第二步测试\u201d继续。",
                 "#006600")
         elif phase_match:
             self._set_feedback(f"{key} 相序正确，请继续测量其余项目。", "#006600")
         else:
-            state['result'] = 'fail'
+            state.result = 'fail'
             self._set_feedback(f"⚠️ {key} 相序异常！请检查对应侧接线。", "red")
 
     def reset_pt_phase_check(self):
-        self._ctrl.pt_phase_check_state = self._create_pt_phase_check_state()
+        self._ctrl.pt_phase_check_state = self.create_pt_phase_check_state()
 
     def is_pt_phase_check_complete(self):
-        records = self._ctrl.pt_phase_check_state.get('records', {})
+        records = self._ctrl.pt_phase_check_state.records
         return all(
             records.get(k) is not None and records[k]['phase_match']
             for k in _ALL_KEYS
@@ -170,8 +160,8 @@ class PtPhaseCheckService:
                 '请先完成 PT1/PT3 全部六相相序测量（且全部通过），再点击\u201c完成第二步测试\u201d。',
                 "red")
             return
-        state['completed'] = True
-        self._ctrl.exit_pt_phase_test_mode()   # 退出PT相序测试模式，Gen2 未起机的断路器自动断开
+        state.completed = True
+        self._ctrl.exit_pt_phase_test_mode()
         self._set_feedback(
             "第二步【PT 相序检查】已确认完成，测试模式已退出，后续操作将不再影响该步骤状态。",
             "#006600")

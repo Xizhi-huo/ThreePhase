@@ -171,17 +171,17 @@ class SyncTestTabMixin:
 
     def _on_toggle_sync_test_mode(self):
         state = self.ctrl.sync_test_state
-        if state.get('started'):
+        if state.started:
             self.ctrl.stop_sync_test()
         else:
             self.ctrl.start_sync_test()
 
     def _render_sync_test(self, p):
         state    = self.ctrl.sync_test_state
-        started  = state.get('started', False)
+        started  = state.started
 
         # ── 已完成锁定：所有 UI 完全冻结 ─────────────────────────────────
-        if state.get('completed'):
+        if state.completed:
             self.sync_test_mode_banner.setVisible(False)
             self.btn_sync_test_start.setText("开始第四步测试")
             self.btn_sync_test_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
@@ -213,18 +213,18 @@ class SyncTestTabMixin:
             self.btn_sync_test_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
 
         # ── 动态显示 ──────────────────────────────────────────────────────
-        feedback = state['feedback']
-        fb_color = state['feedback_color']
+        feedback = state.feedback
+        fb_color = state.feedback_color
         sim      = self.ctrl.sim_state
         gen1, gen2 = sim.gen1, sim.gen2
 
         if self.ctrl.is_sync_test_complete():
             summary = "第四步已确认完成：同步功能测试通过，系统已恢复正常自动合闸逻辑。"
             sc = '#006400'
-        elif state['round1_done'] and state['round2_done']:
+        elif state.round1_done and state.round2_done:
             summary = '两轮同步测试记录已完成，请点击\u201c完成第四步测试\u201d。'
             sc = '#cc6600'
-        elif state['round1_done']:
+        elif state.round1_done:
             summary = "第一轮已完成，请互换角色进行第二轮测试。"
             sc = '#cc6600'
         else:
@@ -273,14 +273,14 @@ class SyncTestTabMixin:
                 lbl.setText(("√ " if done else "□ ") + text)
                 lbl.setStyleSheet(f"font-size:15px; color:{'#006400' if done else '#666666'};")
 
-        if state['round1_done']:
+        if state.round1_done:
             self.sync_round1_lbl.setText("Gen 1 基准 → Gen 2 同步：已记录 ✓")
             self.sync_round1_lbl.setStyleSheet("font-size:15px; color:#006400;")
         else:
             self.sync_round1_lbl.setText("Gen 1 基准 → Gen 2 同步：未记录")
             self.sync_round1_lbl.setStyleSheet("font-size:15px; color:#999999;")
 
-        if state['round2_done']:
+        if state.round2_done:
             self.sync_round2_lbl.setText("Gen 2 基准 → Gen 1 同步：已记录 ✓")
             self.sync_round2_lbl.setStyleSheet("font-size:15px; color:#006400;")
         else:

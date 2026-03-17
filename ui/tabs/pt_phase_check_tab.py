@@ -206,10 +206,10 @@ class PtPhaseCheckTabMixin:
 
     def _render_pt_phase_check(self, p):
         state = self.ctrl.pt_phase_check_state
-        records = state['records']
+        records = state.records
 
         # ── 已完成锁定：所有 UI 完全冻结 ─────────────────────────────────
-        if state.get('completed'):
+        if state.completed:
             self.pt_phase_test_mode_banner.setVisible(False)
             self.btn_pt_phase_test_mode.setText("进入测试模式")
             self.btn_pt_phase_test_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
@@ -243,9 +243,9 @@ class PtPhaseCheckTabMixin:
             self.btn_pt_phase_test_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
 
         # ── 动态显示 ──────────────────────────────────────────────────────
-        feedback = state['feedback']
-        fb_color = state['feedback_color']
-        result = state.get('result')
+        feedback = state.feedback
+        fb_color = state.feedback_color
+        result = state.result
 
         if result == 'pass':
             summary = 'PT1/PT3 相序检查均通过，可点击\u201c完成第二步测试\u201d继续。'
