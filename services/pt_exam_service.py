@@ -20,9 +20,16 @@ class PtExamService:
         return {
             'records': {'A': None, 'B': None, 'C': None},
             'completed': False,
+            'started': False,
             'feedback': "请先恢复小电阻接地，并将机组并入母排后，在母排拓扑页完成三相 PT 二次端子压差测量。",
             'feedback_color': '#444444',
         }
+
+    def start_pt_exam(self, gen_id):
+        self._ctrl.pt_exam_states[gen_id]['started'] = True
+
+    def stop_pt_exam(self, gen_id):
+        self._ctrl.pt_exam_states[gen_id]['started'] = False
 
     def _set_pt_exam_feedback(self, gen_id, message, color='#444444'):
         self._ctrl.pt_exam_states[gen_id]['feedback'] = message

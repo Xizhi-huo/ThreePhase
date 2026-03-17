@@ -241,6 +241,12 @@ class PowerSyncController:
     def finalize_pt_exam(self, gen_id):
         self._pt_exam_svc.finalize_pt_exam(gen_id)
 
+    def start_pt_exam(self, gen_id):
+        self._pt_exam_svc.start_pt_exam(gen_id)
+
+    def stop_pt_exam(self, gen_id):
+        self._pt_exam_svc.stop_pt_exam(gen_id)
+
     # ════════════════════════════════════════════════════════════════════════
     # 第四步：同步功能测试 — 委托给 SyncTestService
     # ════════════════════════════════════════════════════════════════════════
@@ -253,6 +259,11 @@ class PowerSyncController:
     def is_sync_test_complete(self):
         return self._sync_svc.is_sync_test_complete()
 
+    def is_sync_test_active(self):
+        """同步测试已开始但尚未最终完成——此期间屏蔽自动合闸。"""
+        return (self.sync_test_state.get('started', False) and
+                not self.sync_test_state.get('completed', False))
+
     def is_sync_test_rounds_done(self):
         return self._sync_svc.is_sync_test_rounds_done()
 
@@ -262,6 +273,13 @@ class PowerSyncController:
     def reset_sync_test(self):
         self._sync_svc.reset_sync_test()
 
+
+    def start_sync_test(self):
+        self._sync_svc.start_sync_test()
+
+    def stop_sync_test(self):
+        self._sync_svc.stop_sync_test()
+
     def get_sync_test_blockers(self):
         return self._sync_svc.get_sync_test_blockers()
 
@@ -270,17 +288,30 @@ class PowerSyncController:
     # ════════════════════════════════════════════════════════════════════════
     def get_preclose_flow_blockers(self, gen_id):
         sections = []
-        # 第一步：回路连通性测试（Gen1 和 Gen2 都必须完成）
-        if not self.is_loop_test_complete():
+        loop_done = self.is_loop_test_complete()
+
+        if not loop_done:
+            # 第一步未完成：同时列出所有后续步骤，让用户一次看到全部要求
             sections.append(("第一步：回路连通性测试", ["三相回路连通性测试尚未完成"]))
-        # Gen1 是母排参考源，合闸后才能进行第二步和第三步，因此只需第一步完成即可合闸。
-        # Gen2 需要第二步和第三步都完成后才能合闸。
-        if gen_id == 2:
             if not self.is_pt_phase_check_complete():
                 sections.append(("第二步：PT 相序检查", ["PT1/PT3 相序检查尚未完成"]))
             if not self.is_pt_exam_recorded(2):
                 sections.append(("第三步：PT 二次端子压差考核（Gen 2）",
                                  ["Gen 2 三相 PT 二次端子压差尚未全部记录"]))
+            if not self.is_sync_test_complete() and not self.is_sync_test_active():
+                sections.append(("第四步：同步功能测试",
+                                 ["同步功能测试尚未完成（需完成两轮同步跟踪记录）"]))
+        elif gen_id == 2:
+            # 第一步已完成；Gen1 是母排参考源可直接合闸，Gen2 需完成第二至四步
+            if not self.is_pt_phase_check_complete():
+                sections.append(("第二步：PT 相序检查", ["PT1/PT3 相序检查尚未完成"]))
+            if not self.is_pt_exam_recorded(2):
+                sections.append(("第三步：PT 二次端子压差考核（Gen 2）",
+                                 ["Gen 2 三相 PT 二次端子压差尚未全部记录"]))
+            # 同步测试进行中（Gen2 需合闸作第二轮基准）不拦截
+            if not self.is_sync_test_complete() and not self.is_sync_test_active():
+                sections.append(("第四步：同步功能测试",
+                                 ["同步功能测试尚未完成（需完成两轮同步跟踪记录）"]))
         return sections
 
     def _should_enforce_pt_exam_before_close(self):
@@ -292,7 +323,8 @@ class PowerSyncController:
             sim.grounding_mode == "小电阻接地" and
             sim.gen1.mode == "manual" and
             sim.gen2.mode == "manual" and
-            not self.is_sync_test_complete()
+            not self.is_sync_test_complete() and
+            self.pt_exam_states[1].get('started', False)
         )
 
     # ════════════════════════════════════════════════════════════════════════
@@ -412,11 +444,6 @@ if __name__ == "__main__":
     app.setStyle("Fusion")
 
     ctrl = PowerSyncController()
-    # 使用屏幕可用区域（自动排除 macOS 菜单栏与 Dock），完整铺满
-    screen = app.primaryScreen().availableGeometry()
-    target_h = screen.height() - 80
-    ctrl.ui.setMaximumHeight(target_h)   # 硬性锁死，防止 canvas sizeHint 撑大窗口
-    ctrl.ui.setGeometry(screen.x(), screen.y(), screen.width(), target_h)
-    ctrl.ui.show()
+    ctrl.ui.showMaximized()
 
     sys.exit(app.exec_())

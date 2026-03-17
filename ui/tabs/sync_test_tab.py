@@ -1,11 +1,14 @@
 """
 ui/tabs/sync_test_tab.py
-同步功能测试 Tab (Tab 4)
+同步功能测试 Tab (Tab 5 — 第四步)
 """
 
 from PyQt5 import QtWidgets
 
 from ui.tabs.circuit_tab import _qs
+
+_BTN      = "font-size:14px; padding:4px 8px;"
+_BTN_BOLD = "font-size:14px; font-weight:bold; padding:4px 8px;"
 
 
 class SyncTestTabMixin:
@@ -13,11 +16,20 @@ class SyncTestTabMixin:
     混入类，提供同步功能测试 Tab 的构建和渲染方法。
     """
 
-    # ── Tab4：同步功能测试 ───────────────────────────────────────────────────
+    # ── Tab5：同步功能测试 ───────────────────────────────────────────────────
     def _setup_tab_sync_test(self):
+        tab_outer = QtWidgets.QWidget()
+        self.tab_widget.addTab(tab_outer, " ⚡ 第四步：同步功能测试 ")
+        _tlay = QtWidgets.QVBoxLayout(tab_outer)
+        _tlay.setContentsMargins(0, 0, 0, 0)
+        _scroll = QtWidgets.QScrollArea()
+        _scroll.setWidgetResizable(True)
+        _scroll.setStyleSheet("QScrollArea{border:none;background:#fffbf0;}")
         tab = QtWidgets.QWidget()
         tab.setStyleSheet("background:#fffbf0;")
-        self.tab_widget.addTab(tab, " ⚡ 第四步：同步功能测试 ")
+        _scroll.setWidget(tab)
+        _tlay.addWidget(_scroll)
+
         outer = QtWidgets.QVBoxLayout(tab)
         outer.setContentsMargins(18, 14, 18, 14)
         outer.setSpacing(8)
@@ -35,20 +47,41 @@ class SyncTestTabMixin:
         desc.setStyleSheet("color:#5a3a00; font-size:15px;")
         outer.addWidget(desc)
 
+        # ── 测试进行中横幅 ────────────────────────────────────────────────
+        self.sync_test_mode_banner = QtWidgets.QLabel(
+            "⚡ 第四步测试进行中 — 请按两轮步骤完成同步功能验证"
+        )
+        self.sync_test_mode_banner.setWordWrap(True)
+        self.sync_test_mode_banner.setStyleSheet(
+            "background:#fff3cd; color:#7a4f00; font-size:14px; "
+            "font-weight:bold; padding:6px; border:1px solid #e6b800; border-radius:4px;"
+        )
+        self.sync_test_mode_banner.setVisible(False)
+        outer.addWidget(self.sync_test_mode_banner)
+
         # ── 操作按钮 ──────────────────────────────────────────────────────
         act_row = QtWidgets.QWidget()
         act_row.setStyleSheet("background:#fffbf0;")
         ar = QtWidgets.QHBoxLayout(act_row)
         ar.setContentsMargins(0, 0, 0, 0)
+
+        self.btn_sync_test_start = QtWidgets.QPushButton("开始第四步测试")
+        self.btn_sync_test_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+        self.btn_sync_test_start.clicked.connect(self._on_toggle_sync_test_mode)
+
         btn_wave = QtWidgets.QPushButton("打开波形/相量页")
-        btn_wave.setStyleSheet("background:#d9ecff;")
+        btn_wave.setStyleSheet(f"background:#d9ecff; {_BTN}")
         btn_wave.clicked.connect(lambda: self.tab_widget.setCurrentIndex(0))
+
         btn_reset = QtWidgets.QPushButton("重置同步测试")
-        btn_reset.setStyleSheet("background:#ffd6d6;")
+        btn_reset.setStyleSheet(f"background:#ffd6d6; {_BTN}")
         btn_reset.clicked.connect(lambda: self.ctrl.reset_sync_test())
+
         btn_done = QtWidgets.QPushButton("完成第四步测试")
-        btn_done.setStyleSheet("background:#cdeccf; font-size:15px; font-weight:bold;")
+        btn_done.setStyleSheet(f"background:#cdeccf; {_BTN_BOLD}")
         btn_done.clicked.connect(lambda: self.ctrl.finalize_sync_test())
+
+        ar.addWidget(self.btn_sync_test_start)
         ar.addWidget(btn_wave)
         ar.addWidget(btn_reset)
         ar.addWidget(btn_done)
@@ -113,7 +146,7 @@ class SyncTestTabMixin:
         self.sync_round1_lbl = QtWidgets.QLabel("Gen 1 基准 → Gen 2 同步：未记录")
         self.sync_round1_lbl.setStyleSheet("font-size:15px; color:#999999;")
         btn_r1 = QtWidgets.QPushButton("记录第一轮")
-        btn_r1.setStyleSheet("background:#d8f3dc; font-size:15px;")
+        btn_r1.setStyleSheet(f"background:#d8f3dc; {_BTN}")
         btn_r1.clicked.connect(lambda: self.ctrl.record_sync_round(1))
         row1.addWidget(self.sync_round1_lbl, 1)
         row1.addWidget(btn_r1)
@@ -127,7 +160,7 @@ class SyncTestTabMixin:
         self.sync_round2_lbl = QtWidgets.QLabel("Gen 2 基准 → Gen 1 同步：未记录")
         self.sync_round2_lbl.setStyleSheet("font-size:15px; color:#999999;")
         btn_r2 = QtWidgets.QPushButton("记录第二轮")
-        btn_r2.setStyleSheet("background:#d8f3dc; font-size:15px;")
+        btn_r2.setStyleSheet(f"background:#d8f3dc; {_BTN}")
         btn_r2.clicked.connect(lambda: self.ctrl.record_sync_round(2))
         row2.addWidget(self.sync_round2_lbl, 1)
         row2.addWidget(btn_r2)
@@ -136,11 +169,22 @@ class SyncTestTabMixin:
         outer.addWidget(rec_grp)
         outer.addStretch()
 
+    def _on_toggle_sync_test_mode(self):
+        state = self.ctrl.sync_test_state
+        if state.get('started'):
+            self.ctrl.stop_sync_test()
+        else:
+            self.ctrl.start_sync_test()
+
     def _render_sync_test(self, p):
         state    = self.ctrl.sync_test_state
+        started  = state.get('started', False)
 
-        # ── 已完成锁定：不再响应任何硬件状态变化 ──────────────────────────
+        # ── 已完成锁定：所有 UI 完全冻结 ─────────────────────────────────
         if state.get('completed'):
+            self.sync_test_mode_banner.setVisible(False)
+            self.btn_sync_test_start.setText("开始第四步测试")
+            self.btn_sync_test_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
             self.sync_test_summary_lbl.setText(
                 "✅ 第四步已确认完成：同步功能测试通过，数据已锁定。")
             self.sync_test_summary_lbl.setStyleSheet(
@@ -157,14 +201,23 @@ class SyncTestTabMixin:
             self.sync_round2_lbl.setText("Gen 2 基准 → Gen 1 同步：已记录 ✓")
             self.sync_round2_lbl.setStyleSheet("font-size:15px; color:#006400;")
             return
-        # ── 动态显示 ──────────────────────────────────────────────────────
 
+        # ── 更新测试横幅和按钮文字 ────────────────────────────────────────
+        self.sync_test_mode_banner.setVisible(started)
+        if started:
+            self.btn_sync_test_start.setText("退出第四步测试")
+            self.btn_sync_test_start.setStyleSheet(
+                f"background:#f4a261; color:white; {_BTN_BOLD}")
+        else:
+            self.btn_sync_test_start.setText("开始第四步测试")
+            self.btn_sync_test_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+
+        # ── 动态显示 ──────────────────────────────────────────────────────
         feedback = state['feedback']
         fb_color = state['feedback_color']
         sim      = self.ctrl.sim_state
         gen1, gen2 = sim.gen1, sim.gen2
 
-        # 总状态摘要
         if self.ctrl.is_sync_test_complete():
             summary = "第四步已确认完成：同步功能测试通过，系统已恢复正常自动合闸逻辑。"
             sc = '#006400'
@@ -180,7 +233,6 @@ class SyncTestTabMixin:
         self.sync_test_summary_lbl.setText(summary)
         self.sync_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:15px; color:{sc};")
 
-        # 实时同步偏差显示
         ref_gen = getattr(p, 'bus_reference_gen', None)
         if ref_gen == 1 and gen2.mode == "auto":
             df = abs(gen2.freq - gen1.freq)
@@ -210,12 +262,17 @@ class SyncTestTabMixin:
         self.sync_test_feedback_lbl.setText(f"操作提示：{feedback}")
         self.sync_test_feedback_lbl.setStyleSheet(f"font-size:15px; color:{_qs(fb_color)};")
 
-        for lbl, (text, done) in zip(self.sync_test_step_labels,
-                                     self.ctrl.get_sync_test_steps()):
-            lbl.setText(("√ " if done else "□ ") + text)
-            lbl.setStyleSheet(f"font-size:15px; color:{'#006400' if done else '#666666'};")
+        if not started:
+            for lbl, (text, _) in zip(self.sync_test_step_labels,
+                                      self.ctrl.get_sync_test_steps()):
+                lbl.setText("□ " + text)
+                lbl.setStyleSheet("font-size:15px; color:#aaaaaa;")
+        else:
+            for lbl, (text, done) in zip(self.sync_test_step_labels,
+                                         self.ctrl.get_sync_test_steps()):
+                lbl.setText(("√ " if done else "□ ") + text)
+                lbl.setStyleSheet(f"font-size:15px; color:{'#006400' if done else '#666666'};")
 
-        # 记录状态标签
         if state['round1_done']:
             self.sync_round1_lbl.setText("Gen 1 基准 → Gen 2 同步：已记录 ✓")
             self.sync_round1_lbl.setStyleSheet("font-size:15px; color:#006400;")

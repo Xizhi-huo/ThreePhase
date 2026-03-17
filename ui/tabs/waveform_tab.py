@@ -18,11 +18,12 @@ class MplCanvas(FigureCanvas):
     def __init__(self, fig: Figure):
         super().__init__(fig)
         self.setMinimumSize(400, 300)
+        # Expanding：canvas 填满布局分配的空间；sizeHint() 已被覆盖为 (400,300)，
+        # updateGeometry() 已移除，不再向上撑大窗口
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Expanding,
         )
-        # 不调用 updateGeometry()，避免通知布局重算导致窗口被撑大
 
     def minimumSizeHint(self):
         return QtCore.QSize(400, 300)

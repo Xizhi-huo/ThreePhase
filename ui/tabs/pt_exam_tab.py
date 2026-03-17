@@ -1,11 +1,14 @@
 """
 ui/tabs/pt_exam_tab.py
-PT 二次端子压差测试 Tab (Tab 3)
+PT 二次端子压差测试 Tab (Tab 4 — 第三步)
 """
 
 from PyQt5 import QtWidgets
 
 from ui.tabs.circuit_tab import _qs
+
+_BTN      = "font-size:14px; padding:4px 8px;"
+_BTN_BOLD = "font-size:14px; font-weight:bold; padding:4px 8px;"
 
 
 class PtExamTabMixin:
@@ -13,11 +16,20 @@ class PtExamTabMixin:
     混入类，提供 PT 二次端子压差测试 Tab 的构建和渲染方法。
     """
 
-    # ── Tab3：PT 考核 ─────────────────────────────────────────────────────────
+    # ── Tab4：PT 考核 ─────────────────────────────────────────────────────────
     def _setup_tab_pt_exam(self):
+        tab_outer = QtWidgets.QWidget()
+        self.tab_widget.addTab(tab_outer, " 🧪 第三步：PT二次端子压差测试 ")
+        _tlay = QtWidgets.QVBoxLayout(tab_outer)
+        _tlay.setContentsMargins(0, 0, 0, 0)
+        _scroll = QtWidgets.QScrollArea()
+        _scroll.setWidgetResizable(True)
+        _scroll.setStyleSheet("QScrollArea{border:none;background:#f8fbff;}")
         tab = QtWidgets.QWidget()
         tab.setStyleSheet("background:#f8fbff;")
-        self.tab_widget.addTab(tab, " 🧪 第三步：PT二次端子压差测试 ")
+        _scroll.setWidget(tab)
+        _tlay.addWidget(_scroll)
+
         outer = QtWidgets.QVBoxLayout(tab)
         outer.setContentsMargins(18, 14, 18, 14)
         outer.setSpacing(8)
@@ -34,6 +46,18 @@ class PtExamTabMixin:
         desc.setWordWrap(True)
         desc.setStyleSheet("color:#334e68; font-size:15px;")
         outer.addWidget(desc)
+
+        # ── 测试进行中横幅 ────────────────────────────────────────────────
+        self.pt_exam_mode_banner = QtWidgets.QLabel(
+            "🧪 第三步测试进行中 — 请在母排拓扑页完成 PT 二次端子压差测量"
+        )
+        self.pt_exam_mode_banner.setWordWrap(True)
+        self.pt_exam_mode_banner.setStyleSheet(
+            "background:#e8f4fd; color:#0c5460; font-size:14px; "
+            "font-weight:bold; padding:6px; border:1px solid #bee5eb; border-radius:4px;"
+        )
+        self.pt_exam_mode_banner.setVisible(False)
+        outer.addWidget(self.pt_exam_mode_banner)
 
         # ── 考核对象选择 ──────────────────────────────────────────────────
         target_grp = QtWidgets.QGroupBox("测试对象")
@@ -59,21 +83,31 @@ class PtExamTabMixin:
         act_row.setStyleSheet("background:#f8fbff;")
         ar = QtWidgets.QHBoxLayout(act_row)
         ar.setContentsMargins(0, 0, 0, 0)
+
+        self.btn_pt_exam_start = QtWidgets.QPushButton("开始第三步测试")
+        self.btn_pt_exam_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+        self.btn_pt_exam_start.clicked.connect(self._on_toggle_pt_exam_mode)
+
         btn_topo = QtWidgets.QPushButton("打开母排拓扑页")
-        btn_topo.setStyleSheet("background:#d9ecff;")
+        btn_topo.setStyleSheet(f"background:#d9ecff; {_BTN}")
         btn_topo.clicked.connect(lambda: self.tab_widget.setCurrentIndex(1))
+
         btn_mm = QtWidgets.QPushButton("开启/关闭万用表")
-        btn_mm.setStyleSheet("background:#fff3bf;")
+        btn_mm.setStyleSheet(f"background:#fff3bf; {_BTN}")
         btn_mm.clicked.connect(
             lambda: self.multimeter_cb.setChecked(not self.multimeter_cb.isChecked()))
+
         btn_reset = QtWidgets.QPushButton("重置当前机组测试")
-        btn_reset.setStyleSheet("background:#ffd6d6;")
+        btn_reset.setStyleSheet(f"background:#ffd6d6; {_BTN}")
         btn_reset.clicked.connect(
             lambda: self.ctrl.reset_pt_exam(self._pt_target_bg.checkedId()))
+
         btn_done = QtWidgets.QPushButton("完成第三步测试")
-        btn_done.setStyleSheet("background:#cdeccf; font-size:15px; font-weight:bold;")
+        btn_done.setStyleSheet(f"background:#cdeccf; {_BTN_BOLD}")
         btn_done.clicked.connect(
             lambda: self.ctrl.finalize_pt_exam(self._pt_target_bg.checkedId()))
+
+        ar.addWidget(self.btn_pt_exam_start)
         ar.addWidget(btn_topo)
         ar.addWidget(btn_mm)
         ar.addWidget(btn_reset)
@@ -146,7 +180,7 @@ class PtExamTabMixin:
             val_lbl.setStyleSheet("font-size:15px; color:#999999;")
 
             rec_btn = QtWidgets.QPushButton(f"记录 {phase} 相")
-            rec_btn.setStyleSheet("background:#d8f3dc; font-size:15px;")
+            rec_btn.setStyleSheet(f"background:#d8f3dc; {_BTN}")
             rec_btn.clicked.connect(
                 lambda _, ph=phase: self.ctrl.record_pt_measurement(ph))
 
@@ -159,15 +193,29 @@ class PtExamTabMixin:
         outer.addWidget(rec_grp)
         outer.addStretch()
 
+    def _on_toggle_pt_exam_mode(self):
+        gen_id = self._pt_target_bg.checkedId()
+        if gen_id <= 0:
+            gen_id = 1
+        state = self.ctrl.pt_exam_states[gen_id]
+        if state.get('started'):
+            self.ctrl.stop_pt_exam(gen_id)
+        else:
+            self.ctrl.start_pt_exam(gen_id)
+
     def _render_pt_exam(self, p):
         gen_id = self._pt_target_bg.checkedId()
         if gen_id <= 0:
             gen_id = 1
         state     = self.ctrl.pt_exam_states[gen_id]
         records   = state['records']
+        started   = state.get('started', False)
 
-        # ── 已完成锁定：不再响应任何硬件状态变化 ──────────────────────────
+        # ── 已完成锁定：所有 UI 完全冻结 ─────────────────────────────────
         if state.get('completed'):
+            self.pt_exam_mode_banner.setVisible(False)
+            self.btn_pt_exam_start.setText("开始第三步测试")
+            self.btn_pt_exam_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
             self.pt_exam_summary_lbl.setText(
                 f"✅ 第三步已确认完成：Gen {gen_id} PT 二次端子压差测试通过，数据已锁定。")
             self.pt_exam_summary_lbl.setStyleSheet(
@@ -185,8 +233,18 @@ class PtExamTabMixin:
                     lbl.setText(f"{rec['voltage']:.1f} V  [可合闸]")
                     lbl.setStyleSheet("font-size:15px; color:#006400;")
             return
-        # ── 动态显示 ──────────────────────────────────────────────────────
 
+        # ── 更新测试横幅和按钮文字 ────────────────────────────────────────
+        self.pt_exam_mode_banner.setVisible(started)
+        if started:
+            self.btn_pt_exam_start.setText("退出第三步测试")
+            self.btn_pt_exam_start.setStyleSheet(
+                f"background:#f4a261; color:white; {_BTN_BOLD}")
+        else:
+            self.btn_pt_exam_start.setText("开始第三步测试")
+            self.btn_pt_exam_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+
+        # ── 动态显示 ──────────────────────────────────────────────────────
         feedback  = state['feedback']
         fb_color  = state['feedback_color']
         generator = self.ctrl._get_generator_state(gen_id)
@@ -214,10 +272,16 @@ class PtExamTabMixin:
         self.pt_exam_feedback_lbl.setText(f"考核提示：{feedback}")
         self.pt_exam_feedback_lbl.setStyleSheet(f"font-size:15px; color:{_qs(fb_color)};")
 
-        for lbl, (text, done) in zip(self.pt_exam_step_labels,
-                                     self.ctrl.get_pt_exam_steps(gen_id)):
-            lbl.setText(("√ " if done else "□ ") + text)
-            lbl.setStyleSheet(f"font-size:15px; color:{'#006400' if done else '#666666'};")
+        if not started:
+            for lbl, (text, _) in zip(self.pt_exam_step_labels,
+                                      self.ctrl.get_pt_exam_steps(gen_id)):
+                lbl.setText("□ " + text)
+                lbl.setStyleSheet("font-size:15px; color:#aaaaaa;")
+        else:
+            for lbl, (text, done) in zip(self.pt_exam_step_labels,
+                                         self.ctrl.get_pt_exam_steps(gen_id)):
+                lbl.setText(("√ " if done else "□ ") + text)
+                lbl.setStyleSheet(f"font-size:15px; color:{'#006400' if done else '#666666'};")
 
         for phase, lbl in self.pt_exam_record_labels.items():
             record = records[phase]

@@ -255,8 +255,14 @@ class PhysicsEngine:
         if sim.remote_start_signal and not sim.paused:
             if mode1 == "auto" and not sim.gen1.running:
                 sim.gen1.running = True
+                sim.gen1.amp = ref_amp
+                sim.gen1.freq = ref_freq
+                sim.gen1.actual_amp = ref_amp
             if mode2 == "auto" and not sim.gen2.running:
                 sim.gen2.running = True
+                sim.gen2.amp = ref_amp
+                sim.gen2.freq = ref_freq
+                sim.gen2.actual_amp = ref_amp
         else:
             if mode1 == "auto" and sim.gen1.running:
                 sim.gen1.running = False
@@ -278,7 +284,12 @@ class PhysicsEngine:
 
         if sim.remote_start_signal:
             if not (g1_on_bus or g2_on_bus):
-                self._handle_dead_bus_selection(sim, mode1, mode2, g1_ready, g2_ready)
+                # 同步测试进行中：跳过死母线自动投机逻辑，避免 Gen2 在换轮时意外自投
+                if not self.ctrl.is_sync_test_active():
+                    self._handle_dead_bus_selection(sim, mode1, mode2, g1_ready, g2_ready)
+                else:
+                    self.dead_bus_timer = 0.0
+                    self.first_ready = None
             else:
                 self._handle_live_bus_sync(sim, mode1, mode2)
         else:
@@ -296,11 +307,15 @@ class PhysicsEngine:
         speed_factor = self._control_speed_factor(sim)
         for generator in (sim.gen1, sim.gen2):
             target_amp = generator.amp if generator.running else 0.0
-            climb_speed = 150.0 * sim.gov_gain * speed_factor
-            if generator.actual_amp < target_amp:
-                generator.actual_amp = min(target_amp, generator.actual_amp + climb_speed)
-            elif generator.actual_amp > target_amp:
-                generator.actual_amp = max(target_amp, generator.actual_amp - climb_speed)
+            if generator.mode == "auto" and not generator.breaker_closed:
+                # Auto模式未合闸时，actual_amp 直接跟随 amp（无爬坡延迟）
+                generator.actual_amp = target_amp
+            else:
+                climb_speed = 150.0 * sim.gov_gain * speed_factor
+                if generator.actual_amp < target_amp:
+                    generator.actual_amp = min(target_amp, generator.actual_amp + climb_speed)
+                elif generator.actual_amp > target_amp:
+                    generator.actual_amp = max(target_amp, generator.actual_amp - climb_speed)
         return sim.gen1.actual_amp, sim.gen2.actual_amp
 
     def _apply_engine_trip_interlocks(self, sim):
@@ -507,12 +522,17 @@ class PhysicsEngine:
             generator.breaker_closed = False
             generator.cmd_close = False
         elif generator.mode == "auto":
+            sync_test_active = self.ctrl.is_sync_test_active()
             if is_isolated and not self.bus_live:
-                if abs(generator.freq - GRID_FREQ) < 0.1 and abs(GRID_AMP - a_value) <= 150.0 and not generator.breaker_closed:
+                # 同步测试进行中：屏蔽死母线自动合闸，防止第一轮→第二轮切换时 Gen2 意外自投
+                if (not sync_test_active and
+                        abs(generator.freq - GRID_FREQ) < 0.1 and
+                        abs(GRID_AMP - a_value) <= 150.0 and
+                        not generator.breaker_closed):
                     generator.breaker_closed = True
             else:
-                # 第三步同步功能测试期间，Auto 机组只做同步跟踪，不自动真实合闸；
-                # 点击"完成第三步测试"后，恢复正常自动合闸逻辑。
+                # 同步测试期间，Auto 机组只做同步跟踪，不自动真实合闸；
+                # 点击"完成第四步测试"后，恢复正常自动合闸逻辑。
                 if (self.ctrl.is_sync_test_complete()
                         and abs(generator.freq - ref_freq) < 0.1
                         and abs(ref_amp - a_value) <= 150.0
@@ -642,19 +662,20 @@ class PhysicsEngine:
                     ann1 = f"[实际{actual_ph1}相]" if actual_ph1 != labeled1 else ""
                     ann2 = f"[实际{actual_ph2}相]" if actual_ph2 != labeled2 else ""
                     seq_note = "" if phases_match else f" ⚠相序:{actual_ph1}≠{actual_ph2}"
-                    # 电压幅值（供 PT压差测试 使用）
-                    diff_data = self.plot_data[key1] - self.plot_data[key2]
-                    primary_rms_diff = np.sqrt(np.mean(diff_data**2))
+                    # 电压幅值差（PT压差测试）：比较两侧 RMS 幅值之差，与相位无关
+                    rms1 = np.sqrt(np.mean(self.plot_data[key1]**2))
+                    rms2 = np.sqrt(np.mean(self.plot_data[key2]**2))
+                    primary_rms_diff = abs(rms1 - rms2)
                     sec_rms_diff = primary_rms_diff / ((PRIMARY_AMP / np.sqrt(2)) / 100.0)
-                    meter_v = np.sqrt(sec_rms_diff**2 + 30.0**2)
+                    meter_v = sec_rms_diff
                     self.meter_voltage = meter_v
                     self.meter_nodes = (n1, n2)
-                    if meter_v < 60.0:
-                        status = "同相 (可合闸)"
+                    if phases_match:
+                        status = "相序正确 (可合闸)"
                         self.meter_color = "green"
                         self.meter_status = "ok"
                     else:
-                        status = "异相 (危险!)"
+                        status = "相序错误 (危险!)"
                         self.meter_color = "red"
                         self.meter_status = "danger"
                     # 相序状态作为主信息，电压作为次要参考

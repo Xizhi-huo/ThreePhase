@@ -541,6 +541,11 @@ class CircuitTabMixin:
                 for ph in ('A', 'B', 'C'):
                     getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
                 return
+            if not state.get('started'):
+                self.circuit_mode_lbl.setText("第三步尚未开始 — 请在第三步标签页点击「开始第三步测试」")
+                for ph in ('A', 'B', 'C'):
+                    getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
+                return
             self.circuit_mode_lbl.setText(f"第三步：Gen {gen_id} PT 二次压差 — 快速记录")
             for ph in ('A', 'B', 'C'):
                 recorded = state['records'][ph] is not None
@@ -577,11 +582,13 @@ class CircuitTabMixin:
             self.circuit_rec_feedback.setStyleSheet(
                 f"font-size:13px; color:{_qs(st['feedback_color'])}; min-width:220px;")
         else:
-            # 第三步：PT 压差测试
-            self.ctrl.record_pt_measurement(phase)
+            # 第三步：PT 压差测试（只有已开始才记录）
             gen_id = getattr(self, '_pt_target_bg').checkedId()
             if gen_id <= 0:
                 gen_id = 1
+            if not self.ctrl.pt_exam_states[gen_id].get('started'):
+                return
+            self.ctrl.record_pt_measurement(phase)
             st = self.ctrl.pt_exam_states[gen_id]
             self.circuit_rec_feedback.setText(st['feedback'])
             self.circuit_rec_feedback.setStyleSheet(

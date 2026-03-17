@@ -8,6 +8,8 @@ from PyQt5 import QtWidgets
 from ui.tabs.circuit_tab import _qs
 
 _ALL_KEYS = ('PT1_A', 'PT1_B', 'PT1_C', 'PT3_A', 'PT3_B', 'PT3_C')
+_BTN      = "font-size:14px; padding:4px 8px;"
+_BTN_BOLD = "font-size:14px; font-weight:bold; padding:4px 8px;"
 
 
 class PtPhaseCheckTabMixin:
@@ -17,9 +19,18 @@ class PtPhaseCheckTabMixin:
 
     # ── Tab3：PT 相序检查 ─────────────────────────────────────────────────────
     def _setup_tab_pt_phase_check(self):
+        tab_outer = QtWidgets.QWidget()
+        self.tab_widget.addTab(tab_outer, " 🔀 第二步：PT相序检查 ")
+        _tlay = QtWidgets.QVBoxLayout(tab_outer)
+        _tlay.setContentsMargins(0, 0, 0, 0)
+        _scroll = QtWidgets.QScrollArea()
+        _scroll.setWidgetResizable(True)
+        _scroll.setStyleSheet("QScrollArea{border:none;background:#fff8f0;}")
         tab = QtWidgets.QWidget()
         tab.setStyleSheet("background:#fff8f0;")
-        self.tab_widget.addTab(tab, " 🔀 第二步：PT相序检查 ")
+        _scroll.setWidget(tab)
+        _tlay.addWidget(_scroll)
+
         outer = QtWidgets.QVBoxLayout(tab)
         outer.setContentsMargins(18, 14, 18, 14)
         outer.setSpacing(8)
@@ -59,25 +70,24 @@ class PtPhaseCheckTabMixin:
         ar.setContentsMargins(0, 0, 0, 0)
 
         self.btn_pt_phase_test_mode = QtWidgets.QPushButton("进入测试模式")
-        self.btn_pt_phase_test_mode.setStyleSheet(
-            "background:#ffe082; font-size:14px; font-weight:bold; padding:4px;")
+        self.btn_pt_phase_test_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
         self.btn_pt_phase_test_mode.clicked.connect(self._on_toggle_pt_phase_test_mode)
 
         btn_topo = QtWidgets.QPushButton("打开母排拓扑页")
-        btn_topo.setStyleSheet("background:#d9ecff;")
+        btn_topo.setStyleSheet(f"background:#d9ecff; {_BTN}")
         btn_topo.clicked.connect(lambda: self.tab_widget.setCurrentIndex(1))
 
         btn_mm = QtWidgets.QPushButton("开启/关闭万用表")
-        btn_mm.setStyleSheet("background:#fff3bf;")
+        btn_mm.setStyleSheet(f"background:#fff3bf; {_BTN}")
         btn_mm.clicked.connect(
             lambda: self.multimeter_cb.setChecked(not self.multimeter_cb.isChecked()))
 
         btn_reset = QtWidgets.QPushButton("重置相序检查")
-        btn_reset.setStyleSheet("background:#ffd6d6;")
+        btn_reset.setStyleSheet(f"background:#ffd6d6; {_BTN}")
         btn_reset.clicked.connect(lambda: self.ctrl.reset_pt_phase_check())
 
         btn_done = QtWidgets.QPushButton("完成第二步测试")
-        btn_done.setStyleSheet("background:#ffe0b2; font-size:15px; font-weight:bold;")
+        btn_done.setStyleSheet(f"background:#ffe0b2; {_BTN_BOLD}")
         btn_done.clicked.connect(lambda: self.ctrl.finalize_pt_phase_check())
 
         ar.addWidget(self.btn_pt_phase_test_mode)
@@ -172,7 +182,7 @@ class PtPhaseCheckTabMixin:
                 val_lbl.setStyleSheet("font-size:14px; color:#999999;")
 
                 rec_btn = QtWidgets.QPushButton(f"记录 {key}")
-                rec_btn.setStyleSheet("background:#ffe4c4; font-size:14px;")
+                rec_btn.setStyleSheet(f"background:#ffe4c4; {_BTN}")
                 rec_btn.clicked.connect(
                     lambda _, pt=pt_name, ph=phase: self.ctrl.record_pt_phase_check(pt, ph))
 
@@ -197,22 +207,12 @@ class PtPhaseCheckTabMixin:
     def _render_pt_phase_check(self, p):
         state = self.ctrl.pt_phase_check_state
         records = state['records']
-        in_mode = self.ctrl.sim_state.pt_phase_test_mode
 
-        # ── 更新测试模式横幅和按钮文字 ────────────────────────────────────
-        self.pt_phase_test_mode_banner.setVisible(in_mode)
-        if in_mode:
-            self.btn_pt_phase_test_mode.setText("退出测试模式")
-            self.btn_pt_phase_test_mode.setStyleSheet(
-                "background:#f4a261; color:white; font-size:14px; "
-                "font-weight:bold; padding:4px;")
-        else:
-            self.btn_pt_phase_test_mode.setText("进入测试模式")
-            self.btn_pt_phase_test_mode.setStyleSheet(
-                "background:#ffe082; font-size:14px; font-weight:bold; padding:4px;")
-
-        # ── 已完成锁定 ────────────────────────────────────────────────────
+        # ── 已完成锁定：所有 UI 完全冻结 ─────────────────────────────────
         if state.get('completed'):
+            self.pt_phase_test_mode_banner.setVisible(False)
+            self.btn_pt_phase_test_mode.setText("进入测试模式")
+            self.btn_pt_phase_test_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
             self.pt_phase_check_summary_lbl.setText(
                 "✅ 第二步已确认完成：PT1/PT3 相序检查通过，数据已锁定。")
             self.pt_phase_check_summary_lbl.setStyleSheet(
@@ -230,6 +230,18 @@ class PtPhaseCheckTabMixin:
                 lbl.setStyleSheet("font-size:14px; color:#006400;")
             return
 
+        in_mode = self.ctrl.sim_state.pt_phase_test_mode
+
+        # ── 更新测试模式横幅和按钮文字 ────────────────────────────────────
+        self.pt_phase_test_mode_banner.setVisible(in_mode)
+        if in_mode:
+            self.btn_pt_phase_test_mode.setText("退出测试模式")
+            self.btn_pt_phase_test_mode.setStyleSheet(
+                f"background:#f4a261; color:white; {_BTN_BOLD}")
+        else:
+            self.btn_pt_phase_test_mode.setText("进入测试模式")
+            self.btn_pt_phase_test_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+
         # ── 动态显示 ──────────────────────────────────────────────────────
         feedback = state['feedback']
         fb_color = state['feedback_color']
@@ -242,14 +254,13 @@ class PtPhaseCheckTabMixin:
             summary = "⚠️ 检测到相序异常，请检查对应 PT 侧接线后重新记录。"
             sc = '#cc0000'
         else:
-            summary = "请按步骤：Gen1并网 → 起机Gen2(不合闸) → 万用表 → 逐项记录PT1和PT3相序。"
+            summary = "请按步骤：Gen1并网 → 进入测试模式合闸Gen2(不起机) → 万用表 → 逐项记录PT1和PT3相序。"
             sc = '#264653'
 
         self.pt_phase_check_summary_lbl.setText(summary)
         self.pt_phase_check_summary_lbl.setStyleSheet(
             f"font-weight:bold; font-size:15px; color:{sc};")
 
-        # 实时万用表读数
         meter_text = p.meter_reading
         phase_match = getattr(p, 'meter_phase_match', None)
         if phase_match is True:
@@ -266,13 +277,18 @@ class PtPhaseCheckTabMixin:
         self.pt_phase_check_feedback_lbl.setStyleSheet(
             f"font-size:15px; color:{_qs(fb_color)};")
 
-        for lbl, (text, done) in zip(self.pt_phase_check_step_labels,
-                                     self.ctrl.get_pt_phase_check_steps()):
-            lbl.setText(("√ " if done else "□ ") + text)
-            lbl.setStyleSheet(
-                f"font-size:14px; color:{'#006400' if done else '#666666'};")
+        if not in_mode:
+            for lbl, (text, _) in zip(self.pt_phase_check_step_labels,
+                                      self.ctrl.get_pt_phase_check_steps()):
+                lbl.setText("□ " + text)
+                lbl.setStyleSheet("font-size:14px; color:#aaaaaa;")
+        else:
+            for lbl, (text, done) in zip(self.pt_phase_check_step_labels,
+                                         self.ctrl.get_pt_phase_check_steps()):
+                lbl.setText(("√ " if done else "□ ") + text)
+                lbl.setStyleSheet(
+                    f"font-size:14px; color:{'#006400' if done else '#666666'};")
 
-        # 六相记录状态
         for key, lbl in self.pt_phase_check_record_labels.items():
             record = records.get(key)
             if record is None:

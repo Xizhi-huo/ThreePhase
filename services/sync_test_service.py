@@ -21,9 +21,16 @@ class SyncTestService:
             'round1_done': False,   # Gen1基准 → Gen2同步
             'round2_done': False,   # Gen2基准 → Gen1同步
             'completed': False,
+            'started': False,
             'feedback': "请先完成第一步（回路测试）和第二步（PT测试），再进行同步功能测试。",
             'feedback_color': '#444444',
         }
+
+    def start_sync_test(self):
+        self._ctrl.sync_test_state['started'] = True
+
+    def stop_sync_test(self):
+        self._ctrl.sync_test_state['started'] = False
 
     def _set_sync_test_feedback(self, message, color='#444444'):
         self._ctrl.sync_test_state['feedback'] = message

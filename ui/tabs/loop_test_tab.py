@@ -7,6 +7,9 @@ from PyQt5 import QtWidgets
 
 from ui.tabs.circuit_tab import _qs
 
+_BTN  = "font-size:14px; padding:4px 8px;"
+_BTN_BOLD = "font-size:14px; font-weight:bold; padding:4px 8px;"
+
 
 class LoopTestTabMixin:
     """
@@ -15,9 +18,18 @@ class LoopTestTabMixin:
 
     # ── Tab2：回路连通性测试 ─────────────────────────────────────────────────
     def _setup_tab_loop_test(self):
+        tab_outer = QtWidgets.QWidget()
+        self.tab_widget.addTab(tab_outer, " 🔌 第一步：回路连通性测试 ")
+        _tlay = QtWidgets.QVBoxLayout(tab_outer)
+        _tlay.setContentsMargins(0, 0, 0, 0)
+        _scroll = QtWidgets.QScrollArea()
+        _scroll.setWidgetResizable(True)
+        _scroll.setStyleSheet("QScrollArea{border:none;background:#f5fff5;}")
         tab = QtWidgets.QWidget()
         tab.setStyleSheet("background:#f5fff5;")
-        self.tab_widget.addTab(tab, " 🔌 第一步：回路连通性测试 ")
+        _scroll.setWidget(tab)
+        _tlay.addWidget(_scroll)
+
         outer = QtWidgets.QVBoxLayout(tab)
         outer.setContentsMargins(18, 14, 18, 14)
         outer.setSpacing(8)
@@ -54,22 +66,24 @@ class LoopTestTabMixin:
         ar.setContentsMargins(0, 0, 0, 0)
 
         self.btn_loop_mode = QtWidgets.QPushButton("进入回路检查模式")
-        self.btn_loop_mode.setStyleSheet(
-            "background:#ffe082; font-size:14px; font-weight:bold; padding:4px;")
+        self.btn_loop_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
         self.btn_loop_mode.clicked.connect(self._on_toggle_loop_test_mode)
 
         btn_topo = QtWidgets.QPushButton("打开母排拓扑页")
-        btn_topo.setStyleSheet("background:#d9ecff;")
+        btn_topo.setStyleSheet(f"background:#d9ecff; {_BTN}")
         btn_topo.clicked.connect(lambda: self.tab_widget.setCurrentIndex(1))
+
         btn_mm = QtWidgets.QPushButton("开启/关闭万用表")
-        btn_mm.setStyleSheet("background:#fff3bf;")
+        btn_mm.setStyleSheet(f"background:#fff3bf; {_BTN}")
         btn_mm.clicked.connect(
             lambda: self.multimeter_cb.setChecked(not self.multimeter_cb.isChecked()))
+
         btn_reset = QtWidgets.QPushButton("重置回路测试")
-        btn_reset.setStyleSheet("background:#ffd6d6;")
+        btn_reset.setStyleSheet(f"background:#ffd6d6; {_BTN}")
         btn_reset.clicked.connect(lambda: self.ctrl.reset_loop_test())
+
         btn_done = QtWidgets.QPushButton("完成第一步测试")
-        btn_done.setStyleSheet("background:#cdeccf; font-size:15px; font-weight:bold;")
+        btn_done.setStyleSheet(f"background:#cdeccf; {_BTN_BOLD}")
         btn_done.clicked.connect(lambda: self.ctrl.finalize_loop_test())
 
         ar.addWidget(self.btn_loop_mode)
@@ -145,7 +159,7 @@ class LoopTestTabMixin:
             val_lbl.setStyleSheet("font-size:15px; color:#999999;")
 
             rec_btn = QtWidgets.QPushButton(f"记录 {phase} 相")
-            rec_btn.setStyleSheet("background:#d8f3dc; font-size:15px;")
+            rec_btn.setStyleSheet(f"background:#d8f3dc; {_BTN}")
             rec_btn.clicked.connect(
                 lambda _, ph=phase: self.ctrl.record_loop_measurement(ph))
 
@@ -169,20 +183,11 @@ class LoopTestTabMixin:
         records  = state['records']
         in_mode  = self.ctrl.sim_state.loop_test_mode
 
-        # ── 更新模式横幅和按钮文字 ────────────────────────────────────────
-        self.loop_test_mode_banner.setVisible(in_mode)
-        if in_mode:
-            self.btn_loop_mode.setText("退出回路检查模式")
-            self.btn_loop_mode.setStyleSheet(
-                "background:#f4a261; color:white; font-size:14px; "
-                "font-weight:bold; padding:4px;")
-        else:
-            self.btn_loop_mode.setText("进入回路检查模式")
-            self.btn_loop_mode.setStyleSheet(
-                "background:#ffe082; font-size:14px; font-weight:bold; padding:4px;")
-
-        # ── 已完成锁定：不再响应任何硬件状态变化 ──────────────────────────
+        # ── 已完成锁定：所有 UI 完全冻结 ─────────────────────────────────
         if state.get('completed'):
+            self.loop_test_mode_banner.setVisible(False)
+            self.btn_loop_mode.setText("进入回路检查模式")
+            self.btn_loop_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
             self.loop_test_summary_lbl.setText(
                 "✅ 第一步已确认完成：三相回路连通性测试通过，数据已锁定。")
             self.loop_test_summary_lbl.setStyleSheet(
@@ -198,8 +203,18 @@ class LoopTestTabMixin:
                 lbl.setText("回路导通 [连通正常]")
                 lbl.setStyleSheet("font-size:15px; color:#006400;")
             return
-        # ── 动态显示 ──────────────────────────────────────────────────────
 
+        # ── 更新模式横幅和按钮文字 ────────────────────────────────────────
+        self.loop_test_mode_banner.setVisible(in_mode)
+        if in_mode:
+            self.btn_loop_mode.setText("退出回路检查模式")
+            self.btn_loop_mode.setStyleSheet(
+                f"background:#f4a261; color:white; {_BTN_BOLD}")
+        else:
+            self.btn_loop_mode.setText("进入回路检查模式")
+            self.btn_loop_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+
+        # ── 动态显示 ──────────────────────────────────────────────────────
         feedback = state['feedback']
         fb_color = state['feedback_color']
         current_phase = self.ctrl._get_current_loop_phase_match()
@@ -226,10 +241,17 @@ class LoopTestTabMixin:
         self.loop_test_feedback_lbl.setText(f"操作提示：{feedback}")
         self.loop_test_feedback_lbl.setStyleSheet(f"font-size:15px; color:{_qs(fb_color)};")
 
-        for lbl, (text, done) in zip(self.loop_test_step_labels,
-                                     self.ctrl.get_loop_test_steps()):
-            lbl.setText(("√ " if done else "□ ") + text)
-            lbl.setStyleSheet(f"font-size:15px; color:{'#006400' if done else '#666666'};")
+        # 未进入回路检查模式前，子步骤全部保持灰色，不响应实时状态
+        if not in_mode:
+            for lbl, (text, _) in zip(self.loop_test_step_labels,
+                                      self.ctrl.get_loop_test_steps()):
+                lbl.setText("□ " + text)
+                lbl.setStyleSheet("font-size:15px; color:#aaaaaa;")
+        else:
+            for lbl, (text, done) in zip(self.loop_test_step_labels,
+                                         self.ctrl.get_loop_test_steps()):
+                lbl.setText(("√ " if done else "□ ") + text)
+                lbl.setStyleSheet(f"font-size:15px; color:{'#006400' if done else '#666666'};")
 
         for phase, lbl in self.loop_test_record_labels.items():
             record = records[phase]

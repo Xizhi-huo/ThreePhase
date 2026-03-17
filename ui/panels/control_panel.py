@@ -472,3 +472,7 @@ class WidgetBuilderMixin:
                 sl.blockSignals(True)
                 sl.setValue(int(val * scale))
                 sl.blockSignals(False)
+                if not entry.hasFocus():
+                    entry.blockSignals(True)
+                    entry.setText(f"{val:.1f}")
+                    entry.blockSignals(False)
