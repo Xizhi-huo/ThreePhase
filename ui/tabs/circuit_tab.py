@@ -64,34 +64,7 @@ class CircuitTabMixin:
         self.canvas2.mpl_connect('button_press_event', self._on_circuit_click)
         self._draw_circuit_content()
 
-        # ── 快速记录栏 ──────────────────────────────────────────────────────
-        quick_bar = QtWidgets.QWidget()
-        quick_bar.setStyleSheet(
-            "background:#f0f4f8; border-top:1px solid #bbb;")
-        qlay = QtWidgets.QHBoxLayout(quick_bar)
-        qlay.setContentsMargins(10, 4, 10, 4)
-        qlay.setSpacing(8)
-
-        self.circuit_mode_lbl = QtWidgets.QLabel("万用表未开启")
-        self.circuit_mode_lbl.setStyleSheet("font-size:13px; color:#666;")
-        qlay.addWidget(self.circuit_mode_lbl)
-        qlay.addStretch()
-
-        for ph in ('A', 'B', 'C'):
-            btn = QtWidgets.QPushButton(f"记录 {ph} 相")
-            btn.setFixedSize(88, 28)
-            btn.setStyleSheet("font-size:13px;")
-            btn.setEnabled(False)
-            btn.clicked.connect(lambda _checked, p=ph: self._on_quick_record(p))
-            setattr(self, f'circuit_rec_btn_{ph}', btn)
-            qlay.addWidget(btn)
-
-        self.circuit_rec_feedback = QtWidgets.QLabel("")
-        self.circuit_rec_feedback.setStyleSheet(
-            "font-size:13px; color:#006400; min-width:220px;")
-        qlay.addWidget(self.circuit_rec_feedback)
-
-        lay.addWidget(quick_bar)
+        # 快速记录栏已移至右侧测试控制条，此处不再重复显示
 
     # ════════════════════════════════════════════════════════════════════════
     # 母排拓扑静态绘制
@@ -114,7 +87,7 @@ class CircuitTabMixin:
         BUS_Y      = {'A': 0.115, 'B': 0.090, 'C': 0.065, 'N': 0.040}
         BUS_YL     = [BUS_Y['A'], BUS_Y['B'], BUS_Y['C']]
         BUS_PHASES = ['A', 'B', 'C']
-        BUS_COLORS = ['#d4aa00', '#1a9c3c', '#d62828']
+        BUS_COLORS = ['#b45309', '#1a9c3c', '#d62828']
         NEUTRAL_COLOR = '#111111'
 
         G1_CX, G2_CX = 0.28, 0.72
@@ -145,7 +118,7 @@ class CircuitTabMixin:
         CT_Y_TOP   = 0.88;  CT_DY = 0.055
 
         # ── 内部绘图辅助函数 ──────────────────────────────────────────────
-        def draw_pt_y_symbol(cx, cy, size, color='#cc6600', yn_side='right'):
+        def draw_pt_y_symbol(cx, cy, size, color='#9a3412', yn_side='right'):
             arm_a   = (cx - size*0.90, cy + size*0.85)
             arm_b   = (cx,             cy + size)
             arm_c   = (cx + size*0.90, cy + size*0.85)
@@ -159,7 +132,7 @@ class CircuitTabMixin:
             ax.text(yn_x, neutral[1], "Yn", fontsize=6, color='#888', va='center', ha=yn_ha)
             return {'A': arm_a, 'B': arm_b, 'C': arm_c, 'N': neutral, 'C_xy': (cx, cy)}
 
-        def draw_pt_blackbox_symbol(cx, cy, size, color='#cc6600'):
+        def draw_pt_blackbox_symbol(cx, cy, size, color='#9a3412'):
             box_w = size*2.2;  box_h = size*1.7
             left  = cx - box_w/2;  bottom = cy - box_h/2
             ax.add_patch(FancyBboxPatch(
@@ -206,14 +179,14 @@ class CircuitTabMixin:
                 lbl_x, lbl_ha = cx - offset, 'right'
             else:
                 lbl_x, lbl_ha = cx, 'center'
-            ax.text(lbl_x, cy + PT_SIZE*0.4,  label,    fontsize=7, ha=lbl_ha, color='#cc6600', weight='bold')
+            ax.text(lbl_x, cy + PT_SIZE*0.4,  label,    fontsize=7, ha=lbl_ha, color='#9a3412', weight='bold')
             ax.text(lbl_x, cy - PT_SIZE*0.4,  "PT本体", fontsize=6, ha=lbl_ha, color='#555')
             ax.text(lbl_x, cy - PT_SIZE*1.1,  "一次侧", fontsize=6, ha=lbl_ha, color='#666')
             if pt_blackbox_mode:
                 ax.text(lbl_x, cy - PT_SIZE*1.8, "黑盒教学模式", fontsize=5.5, ha=lbl_ha, color='#555')
             return sym
 
-        def draw_pt_secondary_terminal_strip(cx, cy, prefix, section_y, line_y, color='#cc6600'):
+        def draw_pt_secondary_terminal_strip(cx, cy, prefix, section_y, line_y, color='#9a3412'):
             node_keys = [f"{prefix}_{ph}" for ph in ('A', 'B', 'C')]
             xs = [NODES[key][0] for key in node_keys]
             y  = NODES[node_keys[0]][1]
@@ -293,7 +266,10 @@ class CircuitTabMixin:
             ax.text(xpos, neutral_y, 'N', fontsize=12, ha='center', va='center',
                     weight='bold', color=NEUTRAL_COLOR, path_effects=_stroke)
         self.txt_bus_source = ax.text(
-            0.50, -0.035, "Dead Bus (无电)", weight='bold', ha='center', fontsize=10, color='#333')
+            0.50, -0.035, "Dead Bus (无电)", weight='bold', ha='center', fontsize=10,
+            color='#1e293b',
+            bbox=dict(facecolor='#f8fafc', edgecolor='#cbd5e1',
+                      boxstyle='round,pad=0.3', alpha=0.92))
 
         # ── 2. 发电机柜 ───────────────────────────────────────────────────
         draw_gen_cabinet(G1_X, '--')
@@ -319,7 +295,7 @@ class CircuitTabMixin:
         for node_name in ('LOOP_G1_A', 'LOOP_G1_B', 'LOOP_G1_C',
                           'LOOP_G2_A', 'LOOP_G2_B', 'LOOP_G2_C'):
             x, y, _, phase, _ = NODES[node_name]
-            phase_color = {'A': '#d4aa00', 'B': '#1a9c3c', 'C': '#d62828'}[phase]
+            phase_color = {'A': '#b45309', 'B': '#1a9c3c', 'C': '#d62828'}[phase]
             ax.plot(x, y, 'o', color='k', markersize=4.5, zorder=6)
             ax.text(x, y+0.018, phase, fontsize=6, ha='center', color=phase_color, weight='bold')
         ax.text(0.50, 0.438, "三相回路连通测点", fontsize=7, ha='center', color='#444')
@@ -348,7 +324,7 @@ class CircuitTabMixin:
             ax.plot(arm_tx, bus_y_val, 'o', color='k', markersize=3)
             ax.plot([arm_tx, arm_tx], [bus_y_val, arm_ty], color=color, lw=1.2, alpha=0.85)
         _pt2_lbl_x = PT2_CX + PT_SIZE * 1.5
-        ax.text(_pt2_lbl_x, PT2_CY + PT_SIZE*0.4,  "PT2", fontsize=7, ha='left', color='#cc6600', weight='bold')
+        ax.text(_pt2_lbl_x, PT2_CY + PT_SIZE*0.4,  "PT2", fontsize=7, ha='left', color='#9a3412', weight='bold')
         ax.text(_pt2_lbl_x, PT2_CY - PT_SIZE*0.4,  "母排", fontsize=6, ha='left', color='#666')
         if pt_blackbox_mode:
             ax.text(_pt2_lbl_x, PT2_CY - PT_SIZE*1.1, "黑盒教学模式", fontsize=5.5, ha='left', color='#555')
@@ -363,7 +339,7 @@ class CircuitTabMixin:
         # PT 电压读数文字
         PT_V_LBL_Y  = PT_GEN_CY + PT_SIZE + 0.245
         PT2_V_LBL_Y = PT2_CY   + PT_SIZE + 0.245
-        bbox_pt = dict(facecolor='#ffffee', edgecolor='#cc6600',
+        bbox_pt = dict(facecolor='#f8fafc', edgecolor='#9a3412',
                        boxstyle='round,pad=0.25', alpha=0.90)
         self.txt_pt1_v = ax.text(PT1_CX, PT_V_LBL_Y,  "PT1: -- V", fontsize=7,
                                   ha='center', color='#0066cc', bbox=bbox_pt)
@@ -423,13 +399,21 @@ class CircuitTabMixin:
 
     def _render_bus_status(self, p):
         self.bus_status_lbl.setText(p.bus_status_msg)
-        self.bus_status_lbl.setStyleSheet(
-            f"background:#1a1a2e; color:{'#00ff00' if p.bus_live else '#ff6600'}; "
-            f"font-weight:bold; padding:5px; font-size:12px;")
+        if p.bus_live:
+            self.bus_status_lbl.setStyleSheet(
+                "background:#dcfce7; color:#15803d; font-weight:bold;"
+                " padding:5px; font-size:12px; border-radius:4px;"
+                " border:1px solid #86efac;")
+        else:
+            self.bus_status_lbl.setStyleSheet(
+                "background:#fef3c7; color:#92400e; font-weight:bold;"
+                " padding:5px; font-size:12px; border-radius:4px;"
+                " border:1px solid #fcd34d;")
         self.bus_reference_lbl.setText(p.bus_reference_msg)
         self.bus_reference_lbl.setStyleSheet(
-            f"background:#f4f4f4; color:{'#006600' if p.bus_live else '#666666'}; "
-            f"font-weight:bold; padding:4px; font-size:12px;")
+            f"background:#f8fafc; color:{'#15803d' if p.bus_live else '#64748b'}; "
+            f"font-weight:bold; padding:4px; font-size:12px; border-radius:4px;"
+            f" border:1px solid #e2e8f0;")
         src_map = {
             1:      "Bus ← Gen 1",
             2:      "Bus ← Gen 2",
@@ -441,7 +425,8 @@ class CircuitTabMixin:
     def _render_breakers(self, p):
         self.arbitrator_lbl.setText(p.arb_msg)
         self.arbitrator_lbl.setStyleSheet(
-            f"background:black; color:{p.arb_color}; font-weight:bold; padding:6px; font-size:12px;")
+            f"background:#eff6ff; color:#1d4ed8; font-weight:bold; padding:6px; font-size:12px;"
+            f" border-radius:4px; border:1px solid #bfdbfe;")
         self.relay_lbl.setText(p.relay_msg)
         self.relay_lbl.setStyleSheet(f"color:{_qs(p.relay_color)}; font-size:12px; padding:3px;")
 
@@ -451,9 +436,29 @@ class CircuitTabMixin:
         ]:
             lbl = getattr(self, lbl_attr)
             lbl.setText(text)
-            tc = 'white' if _qs(bg) not in ('#ffaa00', '#ffcc00') else 'black'
-            lbl.setStyleSheet(
-                f"background:{_qs(bg)}; color:{tc}; font-weight:bold; padding:3px; font-size:12px;")
+            bg_str = _qs(bg)
+            # Map legacy dark colors to new theme palette
+            if bg_str in ('#00cc00', '#009900', '#006600', '#00ff00'):
+                style = ("background:#dcfce7; color:#15803d; font-weight:bold;"
+                         " padding:3px; font-size:12px; border-radius:3px;"
+                         " border:1px solid #86efac;")
+            elif bg_str in ('#cc0000', '#ff0000', '#990000', '#ff3333'):
+                style = ("background:#fee2e2; color:#dc2626; font-weight:bold;"
+                         " padding:3px; font-size:12px; border-radius:3px;"
+                         " border:1px solid #fca5a5;")
+            elif bg_str in ('#ffaa00', '#ffcc00', '#ff9900', '#d97706'):
+                style = ("background:#fef3c7; color:#92400e; font-weight:bold;"
+                         " padding:3px; font-size:12px; border-radius:3px;"
+                         " border:1px solid #fcd34d;")
+            elif bg_str in ('#333399', '#0000ff', '#1d4ed8'):
+                style = ("background:#eff6ff; color:#1d4ed8; font-weight:bold;"
+                         " padding:3px; font-size:12px; border-radius:3px;"
+                         " border:1px solid #93c5fd;")
+            else:
+                tc = 'white' if bg_str not in ('#ffaa00', '#ffcc00') else 'black'
+                style = (f"background:{bg_str}; color:{tc}; font-weight:bold;"
+                         f" padding:3px; font-size:12px; border-radius:3px;")
+            lbl.setStyleSheet(style)
 
         for lines, xs, y_bot, y_top, is_closed in [
             (self.sw1_pack, [0.24, 0.28, 0.32], 0.24, 0.31, p.brk1_visual),
@@ -487,7 +492,7 @@ class CircuitTabMixin:
             (self.txt_pt3_v, "PT3", p.pt3_v),
         ]:
             txt.set_text(f"{label}: {v:.1f}V")
-            txt.set_color('#006600' if v > 90.0 else '#cc6600' if v > 10.0 else '#999999')
+            txt.set_color('#15803d' if v > 90.0 else '#9a3412' if v > 10.0 else '#94a3b8')
 
     def _render_multimeter(self, p):
         if self.ctrl.sim_state.multimeter_mode:

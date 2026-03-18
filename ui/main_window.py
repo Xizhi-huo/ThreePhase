@@ -39,6 +39,7 @@ PowerSyncUI 通过多重继承组合各个 Mixin：
 
 from PyQt5 import QtWidgets, QtCore, QtGui
 
+from ui.styles import APP_QSS
 from ui.panels.control_panel import WidgetBuilderMixin
 from ui.tabs.waveform_tab import WaveformTabMixin
 from ui.tabs.circuit_tab import CircuitTabMixin
@@ -47,6 +48,7 @@ from ui.tabs.pt_voltage_check_tab import PtVoltageCheckTabMixin
 from ui.tabs.pt_phase_check_tab import PtPhaseCheckTabMixin
 from ui.tabs.pt_exam_tab import PtExamTabMixin
 from ui.tabs.sync_test_tab import SyncTestTabMixin
+from ui.test_panel import TestPanelMixin
 
 
 class PowerSyncUI(
@@ -58,6 +60,7 @@ class PowerSyncUI(
     PtPhaseCheckTabMixin,
     PtExamTabMixin,
     SyncTestTabMixin,
+    TestPanelMixin,
     QtWidgets.QMainWindow,
 ):
     """
@@ -93,11 +96,12 @@ class PowerSyncUI(
         ctrl_container.setFixedWidth(520)
         ctrl_container.setWidgetResizable(True)
         ctrl_container.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        ctrl_container.setStyleSheet("QScrollArea { border: none; background: #ececec; }")
+        ctrl_container.setStyleSheet("QScrollArea { border: none; background: #f1f5f9; }")
         self.ctrl_inner = QtWidgets.QWidget()
-        self.ctrl_inner.setStyleSheet("background: #ececec;")
+        self.ctrl_inner.setStyleSheet("background: #f1f5f9;")
         ctrl_container.setWidget(self.ctrl_inner)
         h_layout.addWidget(ctrl_container)
+        self.ctrl_container = ctrl_container  # 保存引用，供 test_panel 切换显示
 
         self.ctrl_layout = QtWidgets.QVBoxLayout(self.ctrl_inner)
         self.ctrl_layout.setAlignment(QtCore.Qt.AlignTop)
@@ -114,6 +118,20 @@ class PowerSyncUI(
         self._setup_tab_pt_exam()             # ← PtExamTabMixin            Tab 5
         self._setup_tab_sync_test()           # ← SyncTestTabMixin          Tab 6
         self._init_lines()                    # ← WaveformTabMixin
+
+        # ── 全局主题 + Tab 整理 ───────────────────────────────────────────
+        QtWidgets.QApplication.instance().setStyleSheet(APP_QSS)
+        self.tab_widget.setTabText(0, "📊 实时波形与同期表")
+        # 步骤 Tab 2-6 由测试模式按需显示，初始隐藏
+        for _i in range(2, 7):
+            try:
+                self.tab_widget.setTabVisible(_i, False)
+            except AttributeError:
+                pass  # Qt < 5.15 fallback: 无 setTabVisible
+
+        # ── 竖向测试控制条（测试模式时替换右侧控制台）───────────────────
+        self._setup_test_panel()              # ← TestPanelMixin
+        h_layout.addWidget(self.test_panel)   # 加入主布局（初始隐藏）
 
     # ── resize 防抖回调 ─────────────────────────────────────────────────────
     def resizeEvent(self, event: QtGui.QResizeEvent):
@@ -138,13 +156,14 @@ class PowerSyncUI(
         self._render_breakers(p)
         self._render_grounding_and_pt(p)
         self._render_multimeter(p)
-        self._render_circuit_quick_record(p)
+        # _render_circuit_quick_record 已移除（记录功能集中在右侧测试条）
         self._render_loop_test(p)
         self._render_pt_voltage_check(p)
         self._render_pt_phase_check(p)
         self._render_sync_test(p)
         self._render_pt_exam(p)
         self._update_generator_buttons()
+        self._render_test_panel(p)
 
         # resize/全屏动画期间跳过 canvas 重绘，防止卡死
         if self._is_resizing:

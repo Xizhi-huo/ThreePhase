@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(python -c \":*)",
-      "Bash(find /Users/promise/Downloads/3/Intership/ThreePhase -type f -name *.py)"
+      "Bash(find /Users/promise/Downloads/3/Intership/ThreePhase -type f -name *.py)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''ui/test_panel.py''\\).read\\(\\)\\); print\\(''syntax OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''ui/main_window.py''\\).read\\(\\)\\); print\\(''main_window OK''\\); ast.parse\\(open\\(''ui/panels/control_panel.py''\\).read\\(\\)\\); print\\(''control_panel OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''ui/test_panel.py''\\).read\\(\\)\\); print\\(''OK''\\)\")"
     ]
   }
 }
