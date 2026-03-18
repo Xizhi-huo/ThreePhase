@@ -13,6 +13,14 @@ from domain.constants import CT_RATIO, TRIP_CURRENT
 from domain.node_map import NODES
 from ui.tabs.waveform_tab import MplCanvas
 
+# 第二步快速记录辅助映射
+_PHASE_PAIR_LABEL = {
+    frozenset({'A', 'B'}): 'AB',
+    frozenset({'B', 'C'}): 'BC',
+    frozenset({'C', 'A'}): 'CA',
+}
+_PHASE_TO_PAIR = {'A': 'AB', 'B': 'BC', 'C': 'CA'}
+
 
 # 热力颜色工具
 def rms_to_heat_color(rms: float) -> str:
@@ -238,20 +246,36 @@ class CircuitTabMixin:
         def draw_generator_neutral_ground(cx):
             fan_xs = [cx-0.030, cx, cx+0.030]
             fan_y  = GND_BOT_Y + 0.02
+            # ── 发电机→中性点连接线（断开时隐藏）──────────────────────────
+            conn_lines = []
             for fx in fan_xs:
-                ax.plot([fx, fx], [GND_BOT_Y, fan_y], color='k', lw=1.4)
-            ax.plot([fan_xs[0], fan_xs[-1]], [fan_y, fan_y], color='k', lw=1.4)
-            ax.plot(cx, fan_y, 'ko', markersize=4)
-            ax.plot([cx, cx], [fan_y, GND_RES_Y1], 'k-', lw=1.4)
+                ln, = ax.plot([fx, fx], [GND_BOT_Y, fan_y], color='k', lw=1.4)
+                conn_lines.append(ln)
+            ln, = ax.plot([fan_xs[0], fan_xs[-1]], [fan_y, fan_y], color='k', lw=1.4)
+            conn_lines.append(ln)
+            dot, = ax.plot([cx], [fan_y], 'ko', markersize=4)
+            conn_lines.append(dot)
+            ln, = ax.plot([cx, cx], [fan_y, GND_RES_Y1], 'k-', lw=1.4)
+            conn_lines.append(ln)
+            # ── 直接接地旁路线（仅直接接地时显示）────────────────────────
+            bypass_ln, = ax.plot([cx, cx], [fan_y, GND_EARTH_Y], 'k-', lw=1.4, visible=False)
+            # ── 小电阻符号（直接接地时隐藏）──────────────────────────────
             ry = np.linspace(GND_RES_Y1, GND_RES_Y2, 13)
             rx = [cx + (0.012 if i % 2 == 1 else -0.012) for i in range(len(ry))]
             rx[0] = rx[-1] = cx
-            ax.plot(rx, ry, 'k-', lw=1.4)
-            ax.text(cx+0.030, (GND_RES_Y1+GND_RES_Y2)/2, "Rn", fontsize=7, color='#555', va='center')
-            ax.plot([cx, cx], [GND_RES_Y2, GND_EARTH_Y], 'k-', lw=1.4)
+            res_zigzag, = ax.plot(rx, ry, 'k-', lw=1.4)
+            rn_text = ax.text(cx+0.030, (GND_RES_Y1+GND_RES_Y2)/2, "Rn",
+                              fontsize=7, color='#555', va='center')
+            post_res_ln, = ax.plot([cx, cx], [GND_RES_Y2, GND_EARTH_Y], 'k-', lw=1.4)
+            # ── 接地符号（始终显示）───────────────────────────────────────
             for i, half in enumerate([0.022, 0.015, 0.008]):
                 ey = GND_EARTH_Y + i*0.013
                 ax.plot([cx-half, cx+half], [ey, ey], 'k-', lw=2.0-i*0.4)
+            return {
+                'conn':     conn_lines,
+                'bypass':   bypass_ln,
+                'resistor': [res_zigzag, rn_text, post_res_ln],
+            }
 
         # ── 1. 三相四线母排 ───────────────────────────────────────────────
         BUS_X_L, BUS_X_R = 0.02, 0.98
@@ -301,8 +325,8 @@ class CircuitTabMixin:
         ax.text(0.50, 0.438, "三相回路连通测点", fontsize=7, ha='center', color='#444')
 
         # ── 3. 中性点接地 ─────────────────────────────────────────────────
-        draw_generator_neutral_ground(G1_CX)
-        draw_generator_neutral_ground(G2_CX)
+        self.gnd_data1 = draw_generator_neutral_ground(G1_CX)
+        self.gnd_data2 = draw_generator_neutral_ground(G2_CX)
 
         # ── 4. PT ─────────────────────────────────────────────────────────
         PT_GEN_CHANNELS = {'A': CB_BOT-0.015, 'B': CB_BOT-0.030, 'C': CB_BOT-0.045}
@@ -447,6 +471,16 @@ class CircuitTabMixin:
         self.txt_grounding.set_text(p.ground_msg)
         self.txt_grounding.set_color(p.ground_color)
         self.txt_grounding.get_bbox_patch().set_edgecolor(p.ground_color)
+        # 根据接地模式动态更新中性点连接线和电阻符号
+        gnd_mode = self.ctrl.sim_state.grounding_mode
+        disconnected = (gnd_mode == "断开")
+        direct       = (gnd_mode == "直接接地")
+        for gnd in (self.gnd_data1, self.gnd_data2):
+            for ln in gnd['conn']:
+                ln.set_visible(not disconnected)
+            gnd['bypass'].set_visible(not disconnected and direct)
+            for art in gnd['resistor']:
+                art.set_visible(not direct)
         for txt, label, v in [
             (self.txt_pt1_v, "PT1", p.pt1_v),
             (self.txt_pt2_v, "PT2", p.pt2_v),
@@ -503,25 +537,53 @@ class CircuitTabMixin:
                 btn.setEnabled(not recorded)
                 btn.setStyleSheet(
                     f"font-size:13px; background:{'#c8f0c8' if recorded else '#ffffff'};")
+        elif not self.ctrl.is_pt_voltage_check_complete():
+            # ── 第二步：PT 单体线电压检查 ──────────────────────────────────────
+            n1, n2 = sim.probe1_node, sim.probe2_node
+            _pt1 = n1.rsplit('_', 1)[0] if n1 and '_' in n1 else ''
+            _pt2 = n2.rsplit('_', 1)[0] if n2 and '_' in n2 else ''
+            _ph1 = n1.rsplit('_', 1)[1] if n1 and '_' in n1 else ''
+            _ph2 = n2.rsplit('_', 1)[1] if n2 and '_' in n2 else ''
+            intra_pt = (_pt1 == _pt2 and _pt1 in ('PT1', 'PT2', 'PT3') and
+                        _ph1 in ('A', 'B', 'C') and _ph2 in ('A', 'B', 'C') and _ph1 != _ph2)
+            if not intra_pt:
+                self.circuit_mode_lbl.setText("第二步：请将两支表笔放在同一 PT 的两相端子上")
+                for ph in ('A', 'B', 'C'):
+                    btn = getattr(self, f'circuit_rec_btn_{ph}')
+                    btn.setEnabled(False)
+                    btn.setStyleSheet("font-size:13px;")
+                return
+            state2 = self.ctrl.pt_voltage_check_state
+            pair_key = _PHASE_PAIR_LABEL.get(frozenset({_ph1, _ph2}), '')
+            self.circuit_mode_lbl.setText(f"第二步：{_pt1} {pair_key}线电压 — 快速记录")
+            for ph in ('A', 'B', 'C'):
+                btn = getattr(self, f'circuit_rec_btn_{ph}')
+                this_pair = _PHASE_TO_PAIR[ph]
+                rec_key = f"{_pt1}_{this_pair}"
+                already_rec = state2.records.get(rec_key) is not None
+                is_current = (this_pair == pair_key)
+                btn.setEnabled(is_current and not already_rec)
+                btn.setStyleSheet(
+                    f"font-size:13px; background:{'#c8f0c8' if already_rec else '#ffffff'};")
         elif not self.ctrl.is_pt_phase_check_complete():
-            # ── 第二步：PT 相序检查 ────────────────────────────────────────────
+            # ── 第三步：PT 相序检查 ────────────────────────────────────────────
             pt_name = None
             for node in (sim.probe1_node, sim.probe2_node):
                 if node and node.startswith('PT') and not node.startswith('PT2'):
                     pt_name = node.split('_')[0]  # 'PT1' or 'PT3'
                     break
             if pt_name is None:
-                self.circuit_mode_lbl.setText("第二步：请将表笔放在 PT1_X 或 PT3_X 与 PT2_X 上")
+                self.circuit_mode_lbl.setText("第三步：请将表笔放在 PT1_X 或 PT3_X 与 PT2_X 上")
                 for ph in ('A', 'B', 'C'):
                     getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
                 return
             state = self.ctrl.pt_phase_check_state
             if state.completed:
-                self.circuit_mode_lbl.setText("第二步 PT相序已完成，数据已锁定")
+                self.circuit_mode_lbl.setText("第三步 PT相序已完成，数据已锁定")
                 for ph in ('A', 'B', 'C'):
                     getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
                 return
-            self.circuit_mode_lbl.setText(f"第二步：{pt_name}/PT2 相序 — 快速记录")
+            self.circuit_mode_lbl.setText(f"第三步：{pt_name}/PT2 相序 — 快速记录")
             records = state.records
             for ph in ('A', 'B', 'C'):
                 key = f"{pt_name}_{ph}"
@@ -531,22 +593,22 @@ class CircuitTabMixin:
                 btn.setStyleSheet(
                     f"font-size:13px; background:{'#c8f0c8' if recorded else '#ffffff'};")
         else:
-            # ── 第三步：PT 压差测试 ────────────────────────────────────────────
+            # ── 第四步：PT 压差测试 ────────────────────────────────────────────
             gen_id = getattr(self, '_pt_target_bg').checkedId()
             if gen_id <= 0:
                 gen_id = 1
             state = self.ctrl.pt_exam_states[gen_id]
             if state.completed:
-                self.circuit_mode_lbl.setText(f"第三步 Gen {gen_id} 已完成，数据已锁定")
+                self.circuit_mode_lbl.setText(f"第四步 Gen {gen_id} 已完成，数据已锁定")
                 for ph in ('A', 'B', 'C'):
                     getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
                 return
             if not state.started:
-                self.circuit_mode_lbl.setText("第三步尚未开始 — 请在第三步标签页点击「开始第三步测试」")
+                self.circuit_mode_lbl.setText("第四步尚未开始 — 请在第四步标签页点击「开始第四步测试」")
                 for ph in ('A', 'B', 'C'):
                     getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
                 return
-            self.circuit_mode_lbl.setText(f"第三步：Gen {gen_id} PT 二次压差 — 快速记录")
+            self.circuit_mode_lbl.setText(f"第四步：Gen {gen_id} PT 二次压差 — 快速记录")
             for ph in ('A', 'B', 'C'):
                 recorded = state.records[ph] is not None
                 btn = getattr(self, f'circuit_rec_btn_{ph}')
@@ -567,8 +629,27 @@ class CircuitTabMixin:
             self.circuit_rec_feedback.setText(st.feedback)
             self.circuit_rec_feedback.setStyleSheet(
                 f"font-size:13px; color:{_qs(st.feedback_color)}; min-width:220px;")
+        elif not self.ctrl.is_pt_voltage_check_complete():
+            # 第二步：PT 单体线电压 — 直接记录同一 PT 内两相端子的线电压
+            n1, n2 = sim.probe1_node, sim.probe2_node
+            _pt1 = n1.rsplit('_', 1)[0] if n1 and '_' in n1 else ''
+            _pt2 = n2.rsplit('_', 1)[0] if n2 and '_' in n2 else ''
+            _ph1 = n1.rsplit('_', 1)[1] if n1 and '_' in n1 else ''
+            _ph2 = n2.rsplit('_', 1)[1] if n2 and '_' in n2 else ''
+            intra_pt = (_pt1 == _pt2 and _pt1 in ('PT1', 'PT2', 'PT3') and
+                        _ph1 in ('A', 'B', 'C') and _ph2 in ('A', 'B', 'C') and _ph1 != _ph2)
+            if not intra_pt:
+                return
+            pair_key = _PHASE_PAIR_LABEL.get(frozenset({_ph1, _ph2}), '')
+            if _PHASE_TO_PAIR.get(phase) != pair_key:
+                return  # 按下的按钮与当前表笔所在线对不对应
+            self.ctrl.record_pt_voltage_measurement(_pt1, pair_key)
+            st = self.ctrl.pt_voltage_check_state
+            self.circuit_rec_feedback.setText(st.feedback)
+            self.circuit_rec_feedback.setStyleSheet(
+                f"font-size:13px; color:{_qs(st.feedback_color)}; min-width:220px;")
         elif not self.ctrl.is_pt_phase_check_complete():
-            # 第二步：PT 相序检查快速记录
+            # 第三步：PT 相序检查快速记录
             pt_name = None
             for node in (sim.probe1_node, sim.probe2_node):
                 if node and node.startswith('PT') and not node.startswith('PT2'):
@@ -582,7 +663,7 @@ class CircuitTabMixin:
             self.circuit_rec_feedback.setStyleSheet(
                 f"font-size:13px; color:{_qs(st.feedback_color)}; min-width:220px;")
         else:
-            # 第三步：PT 压差测试（只有已开始才记录）
+            # 第四步：PT 压差测试（只有已开始才记录）
             gen_id = getattr(self, '_pt_target_bg').checkedId()
             if gen_id <= 0:
                 gen_id = 1

@@ -40,4 +40,3 @@ class SimulationState:
     probe1_node: Optional[str] = None
     probe2_node: Optional[str] = None
     loop_test_mode: bool = False        # 第一步回路检查模式：允许不起机合闸，跳过失压联锁
-    pt_phase_test_mode: bool = False    # 第二步PT相序测试模式：允许Gen2不起机合闸（母线反向馈入）

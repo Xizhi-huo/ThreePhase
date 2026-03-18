@@ -41,8 +41,10 @@ class SyncTestService:
         p = self._ctrl.physics
         state = self._ctrl.sync_test_state
 
-        loop_done = self._ctrl.is_loop_test_complete()
-        pt_done   = self._ctrl.is_pt_exam_recorded(1) and self._ctrl.is_pt_exam_recorded(2)
+        loop_done       = self._ctrl.is_loop_test_complete()
+        pt_voltage_done = self._ctrl.is_pt_voltage_check_complete()
+        pt_phase_done   = self._ctrl.is_pt_phase_check_complete()
+        pt_done         = self._ctrl.is_pt_exam_recorded(1) and self._ctrl.is_pt_exam_recorded(2)
 
         r1_master_ok    = (gen1.breaker_closed and
                            gen1.breaker_position == BreakerPosition.WORKING and
@@ -62,23 +64,27 @@ class SyncTestService:
         steps = [
             ("1. 前提：第一步回路连通性测试已完成",
              loop_done),
-            ("2. 前提：第二步 PT 二次端子压差测试已完成（Gen1 & Gen2）",
+            ("2. 前提：第二步 PT 单体线电压检查已完成",
+             pt_voltage_done),
+            ("3. 前提：第三步 PT 相序检查已完成",
+             pt_phase_done),
+            ("4. 前提：第四步 PT 二次端子压差测试已完成（Gen1 & Gen2）",
              pt_done),
-            ("3. [第一轮] 将 Gen 1 切至手动模式并在工作位置合闸（建立母排电压）",
+            ("5. [第一轮] 将 Gen 1 切至手动模式并在工作位置合闸（建立母排电压）",
              r1_master_ok or state.round1_done),
-            ("4. [第一轮] 将 Gen 2 切至自动（Auto）同步模式",
+            ("6. [第一轮] 将 Gen 2 切至自动（Auto）同步模式",
              r1_follower_ok or state.round1_done),
-            ("5. [第一轮] 确认 Gen 2 已同步完成（频率/幅值与 Gen 1 匹配）",
+            ("7. [第一轮] 确认 Gen 2 已同步完成（频率/幅值与 Gen 1 匹配）",
              r1_synced or state.round1_done),
-            ("6. [第一轮] 记录结果：Gen 1 基准 → Gen 2 同步完成",
+            ("8. [第一轮] 记录结果：Gen 1 基准 → Gen 2 同步完成",
              state.round1_done),
-            ("7. [第二轮] 断开 Gen 1，将 Gen 2 切至手动模式并合闸（互换基准）",
+            ("9. [第二轮] 断开 Gen 1，将 Gen 2 切至手动模式并合闸（互换基准）",
              r2_master_ok or state.round2_done),
-            ("8. [第二轮] 将 Gen 1 切至自动（Auto）同步模式",
+            ("10. [第二轮] 将 Gen 1 切至自动（Auto）同步模式",
              r2_follower_ok or state.round2_done),
-            ("9. [第二轮] 确认 Gen 1 已同步完成（频率/幅值与 Gen 2 匹配）",
+            ("11. [第二轮] 确认 Gen 1 已同步完成（频率/幅值与 Gen 2 匹配）",
              r2_synced or state.round2_done),
-            ("10. [第二轮] 记录结果：Gen 2 基准 → Gen 1 同步完成",
+            ("12. [第二轮] 记录结果：Gen 2 基准 → Gen 1 同步完成",
              state.round2_done),
         ]
         if state.completed:
@@ -94,9 +100,15 @@ class SyncTestService:
         if not self._ctrl.is_loop_test_complete():
             self._set_sync_test_feedback("请先完成第一步【回路连通性测试】。", "red")
             return
+        if not self._ctrl.is_pt_voltage_check_complete():
+            self._set_sync_test_feedback("请先完成第二步【PT 单体线电压检查】。", "red")
+            return
+        if not self._ctrl.is_pt_phase_check_complete():
+            self._set_sync_test_feedback("请先完成第三步【PT 相序检查】。", "red")
+            return
         if not (self._ctrl.is_pt_exam_recorded(1) and self._ctrl.is_pt_exam_recorded(2)):
             self._set_sync_test_feedback(
-                "请先完成第二步【PT二次端子压差测试】（Gen1 和 Gen2 均需完成）。", "red")
+                "请先完成第四步【PT 二次端子压差测试】（Gen1 和 Gen2 均需完成）。", "red")
             return
 
         if round_num == 1:
@@ -154,7 +166,7 @@ class SyncTestService:
         self._ctrl.sync_test_state = self.create_sync_test_state()
 
     def is_sync_test_complete(self):
-        """用户已点击"完成第四步测试"才返回 True，用于解锁合闸约束。"""
+        """用户已点击"完成第五步测试"才返回 True，用于解锁合闸约束。"""
         return self._ctrl.sync_test_state.completed
 
     def is_sync_test_rounds_done(self):
@@ -165,11 +177,11 @@ class SyncTestService:
     def finalize_sync_test(self):
         if not self.is_sync_test_rounds_done():
             self._set_sync_test_feedback(
-                '请先完成并记录两轮同步测试，再点击\u201c完成第三步测试\u201d。', "red")
+                '请先完成并记录两轮同步测试，再点击\u201c完成第五步测试\u201d。', "red")
             return
         self._ctrl.sync_test_state.completed = True
         self._set_sync_test_feedback(
-            "第三步【同步功能测试】已确认完成，系统恢复正常自动合闸逻辑。", "#006600")
+            "第五步【同步功能测试】已确认完成，系统恢复正常自动合闸逻辑。", "#006600")
 
     def get_sync_test_blockers(self):
         return [text for text, done in self.get_sync_test_steps() if not done]

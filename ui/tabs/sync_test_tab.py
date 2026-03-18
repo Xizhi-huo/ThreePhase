@@ -1,6 +1,6 @@
 """
 ui/tabs/sync_test_tab.py
-同步功能测试 Tab (Tab 5 — 第四步)
+同步功能测试 Tab (Tab 6 — 第五步)
 """
 
 from PyQt5 import QtWidgets
@@ -19,7 +19,7 @@ class SyncTestTabMixin:
     # ── Tab5：同步功能测试 ───────────────────────────────────────────────────
     def _setup_tab_sync_test(self):
         tab_outer = QtWidgets.QWidget()
-        self.tab_widget.addTab(tab_outer, " ⚡ 第四步：同步功能测试 ")
+        self.tab_widget.addTab(tab_outer, " ⚡ 第五步：同步功能测试")
         _tlay = QtWidgets.QVBoxLayout(tab_outer)
         _tlay.setContentsMargins(0, 0, 0, 0)
         _scroll = QtWidgets.QScrollArea()
@@ -34,7 +34,7 @@ class SyncTestTabMixin:
         outer.setContentsMargins(18, 14, 18, 14)
         outer.setSpacing(8)
 
-        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第四步：同步功能测试")
+        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第五步：同步功能测试")
         hdr.setStyleSheet("font-size:18px; font-weight:bold; color:#7a4f00;")
         outer.addWidget(hdr)
 
@@ -49,7 +49,7 @@ class SyncTestTabMixin:
 
         # ── 测试进行中横幅 ────────────────────────────────────────────────
         self.sync_test_mode_banner = QtWidgets.QLabel(
-            "⚡ 第四步测试进行中 — 请按两轮步骤完成同步功能验证"
+            "⚡ 第五步测试进行中 — 请按两轮步骤完成同步功能验证"
         )
         self.sync_test_mode_banner.setWordWrap(True)
         self.sync_test_mode_banner.setStyleSheet(
@@ -65,7 +65,7 @@ class SyncTestTabMixin:
         ar = QtWidgets.QHBoxLayout(act_row)
         ar.setContentsMargins(0, 0, 0, 0)
 
-        self.btn_sync_test_start = QtWidgets.QPushButton("开始第四步测试")
+        self.btn_sync_test_start = QtWidgets.QPushButton("开始第五步测试")
         self.btn_sync_test_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
         self.btn_sync_test_start.clicked.connect(self._on_toggle_sync_test_mode)
 
@@ -77,7 +77,7 @@ class SyncTestTabMixin:
         btn_reset.setStyleSheet(f"background:#ffd6d6; {_BTN}")
         btn_reset.clicked.connect(lambda: self.ctrl.reset_sync_test())
 
-        btn_done = QtWidgets.QPushButton("完成第四步测试")
+        btn_done = QtWidgets.QPushButton("完成第五步测试")
         btn_done.setStyleSheet(f"background:#cdeccf; {_BTN_BOLD}")
         btn_done.clicked.connect(lambda: self.ctrl.finalize_sync_test())
 
@@ -122,7 +122,7 @@ class SyncTestTabMixin:
         )
         sl_lay = QtWidgets.QVBoxLayout(steps_grp)
         self.sync_test_step_labels = []
-        for _ in range(11):
+        for _ in range(12):
             lbl = QtWidgets.QLabel("")
             lbl.setStyleSheet("font-size:15px; color:#666666;")
             sl_lay.addWidget(lbl)
@@ -183,14 +183,14 @@ class SyncTestTabMixin:
         # ── 已完成锁定：所有 UI 完全冻结 ─────────────────────────────────
         if state.completed:
             self.sync_test_mode_banner.setVisible(False)
-            self.btn_sync_test_start.setText("开始第四步测试")
+            self.btn_sync_test_start.setText("开始第五步测试")
             self.btn_sync_test_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
             self.sync_test_summary_lbl.setText(
-                "✅ 第四步已确认完成：同步功能测试通过，数据已锁定。")
+                "✅ 第五步已确认完成：同步功能测试通过，数据已锁定。")
             self.sync_test_summary_lbl.setStyleSheet(
                 "font-weight:bold; font-size:15px; color:#006400;")
             self.sync_test_live_lbl.setText("")
-            self.sync_test_feedback_lbl.setText("操作提示：第四步测试已完成，全部预合闸测量流程通过。")
+            self.sync_test_feedback_lbl.setText("操作提示：第五步测试已完成，全部预合闸测量流程通过。")
             self.sync_test_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
             for lbl, (text, _) in zip(self.sync_test_step_labels,
                                       self.ctrl.get_sync_test_steps()):
@@ -205,11 +205,11 @@ class SyncTestTabMixin:
         # ── 更新测试横幅和按钮文字 ────────────────────────────────────────
         self.sync_test_mode_banner.setVisible(started)
         if started:
-            self.btn_sync_test_start.setText("退出第四步测试")
+            self.btn_sync_test_start.setText("退出第五步测试")
             self.btn_sync_test_start.setStyleSheet(
                 f"background:#f4a261; color:white; {_BTN_BOLD}")
         else:
-            self.btn_sync_test_start.setText("开始第四步测试")
+            self.btn_sync_test_start.setText("开始第五步测试")
             self.btn_sync_test_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
 
         # ── 动态显示 ──────────────────────────────────────────────────────
@@ -219,10 +219,10 @@ class SyncTestTabMixin:
         gen1, gen2 = sim.gen1, sim.gen2
 
         if self.ctrl.is_sync_test_complete():
-            summary = "第四步已确认完成：同步功能测试通过，系统已恢复正常自动合闸逻辑。"
+            summary = "第五步已确认完成：同步功能测试通过，系统已恢复正常自动合闸逻辑。"
             sc = '#006400'
         elif state.round1_done and state.round2_done:
-            summary = '两轮同步测试记录已完成，请点击\u201c完成第四步测试\u201d。'
+            summary = '两轮同步测试记录已完成，请点击\u201c完成第五步测试\u201d。'
             sc = '#cc6600'
         elif state.round1_done:
             summary = "第一轮已完成，请互换角色进行第二轮测试。"

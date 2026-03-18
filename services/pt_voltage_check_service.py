@@ -1,0 +1,206 @@
+"""
+services/pt_voltage_check_service.py
+PT 单体线电压检查服务（第二步）
+
+在进行 PT 相序检查之前，先用万用表逐一测量 PT1/PT2/PT3 各自的三相线电压（AB/BC/CA），
+确认各 PT 输出电压量级一致（均约 100V AC），为后续相序比对提供基准验证。
+
+测量方式：红表笔接同一 PT 的一相端子，黑表笔接同一 PT 的另一相端子。
+"""
+
+from domain.enums import BreakerPosition
+from domain.test_states import PtVoltageCheckState, _PHASE_PAIR_LABEL
+
+_ALL_KEYS = (
+    'PT1_AB', 'PT1_BC', 'PT1_CA',
+    'PT2_AB', 'PT2_BC', 'PT2_CA',
+    'PT3_AB', 'PT3_BC', 'PT3_CA',
+)
+
+# 每个记录键对应的实际节点对
+_KEY_TO_NODES = {
+    'PT1_AB': ('PT1_A', 'PT1_B'), 'PT1_BC': ('PT1_B', 'PT1_C'), 'PT1_CA': ('PT1_C', 'PT1_A'),
+    'PT2_AB': ('PT2_A', 'PT2_B'), 'PT2_BC': ('PT2_B', 'PT2_C'), 'PT2_CA': ('PT2_C', 'PT2_A'),
+    'PT3_AB': ('PT3_A', 'PT3_B'), 'PT3_BC': ('PT3_B', 'PT3_C'), 'PT3_CA': ('PT3_C', 'PT3_A'),
+}
+
+# 反查：frozenset(节点对) → 记录键
+_NODES_TO_KEY = {frozenset(v): k for k, v in _KEY_TO_NODES.items()}
+
+
+class PtVoltageCheckService:
+    """PT 单体线电压检查业务逻辑。"""
+
+    def __init__(self, ctrl):
+        self._ctrl = ctrl
+
+    # ── 状态工厂 ──────────────────────────────────────────────────────────────
+    def create_pt_voltage_check_state(self) -> PtVoltageCheckState:
+        return PtVoltageCheckState()
+
+    def start_pt_voltage_check(self):
+        self._ctrl.pt_voltage_check_state.started = True
+
+    def stop_pt_voltage_check(self):
+        self._ctrl.pt_voltage_check_state.started = False
+
+    def _set_feedback(self, message, color='#444444'):
+        self._ctrl.pt_voltage_check_state.feedback = message
+        self._ctrl.pt_voltage_check_state.feedback_color = color
+
+    # ── 步骤列表 ──────────────────────────────────────────────────────────────
+    def get_pt_voltage_check_steps(self):
+        sim = self._ctrl.sim_state
+        gen1, gen2 = sim.gen1, sim.gen2
+        state = self._ctrl.pt_voltage_check_state
+        loop_done = self._ctrl.is_loop_test_complete()
+        gnd_ok = sim.grounding_mode == "小电阻接地"
+        gen1_on_bus = (gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed)
+        gen2_running_open = gen2.running and not gen2.breaker_closed
+        rec = state.records
+
+        pt1_done = all(rec[k] is not None for k in ('PT1_AB', 'PT1_BC', 'PT1_CA'))
+        pt2_done = all(rec[k] is not None for k in ('PT2_AB', 'PT2_BC', 'PT2_CA'))
+        pt3_done = all(rec[k] is not None for k in ('PT3_AB', 'PT3_BC', 'PT3_CA'))
+
+        steps = [
+            ("1. 前提：第一步回路连通性测试已完成", loop_done),
+            ("2. 恢复中性点小电阻接地", gnd_ok),
+            ("3. 确认 Gen1 在工作位并入母排（提供 PT1/PT2 参考电压）", gen1_on_bus),
+            ("4. 启动 Gen2，保持断路器断开（提供 PT3 参考电压）", gen2_running_open),
+            ("5. 开启万用表，在母排拓扑页测量同一 PT 的两相端子", sim.multimeter_mode),
+            ("6. 记录 PT1 三相线电压（AB/BC/CA）", pt1_done),
+            ("7. 记录 PT2 三相线电压（AB/BC/CA）", pt2_done),
+            ("8. 记录 PT3 三相线电压（AB/BC/CA）", pt3_done),
+        ]
+        if state.completed:
+            return [(text, True) for text, _ in steps]
+        return steps
+
+    # ── 逐项记录 ──────────────────────────────────────────────────────────────
+    def record_pt_voltage_measurement(self, pt_name, phase_pair):
+        """
+        记录 pt_name（'PT1'/'PT2'/'PT3'）的 phase_pair（'AB'/'BC'/'CA'）线电压。
+        仅当 started=True 时对 records 进行写入。
+        """
+        sim = self._ctrl.sim_state
+        gen1, gen2 = sim.gen1, sim.gen2
+        state = self._ctrl.pt_voltage_check_state
+
+        if not state.started:
+            self._set_feedback("请先点击「开始第二步测试」，再进行测量记录。", "red")
+            return
+
+        pt_name = pt_name.upper()
+        phase_pair = phase_pair.upper()
+        key = f"{pt_name}_{phase_pair}"
+
+        if not self._ctrl.is_loop_test_complete():
+            self._set_feedback("请先完成第一步【回路连通性测试】，再进行 PT 线电压检查。", "red")
+            return
+        if sim.grounding_mode != "小电阻接地":
+            self._set_feedback("请先恢复中性点小电阻接地，再进行 PT 线电压检查。", "red")
+            return
+        if gen1.breaker_position != BreakerPosition.WORKING or not gen1.breaker_closed:
+            self._set_feedback("请先确认 Gen1 已并入母排（工作位+合闸），作为 PT1/PT2 参考电压。", "red")
+            return
+        if pt_name == 'PT3':
+            if not gen2.running:
+                self._set_feedback("测量 PT3 线电压时，请先启动 Gen2（保持断路器断开）。", "red")
+                return
+            if gen2.breaker_closed:
+                self._set_feedback("测量 PT3 线电压时，Gen2 断路器应保持断开状态。", "red")
+                return
+        if not sim.multimeter_mode:
+            self._set_feedback("请先开启万用表。", "red")
+            return
+
+        # 校验表笔是否放在正确的节点对上
+        n1, n2 = sim.probe1_node, sim.probe2_node
+        if not n1 or not n2:
+            self._set_feedback(
+                f"请先在母排拓扑页将表笔放在 {pt_name} 的两相端子上，再点击记录。", "red")
+            return
+
+        expected_nodes = frozenset(_KEY_TO_NODES[key])
+        actual_nodes = frozenset({n1, n2})
+        if actual_nodes != expected_nodes:
+            n1_expect, n2_expect = _KEY_TO_NODES[key]
+            self._set_feedback(
+                f"当前表笔不在 {n1_expect} 与 {n2_expect} 上，请重新放置后再记录。", "red")
+            return
+
+        meter_v = getattr(self._ctrl.physics, 'meter_voltage', None)
+        meter_status = getattr(self._ctrl.physics, 'meter_status', 'idle')
+        if meter_v is None or meter_status not in ('ok', 'danger'):
+            self._set_feedback("当前测量结果无效，请确认表笔接在同一 PT 的两相端子上。", "red")
+            return
+
+        state.records[key] = {
+            'voltage': meter_v,
+            'reading': self._ctrl.physics.meter_reading,
+        }
+
+        all_rec = all(state.records[k] is not None for k in _ALL_KEYS)
+        if meter_status != 'ok':
+            rec_color = "#cc6600"
+            rec_note = f"（⚠️ 测量值 {meter_v:.1f}V 偏离目标 100V，请检查发电机输出电压后重新测量）"
+        else:
+            rec_color = "#006600"
+            rec_note = f"（{meter_v:.1f}V，约 100V，正常）"
+
+        if all_rec:
+            msg = f"PT1/PT2/PT3 三组线电压已全部记录完成{rec_note}，请点击「完成第二步测试」确认。"
+        else:
+            msg = f"{key} 线电压已记录{rec_note}，请继续测量其余项目。"
+        self._set_feedback(msg, rec_color)
+
+    def _get_probe_key(self):
+        """根据当前表笔位置返回对应记录键，未对准返回 None。"""
+        sim = self._ctrl.sim_state
+        n1, n2 = sim.probe1_node, sim.probe2_node
+        if not n1 or not n2:
+            return None
+        return _NODES_TO_KEY.get(frozenset({n1, n2}))
+
+    def reset_pt_voltage_check(self):
+        self._ctrl.pt_voltage_check_state = self.create_pt_voltage_check_state()
+
+    def is_pt_voltage_check_complete(self):
+        """流程门禁：只有用户点击「完成第二步测试」后才返回 True。"""
+        return self._ctrl.pt_voltage_check_state.completed
+
+    def _are_records_complete(self):
+        """内部辅助：九项是否已全部记录且均在合格范围 [85, 115V] 内（用于 finalize 前置校验）。"""
+        records = self._ctrl.pt_voltage_check_state.records
+        return all(
+            records[k] is not None and 85.0 <= records[k]['voltage'] <= 115.0
+            for k in _ALL_KEYS
+        )
+
+    def finalize_pt_voltage_check(self):
+        state = self._ctrl.pt_voltage_check_state
+        if not self._are_records_complete():
+            # 找出哪些项目未记录或偏离 100V
+            records = state.records
+            missing = [k for k in _ALL_KEYS if records[k] is None]
+            bad = [k for k in _ALL_KEYS
+                   if records[k] is not None and not (85.0 <= records[k]['voltage'] <= 115.0)]
+            if missing:
+                self._set_feedback(
+                    f'以下项目尚未完成记录：{", ".join(missing)}。请补充测量后再点击「完成第二步测试」。',
+                    "red")
+            else:
+                bad_str = "、".join(f"{k}={records[k]['voltage']:.1f}V" for k in bad)
+                self._set_feedback(
+                    f'以下线电压偏离目标 100V（需在 85～115V 内）：{bad_str}。'
+                    '请调整发电机输出电压，使各 PT 线电压均约为 100V，再点击「完成第二步测试」。',
+                    "red")
+            return
+        state.completed = True
+        self._set_feedback(
+            "第二步【PT 单体线电压检查】已确认完成，后续操作将不再影响该步骤状态。",
+            "#006600")
+
+    def get_pt_voltage_check_blockers(self):
+        return [text for text, done in self.get_pt_voltage_check_steps() if not done]

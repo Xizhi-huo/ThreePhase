@@ -1,6 +1,6 @@
 """
 ui/tabs/pt_exam_tab.py
-PT 二次端子压差测试 Tab (Tab 4 — 第三步)
+PT 二次端子压差测试 Tab (Tab 5 — 第四步)
 """
 
 from PyQt5 import QtWidgets
@@ -19,7 +19,7 @@ class PtExamTabMixin:
     # ── Tab4：PT 考核 ─────────────────────────────────────────────────────────
     def _setup_tab_pt_exam(self):
         tab_outer = QtWidgets.QWidget()
-        self.tab_widget.addTab(tab_outer, " 🧪 第三步：PT二次端子压差测试 ")
+        self.tab_widget.addTab(tab_outer, " 🧪 第四步：PT二次端子压差测试")
         _tlay = QtWidgets.QVBoxLayout(tab_outer)
         _tlay.setContentsMargins(0, 0, 0, 0)
         _scroll = QtWidgets.QScrollArea()
@@ -35,12 +35,12 @@ class PtExamTabMixin:
         outer.setSpacing(8)
 
         # 标题
-        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第三步：PT二次端子压差测试")
+        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第四步：PT二次端子压差测试")
         hdr.setStyleSheet("font-size:18px; font-weight:bold; color:#16324f;")
         outer.addWidget(hdr)
 
         desc = QtWidgets.QLabel(
-            "完成第二步PT相序检查后，恢复中性点小电阻接地，并将机组切至工作位置并入母排。"
+            "完成第三步PT相序检查后，恢复中性点小电阻接地，并将机组切至工作位置并入母排。"
             "随后在母排拓扑页使用万用表测量并记录三相 PT 二次端子压差。"
         )
         desc.setWordWrap(True)
@@ -49,7 +49,7 @@ class PtExamTabMixin:
 
         # ── 测试进行中横幅 ────────────────────────────────────────────────
         self.pt_exam_mode_banner = QtWidgets.QLabel(
-            "🧪 第三步测试进行中 — 请在母排拓扑页完成 PT 二次端子压差测量"
+            "🧪 第四步测试进行中 — 请在母排拓扑页完成 PT 二次端子压差测量"
         )
         self.pt_exam_mode_banner.setWordWrap(True)
         self.pt_exam_mode_banner.setStyleSheet(
@@ -84,7 +84,7 @@ class PtExamTabMixin:
         ar = QtWidgets.QHBoxLayout(act_row)
         ar.setContentsMargins(0, 0, 0, 0)
 
-        self.btn_pt_exam_start = QtWidgets.QPushButton("开始第三步测试")
+        self.btn_pt_exam_start = QtWidgets.QPushButton("开始第四步测试")
         self.btn_pt_exam_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
         self.btn_pt_exam_start.clicked.connect(self._on_toggle_pt_exam_mode)
 
@@ -102,10 +102,9 @@ class PtExamTabMixin:
         btn_reset.clicked.connect(
             lambda: self.ctrl.reset_pt_exam(self._pt_target_bg.checkedId()))
 
-        btn_done = QtWidgets.QPushButton("完成第三步测试")
+        btn_done = QtWidgets.QPushButton("完成第四步测试")
         btn_done.setStyleSheet(f"background:#cdeccf; {_BTN_BOLD}")
-        btn_done.clicked.connect(
-            lambda: self.ctrl.finalize_pt_exam(self._pt_target_bg.checkedId()))
+        btn_done.clicked.connect(lambda: self.ctrl.finalize_all_pt_exams())
 
         ar.addWidget(self.btn_pt_exam_start)
         ar.addWidget(btn_topo)
@@ -194,14 +193,14 @@ class PtExamTabMixin:
         outer.addStretch()
 
     def _on_toggle_pt_exam_mode(self):
-        gen_id = self._pt_target_bg.checkedId()
-        if gen_id <= 0:
-            gen_id = 1
-        state = self.ctrl.pt_exam_states[gen_id]
-        if state.started:
-            self.ctrl.stop_pt_exam(gen_id)
+        both_started = (self.ctrl.pt_exam_states[1].started and
+                        self.ctrl.pt_exam_states[2].started)
+        if both_started:
+            self.ctrl.stop_pt_exam(1)
+            self.ctrl.stop_pt_exam(2)
         else:
-            self.ctrl.start_pt_exam(gen_id)
+            self.ctrl.start_pt_exam(1)
+            self.ctrl.start_pt_exam(2)
 
     def _render_pt_exam(self, p):
         gen_id = self._pt_target_bg.checkedId()
@@ -209,19 +208,22 @@ class PtExamTabMixin:
             gen_id = 1
         state     = self.ctrl.pt_exam_states[gen_id]
         records   = state.records
-        started   = state.started
+        both_completed = (self.ctrl.pt_exam_states[1].completed and
+                          self.ctrl.pt_exam_states[2].completed)
+        both_started   = (self.ctrl.pt_exam_states[1].started and
+                          self.ctrl.pt_exam_states[2].started)
 
-        # ── 已完成锁定：所有 UI 完全冻结 ─────────────────────────────────
-        if state.completed:
+        # ── 已完成锁定：两台机组均已完成 ─────────────────────────────────
+        if both_completed:
             self.pt_exam_mode_banner.setVisible(False)
-            self.btn_pt_exam_start.setText("开始第三步测试")
+            self.btn_pt_exam_start.setText("开始第四步测试")
             self.btn_pt_exam_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
             self.pt_exam_summary_lbl.setText(
-                f"✅ 第三步已确认完成：Gen {gen_id} PT 二次端子压差测试通过，数据已锁定。")
+                "✅ 第四步已确认完成：Gen1 和 Gen2 PT 二次端子压差测试均通过，数据已锁定。")
             self.pt_exam_summary_lbl.setStyleSheet(
                 "font-weight:bold; font-size:15px; color:#006400;")
             self.pt_exam_meter_lbl.setText("")
-            self.pt_exam_feedback_lbl.setText("考核提示：第三步测试已完成，请继续进行第四步。")
+            self.pt_exam_feedback_lbl.setText("考核提示：第四步测试已完成，请继续进行第五步。")
             self.pt_exam_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
             for lbl, (text, _) in zip(self.pt_exam_step_labels,
                                       self.ctrl.get_pt_exam_steps(gen_id)):
@@ -235,14 +237,15 @@ class PtExamTabMixin:
             return
 
         # ── 更新测试横幅和按钮文字 ────────────────────────────────────────
-        self.pt_exam_mode_banner.setVisible(started)
-        if started:
-            self.btn_pt_exam_start.setText("退出第三步测试")
+        self.pt_exam_mode_banner.setVisible(both_started)
+        if both_started:
+            self.btn_pt_exam_start.setText("退出第四步测试")
             self.btn_pt_exam_start.setStyleSheet(
                 f"background:#f4a261; color:white; {_BTN_BOLD}")
         else:
-            self.btn_pt_exam_start.setText("开始第三步测试")
+            self.btn_pt_exam_start.setText("开始第四步测试")
             self.btn_pt_exam_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+        started = both_started
 
         # ── 动态显示 ──────────────────────────────────────────────────────
         feedback  = state.feedback
@@ -250,12 +253,15 @@ class PtExamTabMixin:
         generator = self.ctrl._get_generator_state(gen_id)
         current_phase = self.ctrl._get_current_pt_phase_match(gen_id)
 
-        if self.ctrl.is_pt_exam_ready(gen_id):
-            summary = f"第三步已确认完成：Gen {gen_id} PT 二次端子压差测试通过，后续操作不再影响本步骤。"
-            sc = '#006400'
-        elif all(records[ph] is not None for ph in ('A', 'B', 'C')):
-            summary = (f"Gen {gen_id} 三相 PT 二次端子压差已记录，"
-                       f"当前开关柜位置：{generator.breaker_position}。")
+        other_id = 2 if gen_id == 1 else 1
+        other_done = all(self.ctrl.pt_exam_states[other_id].records[ph] is not None
+                         for ph in ('A', 'B', 'C'))
+        this_done  = all(records[ph] is not None for ph in ('A', 'B', 'C'))
+        if this_done and other_done:
+            summary = "Gen1 和 Gen2 三相压差均已记录，可点击「完成第四步测试」锁定结果。"
+            sc = '#006600'
+        elif this_done:
+            summary = (f"Gen {gen_id} 三相已全部记录，请切换至 Gen {other_id} 完成压差测量。")
             sc = '#cc6600'
         else:
             summary = f"Gen {gen_id} 当前开关柜位置：{generator.breaker_position}。"

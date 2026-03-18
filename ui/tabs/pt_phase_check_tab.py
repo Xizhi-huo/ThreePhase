@@ -1,6 +1,6 @@
 """
 ui/tabs/pt_phase_check_tab.py
-PT 相序检查 Tab (Tab 3 — 第二步)
+PT 相序检查 Tab (Tab 4 — 第三步)
 """
 
 from PyQt5 import QtWidgets
@@ -20,7 +20,7 @@ class PtPhaseCheckTabMixin:
     # ── Tab3：PT 相序检查 ─────────────────────────────────────────────────────
     def _setup_tab_pt_phase_check(self):
         tab_outer = QtWidgets.QWidget()
-        self.tab_widget.addTab(tab_outer, " 🔀 第二步：PT相序检查 ")
+        self.tab_widget.addTab(tab_outer, " 🔀 第三步：PT相序检查 ")
         _tlay = QtWidgets.QVBoxLayout(tab_outer)
         _tlay.setContentsMargins(0, 0, 0, 0)
         _scroll = QtWidgets.QScrollArea()
@@ -35,33 +35,33 @@ class PtPhaseCheckTabMixin:
         outer.setContentsMargins(18, 14, 18, 14)
         outer.setSpacing(8)
 
-        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第二步：PT 相序检查")
+        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第三步：PT 相序检查")
         hdr.setStyleSheet("font-size:18px; font-weight:bold; color:#7a3800;")
         outer.addWidget(hdr)
 
         desc = QtWidgets.QLabel(
-            "完成第一步后：① 恢复小电阻接地；② Gen1 起机并入母排（建立 PT1/PT2 参考）；"
-            "③ 点击「进入测试模式」，手动合闸 Gen2（不起机）——母线电压将反向馈入 Gen2 端子，"
-            "PT3 即可获得与 PT2 同频同幅的参考电压；④ 开启万用表，"
+            "完成前两步后：① 恢复小电阻接地；② Gen1 手动工作模式起机并入母排（建立 PT1/PT2 参考）；"
+            "③ Gen2 手动工作模式起机，保持断路器断开（Gen2 自身电压提供 PT3 参考）；"
+            "④ 点击「开始第三步测试」，开启万用表，"
             "依次测量 PT1_A/PT2_A、PT1_B/PT2_B、PT1_C/PT2_C 和 PT3_A/PT2_A、PT3_B/PT2_B、PT3_C/PT2_C，"
-            "逐项记录相序结果；⑤ 全部通过后点击「完成第二步测试」。\n"
-            "此时测量压差：接线正确 ≈ 0V，B/C 接反 ≈ 线电压（约173V），判断直观。"
+            "逐项记录相序结果；⑤ 全部通过后点击「完成第三步测试」。\n"
+            "相序判断以万用表内置相位比较为准，与电压幅值大小无关。"
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color:#7a3800; font-size:14px;")
         outer.addWidget(desc)
 
-        # ── 测试模式横幅 ──────────────────────────────────────────────────
-        self.pt_phase_test_mode_banner = QtWidgets.QLabel(
-            "⚡ 测试模式已激活 — Gen2 可不起机合闸，母线电压反向馈入 PT3 端子"
+        # ── 已开始横幅 ────────────────────────────────────────────────────
+        self.pt_phase_check_started_banner = QtWidgets.QLabel(
+            "⚡ 第三步测试进行中 — Gen1 已并网，Gen2 起机断路器断开，可开始测量相序"
         )
-        self.pt_phase_test_mode_banner.setWordWrap(True)
-        self.pt_phase_test_mode_banner.setStyleSheet(
+        self.pt_phase_check_started_banner.setWordWrap(True)
+        self.pt_phase_check_started_banner.setStyleSheet(
             "background:#fff3cd; color:#7a4f00; font-size:14px; "
             "font-weight:bold; padding:6px; border:1px solid #e6b800; border-radius:4px;"
         )
-        self.pt_phase_test_mode_banner.setVisible(False)
-        outer.addWidget(self.pt_phase_test_mode_banner)
+        self.pt_phase_check_started_banner.setVisible(False)
+        outer.addWidget(self.pt_phase_check_started_banner)
 
         # ── 操作按钮 ──────────────────────────────────────────────────────
         act_row = QtWidgets.QWidget()
@@ -69,9 +69,9 @@ class PtPhaseCheckTabMixin:
         ar = QtWidgets.QHBoxLayout(act_row)
         ar.setContentsMargins(0, 0, 0, 0)
 
-        self.btn_pt_phase_test_mode = QtWidgets.QPushButton("进入测试模式")
-        self.btn_pt_phase_test_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
-        self.btn_pt_phase_test_mode.clicked.connect(self._on_toggle_pt_phase_test_mode)
+        self.btn_pt_phase_check_mode = QtWidgets.QPushButton("开始第三步测试")
+        self.btn_pt_phase_check_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+        self.btn_pt_phase_check_mode.clicked.connect(self._on_toggle_pt_phase_check_mode)
 
         btn_topo = QtWidgets.QPushButton("打开母排拓扑页")
         btn_topo.setStyleSheet(f"background:#d9ecff; {_BTN}")
@@ -86,11 +86,11 @@ class PtPhaseCheckTabMixin:
         btn_reset.setStyleSheet(f"background:#ffd6d6; {_BTN}")
         btn_reset.clicked.connect(lambda: self.ctrl.reset_pt_phase_check())
 
-        btn_done = QtWidgets.QPushButton("完成第二步测试")
+        btn_done = QtWidgets.QPushButton("完成第三步测试")
         btn_done.setStyleSheet(f"background:#ffe0b2; {_BTN_BOLD}")
         btn_done.clicked.connect(lambda: self.ctrl.finalize_pt_phase_check())
 
-        ar.addWidget(self.btn_pt_phase_test_mode)
+        ar.addWidget(self.btn_pt_phase_check_mode)
         ar.addWidget(btn_topo)
         ar.addWidget(btn_mm)
         ar.addWidget(btn_reset)
@@ -133,7 +133,7 @@ class PtPhaseCheckTabMixin:
         )
         sl_lay = QtWidgets.QVBoxLayout(steps_grp)
         self.pt_phase_check_step_labels = []
-        for _ in range(11):
+        for _ in range(12):
             lbl = QtWidgets.QLabel("")
             lbl.setStyleSheet("font-size:14px; color:#666666;")
             sl_lay.addWidget(lbl)
@@ -154,7 +154,7 @@ class PtPhaseCheckTabMixin:
             pt_grp = QtWidgets.QGroupBox(
                 f"{pt_name} 侧（{pt_name}_X ↔ PT2_X）"
                 + ("  ←Gen1在母排，两侧同频同源，接线正确≈0V" if pt_name == 'PT1'
-                   else "  ←Gen2不起机合闸，母线反向馈入，接线正确≈0V，接错≈173V")
+                   else "  ←Gen2起机断路器断开，自身电压提供PT3参考，相位比较判断相序")
             )
             pt_grp.setStyleSheet(
                 f"QGroupBox{{background:{pt_color}; color:#444; font-size:13px;}}"
@@ -198,11 +198,11 @@ class PtPhaseCheckTabMixin:
         outer.addWidget(rec_grp)
         outer.addStretch()
 
-    def _on_toggle_pt_phase_test_mode(self):
-        if self.ctrl.sim_state.pt_phase_test_mode:
-            self.ctrl.exit_pt_phase_test_mode()
+    def _on_toggle_pt_phase_check_mode(self):
+        if self.ctrl.pt_phase_check_state.started:
+            self.ctrl.stop_pt_phase_check()
         else:
-            self.ctrl.enter_pt_phase_test_mode()
+            self.ctrl.start_pt_phase_check()
 
     def _render_pt_phase_check(self, p):
         state = self.ctrl.pt_phase_check_state
@@ -210,16 +210,16 @@ class PtPhaseCheckTabMixin:
 
         # ── 已完成锁定：所有 UI 完全冻结 ─────────────────────────────────
         if state.completed:
-            self.pt_phase_test_mode_banner.setVisible(False)
-            self.btn_pt_phase_test_mode.setText("进入测试模式")
-            self.btn_pt_phase_test_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+            self.pt_phase_check_started_banner.setVisible(False)
+            self.btn_pt_phase_check_mode.setText("开始第三步测试")
+            self.btn_pt_phase_check_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
             self.pt_phase_check_summary_lbl.setText(
-                "✅ 第二步已确认完成：PT1/PT3 相序检查通过，数据已锁定。")
+                "✅ 第三步已确认完成：PT1/PT3 相序检查通过，数据已锁定。")
             self.pt_phase_check_summary_lbl.setStyleSheet(
                 "font-weight:bold; font-size:15px; color:#006400;")
             self.pt_phase_check_meter_lbl.setText("")
             self.pt_phase_check_feedback_lbl.setText(
-                "操作提示：第二步测试已完成，请继续进行第三步 PT 二次端子压差测试。")
+                "操作提示：第三步测试已完成，请继续进行第四步 PT 二次端子压差测试。")
             self.pt_phase_check_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
             for lbl, (text, _) in zip(self.pt_phase_check_step_labels,
                                       self.ctrl.get_pt_phase_check_steps()):
@@ -230,17 +230,17 @@ class PtPhaseCheckTabMixin:
                 lbl.setStyleSheet("font-size:14px; color:#006400;")
             return
 
-        in_mode = self.ctrl.sim_state.pt_phase_test_mode
+        in_mode = state.started
 
-        # ── 更新测试模式横幅和按钮文字 ────────────────────────────────────
-        self.pt_phase_test_mode_banner.setVisible(in_mode)
+        # ── 更新横幅和按钮文字 ────────────────────────────────────────────
+        self.pt_phase_check_started_banner.setVisible(in_mode)
         if in_mode:
-            self.btn_pt_phase_test_mode.setText("退出测试模式")
-            self.btn_pt_phase_test_mode.setStyleSheet(
+            self.btn_pt_phase_check_mode.setText("退出第三步测试")
+            self.btn_pt_phase_check_mode.setStyleSheet(
                 f"background:#f4a261; color:white; {_BTN_BOLD}")
         else:
-            self.btn_pt_phase_test_mode.setText("进入测试模式")
-            self.btn_pt_phase_test_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+            self.btn_pt_phase_check_mode.setText("开始第三步测试")
+            self.btn_pt_phase_check_mode.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
 
         # ── 动态显示 ──────────────────────────────────────────────────────
         feedback = state.feedback
@@ -248,13 +248,13 @@ class PtPhaseCheckTabMixin:
         result = state.result
 
         if result == 'pass':
-            summary = 'PT1/PT3 相序检查均通过，可点击\u201c完成第二步测试\u201d继续。'
+            summary = 'PT1/PT3 相序检查均通过，可点击\u201c完成第三步测试\u201d继续。'
             sc = '#006400'
         elif result == 'fail':
             summary = "⚠️ 检测到相序异常，请检查对应 PT 侧接线后重新记录。"
             sc = '#cc0000'
         else:
-            summary = "请按步骤：Gen1并网 → 进入测试模式合闸Gen2(不起机) → 万用表 → 逐项记录PT1和PT3相序。"
+            summary = "请按步骤：Gen1并网 → 起机Gen2(不合闸) → 开始第三步测试 → 万用表 → 逐项记录PT1和PT3相序。"
             sc = '#264653'
 
         self.pt_phase_check_summary_lbl.setText(summary)

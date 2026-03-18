@@ -6,6 +6,7 @@ services/_physics_measurement.py
 import numpy as np
 
 from domain.constants import NEUTRAL_RESISTOR_OHMS, PT_RATIO, PRIMARY_AMP
+from domain.enums import BreakerPosition
 from domain.node_map import NODES
 
 
@@ -34,8 +35,8 @@ class MeasurementMixin:
         pt_ratio = PT_RATIO
         self.pt1_v = (a1  / np.sqrt(2) * np.sqrt(3)) / pt_ratio
         self.pt2_v = (bus_a / np.sqrt(2) * np.sqrt(3)) / pt_ratio
-        gen2 = self.ctrl.sim_state.gen2
-        pt3_amp = bus_a if (gen2.breaker_closed and not gen2.running) else a2
+        # PT3 始终读 Gen2 自身的发电电压（Gen2 起机不合闸时提供相序参考）
+        pt3_amp = a2
         self.pt3_v = (pt3_amp / np.sqrt(2) * np.sqrt(3)) / pt_ratio
 
     def _update_multimeter(self, sim):
@@ -55,6 +56,18 @@ class MeasurementMixin:
                     frozenset({'PT1_A', 'PT2_A'}), frozenset({'PT1_B', 'PT2_B'}), frozenset({'PT1_C', 'PT2_C'}),
                     frozenset({'PT3_A', 'PT2_A'}), frozenset({'PT3_B', 'PT2_B'}), frozenset({'PT3_C', 'PT2_C'}),
                 }
+                # 检查是否为同一 PT 内的线电压测量（如 PT1_A ↔ PT1_B）
+                _pt1 = n1.rsplit('_', 1)[0] if '_' in n1 else ''
+                _pt2 = n2.rsplit('_', 1)[0] if '_' in n2 else ''
+                _ph1 = n1.rsplit('_', 1)[1] if '_' in n1 else ''
+                _ph2 = n2.rsplit('_', 1)[1] if '_' in n2 else ''
+                intra_pt_pair = (
+                    _pt1 == _pt2 and
+                    _pt1 in ('PT1', 'PT2', 'PT3') and
+                    _ph1 in ('A', 'B', 'C') and
+                    _ph2 in ('A', 'B', 'C') and
+                    _ph1 != _ph2
+                )
                 if loop_pair:
                     loop_done = self.ctrl.loop_test_state.completed
                     if sim.grounding_mode != "断开" and not loop_done:
@@ -80,6 +93,31 @@ class MeasurementMixin:
                             self.meter_status = "danger"
                             self.meter_color = "red"
                             self.meter_reading = f"相序不对应: {info1[4]} ↔ {info2[4]} 不属于同一相回路 [不导通]"
+                elif intra_pt_pair:
+                    # 同一 PT 内两相线电压测量（第二步 PT 单体线电压检查）
+                    key1 = self.ctrl.resolve_pt_node_plot_key(n1)
+                    key2 = self.ctrl.resolve_pt_node_plot_key(n2)
+                    wave_diff = self.plot_data[key1] - self.plot_data[key2]
+                    primary_rms = np.sqrt(np.mean(wave_diff ** 2))
+                    meter_v = primary_rms / PT_RATIO
+                    self.meter_voltage = meter_v
+                    self.meter_nodes = (n1, n2)
+                    # ±15% 容差判断（二次侧额定线电压 100V）
+                    if 85.0 <= meter_v <= 115.0:
+                        self.meter_status = "ok"
+                        self.meter_color = "green"
+                    elif meter_v < 1.0:
+                        self.meter_status = "idle"
+                        self.meter_color = "black"
+                    else:
+                        self.meter_status = "danger"
+                        self.meter_color = "red"
+                    self.meter_reading = (
+                        f"线电压: {info1[4]} ↔ {info2[4]} | "
+                        f"测量值={meter_v:.1f}V"
+                        + ("  [正常]" if self.meter_status == "ok" else
+                           "  [异常]" if self.meter_status == "danger" else "  [无电压]")
+                    )
                 elif frozenset({n1, n2}) in valid_pairs:
                     key1 = self.ctrl.resolve_pt_node_plot_key(n1)
                     key2 = self.ctrl.resolve_pt_node_plot_key(n2)
@@ -91,7 +129,6 @@ class MeasurementMixin:
                     self.meter_phase_match = phases_match
                     ann1 = f"[实际{actual_ph1}相]" if actual_ph1 != labeled1 else ""
                     ann2 = f"[实际{actual_ph2}相]" if actual_ph2 != labeled2 else ""
-                    seq_note = "" if phases_match else f" ⚠相序:{actual_ph1}≠{actual_ph2}"
                     rms1 = np.sqrt(np.mean(self.plot_data[key1]**2))
                     rms2 = np.sqrt(np.mean(self.plot_data[key2]**2))
                     primary_rms_diff = abs(rms1 - rms2)

@@ -5,10 +5,11 @@ app/main.py  ──  PyQt5 版本
 架构说明
 ────────
 PowerSyncController   唯一数据源 (SimulationState) + 编排层
-  ├─ LoopTestService        第一步：回路连通性测试业务逻辑
-  ├─ PtPhaseCheckService    第二步：PT 相序检查业务逻辑
-  ├─ PtExamService          第三步：PT 二次端子压差考核业务逻辑
-  └─ SyncTestService        第四步：同步功能测试业务逻辑
+  ├─ LoopTestService          第一步：回路连通性测试业务逻辑
+  ├─ PtVoltageCheckService    第二步：PT 单体线电压检查业务逻辑
+  ├─ PtPhaseCheckService      第三步：PT 相序检查业务逻辑
+  ├─ PtExamService            第四步：PT 二次端子压差考核业务逻辑
+  └─ SyncTestService          第五步：同步功能测试业务逻辑
 PhysicsEngine         物理计算，通过 ctrl.sim_state 读写，build_render_state() 输出快照
 PowerSyncUI           视图，通过 ctrl 引用读写状态，render_visuals(rs) 消费 RenderState
 QTimer                每 33ms 驱动主循环
@@ -28,6 +29,7 @@ from domain.enums import BreakerPosition, SystemMode
 from domain.models import GeneratorState, SimulationState
 from services.physics_engine import PhysicsEngine
 from services.loop_test_service import LoopTestService
+from services.pt_voltage_check_service import PtVoltageCheckService
 from services.pt_phase_check_service import PtPhaseCheckService
 from services.pt_exam_service import PtExamService
 from services.sync_test_service import SyncTestService
@@ -69,19 +71,21 @@ class PowerSyncController:
         self.pt_blackbox_mode_val: bool = False
 
         # ── 业务服务（各服务通过 self._ctrl 回写状态 dataclass）─────────
-        self._loop_svc       = LoopTestService(self)
-        self._pt_phase_svc   = PtPhaseCheckService(self)
-        self._pt_exam_svc    = PtExamService(self)
-        self._sync_svc       = SyncTestService(self)
+        self._loop_svc            = LoopTestService(self)
+        self._pt_voltage_svc      = PtVoltageCheckService(self)
+        self._pt_phase_svc        = PtPhaseCheckService(self)
+        self._pt_exam_svc         = PtExamService(self)
+        self._sync_svc            = SyncTestService(self)
 
         # ── 状态 dataclass（UI 直接读取属性，服务通过 ctrl 写入）────────
-        self.loop_test_state      = self._loop_svc.create_loop_test_state()
-        self.pt_phase_check_state = self._pt_phase_svc.create_pt_phase_check_state()
-        self.pt_exam_states       = {
+        self.loop_test_state         = self._loop_svc.create_loop_test_state()
+        self.pt_voltage_check_state  = self._pt_voltage_svc.create_pt_voltage_check_state()
+        self.pt_phase_check_state    = self._pt_phase_svc.create_pt_phase_check_state()
+        self.pt_exam_states          = {
             1: self._pt_exam_svc.create_pt_exam_state(),
             2: self._pt_exam_svc.create_pt_exam_state(),
         }
-        self.sync_test_state      = self._sync_svc.create_sync_test_state()
+        self.sync_test_state         = self._sync_svc.create_sync_test_state()
 
         # ── 物理引擎 ──────────────────────────────────────────────────────
         self.physics = PhysicsEngine(self)
@@ -119,9 +123,8 @@ class PowerSyncController:
         terminal_index = ('A', 'B', 'C').index(terminal)
         actual_phase = self.pt_phase_orders[pt_name][terminal_index]
         if pt_name == 'PT3':
-            gen2 = self.sim_state.gen2
-            # Gen2 合闸但未起机 → 母线反向馈电 → PT3 读母线电压（经自身接线映射）
-            prefix = 'g' if (gen2.breaker_closed and not gen2.running) else 'g2'
+            # PT3 始终读 Gen2 自身的发电电压（Gen2 起机不合闸时提供相序参考）
+            prefix = 'g2'
         else:
             prefix = {'PT1': 'g1', 'PT2': 'g'}[pt_name]
         return f"{prefix}{actual_phase.lower()}"
@@ -179,25 +182,38 @@ class PowerSyncController:
     def exit_loop_test_mode(self):
         """退出第一步回路检查模式：恢复失压联锁保护，未起机的断路器自动断开。"""
         self.sim_state.loop_test_mode = False
-        if not self.sim_state.pt_phase_test_mode:
-            for gen in (self.sim_state.gen1, self.sim_state.gen2):
-                if gen.breaker_closed and not gen.running:
-                    gen.breaker_closed = False
+        for gen in (self.sim_state.gen1, self.sim_state.gen2):
+            if gen.breaker_closed and not gen.running:
+                gen.breaker_closed = False
+    # ════════════════════════════════════════════════════════════════════════
+    # 第二步：PT 单体线电压检查 — 委托给 PtVoltageCheckService
+    # ════════════════════════════════════════════════════════════════════════
+    def get_pt_voltage_check_steps(self):
+        return self._pt_voltage_svc.get_pt_voltage_check_steps()
 
-    def enter_pt_phase_test_mode(self):
-        """进入第二步PT相序测试模式：允许Gen2不起机合闸，母线反向馈入PT3。"""
-        self.sim_state.pt_phase_test_mode = True
+    def record_pt_voltage_measurement(self, pt_name, phase_pair):
+        self._pt_voltage_svc.record_pt_voltage_measurement(pt_name, phase_pair)
 
-    def exit_pt_phase_test_mode(self):
-        """退出第二步PT相序测试模式：恢复失压联锁保护，未起机的断路器自动断开。"""
-        self.sim_state.pt_phase_test_mode = False
-        if not self.sim_state.loop_test_mode:
-            for gen in (self.sim_state.gen1, self.sim_state.gen2):
-                if gen.breaker_closed and not gen.running:
-                    gen.breaker_closed = False
+    def is_pt_voltage_check_complete(self):
+        return self._pt_voltage_svc.is_pt_voltage_check_complete()
+
+    def finalize_pt_voltage_check(self):
+        self._pt_voltage_svc.finalize_pt_voltage_check()
+
+    def reset_pt_voltage_check(self):
+        self._pt_voltage_svc.reset_pt_voltage_check()
+
+    def start_pt_voltage_check(self):
+        self._pt_voltage_svc.start_pt_voltage_check()
+
+    def stop_pt_voltage_check(self):
+        self._pt_voltage_svc.stop_pt_voltage_check()
+
+    def get_pt_voltage_check_blockers(self):
+        return self._pt_voltage_svc.get_pt_voltage_check_blockers()
 
     # ════════════════════════════════════════════════════════════════════════
-    # 第二步：PT 相序检查 — 委托给 PtPhaseCheckService
+    # 第三步：PT 相序检查 — 委托给 PtPhaseCheckService
     # ════════════════════════════════════════════════════════════════════════
     def get_pt_phase_check_steps(self):
         return self._pt_phase_svc.get_pt_phase_check_steps()
@@ -211,11 +227,17 @@ class PowerSyncController:
     def finalize_pt_phase_check(self):
         self._pt_phase_svc.finalize_pt_phase_check()
 
+    def start_pt_phase_check(self):
+        self._pt_phase_svc.start_pt_phase_check()
+
+    def stop_pt_phase_check(self):
+        self._pt_phase_svc.stop_pt_phase_check()
+
     def reset_pt_phase_check(self):
         self._pt_phase_svc.reset_pt_phase_check()
 
     # ════════════════════════════════════════════════════════════════════════
-    # 第三步：PT 二次端子压差考核 — 委托给 PtExamService
+    # 第四步：PT 二次端子压差考核 — 委托给 PtExamService
     # ════════════════════════════════════════════════════════════════════════
     def _is_pt_exam_setup_ready(self, gen_id):
         return self._pt_exam_svc._is_pt_exam_setup_ready(gen_id)
@@ -241,6 +263,9 @@ class PowerSyncController:
     def finalize_pt_exam(self, gen_id):
         self._pt_exam_svc.finalize_pt_exam(gen_id)
 
+    def finalize_all_pt_exams(self):
+        self._pt_exam_svc.finalize_all_pt_exams()
+
     def start_pt_exam(self, gen_id):
         self._pt_exam_svc.start_pt_exam(gen_id)
 
@@ -248,7 +273,7 @@ class PowerSyncController:
         self._pt_exam_svc.stop_pt_exam(gen_id)
 
     # ════════════════════════════════════════════════════════════════════════
-    # 第四步：同步功能测试 — 委托给 SyncTestService
+    # 第五步：同步功能测试 — 委托给 SyncTestService
     # ════════════════════════════════════════════════════════════════════════
     def get_sync_test_steps(self):
         return self._sync_svc.get_sync_test_steps()
@@ -272,7 +297,6 @@ class PowerSyncController:
     def reset_sync_test(self):
         self._sync_svc.reset_sync_test()
 
-
     def start_sync_test(self):
         self._sync_svc.start_sync_test()
 
@@ -292,24 +316,28 @@ class PowerSyncController:
         if not loop_done:
             # 第一步未完成：同时列出所有后续步骤，让用户一次看到全部要求
             sections.append(("第一步：回路连通性测试", ["三相回路连通性测试尚未完成"]))
+            if not self.is_pt_voltage_check_complete():
+                sections.append(("第二步：PT 单体线电压检查", ["PT1/PT2/PT3 线电压检查尚未完成"]))
             if not self.is_pt_phase_check_complete():
-                sections.append(("第二步：PT 相序检查", ["PT1/PT3 相序检查尚未完成"]))
+                sections.append(("第三步：PT 相序检查", ["PT1/PT3 相序检查尚未完成"]))
             if not self.is_pt_exam_recorded(2):
-                sections.append(("第三步：PT 二次端子压差考核（Gen 2）",
+                sections.append(("第四步：PT 二次端子压差考核（Gen 2）",
                                  ["Gen 2 三相 PT 二次端子压差尚未全部记录"]))
             if not self.is_sync_test_complete() and not self.is_sync_test_active():
-                sections.append(("第四步：同步功能测试",
+                sections.append(("第五步：同步功能测试",
                                  ["同步功能测试尚未完成（需完成两轮同步跟踪记录）"]))
         elif gen_id == 2:
-            # 第一步已完成；Gen1 是母排参考源可直接合闸，Gen2 需完成第二至四步
+            # 第一步已完成；Gen1 是母排参考源可直接合闸，Gen2 需完成第二至五步
+            if not self.is_pt_voltage_check_complete():
+                sections.append(("第二步：PT 单体线电压检查", ["PT1/PT2/PT3 线电压检查尚未完成"]))
             if not self.is_pt_phase_check_complete():
-                sections.append(("第二步：PT 相序检查", ["PT1/PT3 相序检查尚未完成"]))
+                sections.append(("第三步：PT 相序检查", ["PT1/PT3 相序检查尚未完成"]))
             if not self.is_pt_exam_recorded(2):
-                sections.append(("第三步：PT 二次端子压差考核（Gen 2）",
+                sections.append(("第四步：PT 二次端子压差考核（Gen 2）",
                                  ["Gen 2 三相 PT 二次端子压差尚未全部记录"]))
             # 同步测试进行中（Gen2 需合闸作第二轮基准）不拦截
             if not self.is_sync_test_complete() and not self.is_sync_test_active():
-                sections.append(("第四步：同步功能测试",
+                sections.append(("第五步：同步功能测试",
                                  ["同步功能测试尚未完成（需完成两轮同步跟踪记录）"]))
         return sections
 
@@ -346,21 +374,19 @@ class PowerSyncController:
         else:
             # Gen1 是母排参考源，任何时候都允许合闸；只限制 Gen2 在 Gen1 考核期间合闸
             if gen_id == 2 and self._should_limit_close_to_selected_pt_target():
-                # 通过状态判断当前激活测试的机组，不再读取 UI 控件
-                target_gen_id = 1 if self.pt_exam_states[1].started else 2
-                if target_gen_id == 1:
-                    self._pt_exam_svc._set_pt_exam_feedback(
-                        1,
-                        "当前第三步正在测试 Gen 1，请先完成 Gen 1 的 PT 二次端子压差测试，再合闸 Gen 2。",
-                        "red"
-                    )
-                    self.ui.tab_widget.setCurrentIndex(4)
-                    self.ui.show_warning(
-                        "当前机组不允许合闸",
-                        "第三步 PT 测试当前锁定在 Gen 1。\n"
-                        "请先完成 Gen 1 的测试，再合闸 Gen 2。"
-                    )
-                    return
+                # _should_limit_close_to_selected_pt_target() 已保证 pt_exam_states[1].started
+                self._pt_exam_svc._set_pt_exam_feedback(
+                    1,
+                    "当前第四步正在测试 Gen 1，请先完成 Gen 1 的 PT 二次端子压差测试，再合闸 Gen 2。",
+                    "red"
+                )
+                self.ui.tab_widget.setCurrentIndex(5)
+                self.ui.show_warning(
+                    "当前机组不允许合闸",
+                    "第四步 PT 测试当前锁定在 Gen 1。\n"
+                    "请先完成 Gen 1 的测试，再合闸 Gen 2。"
+                )
+                return
             if (generator.breaker_position == BreakerPosition.WORKING
                     and self._should_enforce_pt_exam_before_close()):
                 blocker_sections = self.get_preclose_flow_blockers(gen_id)
@@ -372,7 +398,7 @@ class PowerSyncController:
                     warn_msg = "\n".join(msg_lines)
                     self._pt_exam_svc._set_pt_exam_feedback(
                         gen_id, warn_msg.replace("\n", "；"), "red")
-                    self.ui.tab_widget.setCurrentIndex(4)   # PT 压差考核页
+                    self.ui.tab_widget.setCurrentIndex(5)   # PT 压差考核页（Tab 5）
                     self.ui.show_warning("合闸前步骤未完成", warn_msg)
                     return
             generator.cmd_close = True

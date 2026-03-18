@@ -193,7 +193,7 @@ class LoopTestTabMixin:
             self.loop_test_summary_lbl.setStyleSheet(
                 "font-weight:bold; font-size:15px; color:#006400;")
             self.loop_test_meter_lbl.setText("")
-            self.loop_test_feedback_lbl.setText("操作提示：第一步测试已完成，请继续进行第二步 PT 相序检查。")
+            self.loop_test_feedback_lbl.setText("操作提示：第一步测试已完成，请继续进行第二步 PT 单体线电压检查。")
             self.loop_test_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
             for lbl, (text, _) in zip(self.loop_test_step_labels,
                                       self.ctrl.get_loop_test_steps()):

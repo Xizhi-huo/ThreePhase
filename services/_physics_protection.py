@@ -22,7 +22,7 @@ class ProtectionMixin:
     """继电保护、垂降控制、环流监控与断路器状态机。"""
 
     def _apply_engine_trip_interlocks(self, sim):
-        if sim.loop_test_mode or sim.pt_phase_test_mode:
+        if sim.loop_test_mode:
             return
         if sim.gen1.breaker_closed and not sim.gen1.running:
             sim.gen1.breaker_closed = False
@@ -70,13 +70,16 @@ class ProtectionMixin:
         return {'delta1': delta1, 'delta2': delta2}
 
     def _apply_droop_control(self, sim):
+        # 电压限幅基于额定幅值 ±15%，确保高压系统下垂控制不会把幅值压到低压区间
+        _amp_min = GRID_AMP * 0.85
+        _amp_max = GRID_AMP * 1.15
         if sim.droop_enabled and not sim.paused:
             if sim.gen1.breaker_closed:
                 sim.gen1.freq = max(48.0, min(52.0, sim.gen1.freq - KP_DROOP * self.ip1))
-                sim.gen1.amp = max(200.0, min(400.0, sim.gen1.amp - KQ_DROOP * self.iq1))
+                sim.gen1.amp = max(_amp_min, min(_amp_max, sim.gen1.amp - KQ_DROOP * self.iq1))
             if sim.gen2.breaker_closed:
                 sim.gen2.freq = max(48.0, min(52.0, sim.gen2.freq - KP_DROOP * self.ip2))
-                sim.gen2.amp = max(200.0, min(400.0, sim.gen2.amp - KQ_DROOP * self.iq2))
+                sim.gen2.amp = max(_amp_min, min(_amp_max, sim.gen2.amp - KQ_DROOP * self.iq2))
 
     def _update_circulating_current(self, sim, a1, a2, delta1, delta2):
         if sim.gen1.breaker_closed and sim.gen2.breaker_closed:

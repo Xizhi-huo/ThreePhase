@@ -122,7 +122,7 @@ class LoopTestService:
         all_rec = all(self._ctrl.loop_test_state.records[ph] is not None for ph in ('A', 'B', 'C'))
         if all_rec:
             self._set_loop_test_feedback(
-                "三相回路连通性测试全部完成，电路连通正常，可进行第二步 PT 相序检查。", "#006600")
+                "三相回路连通性测试全部完成，电路连通正常，可进行第二步 PT 单体线电压检查。", "#006600")
         else:
             self._set_loop_test_feedback(f"{phase} 相回路连通正常，请继续测量其余相别。", "#006600")
 
@@ -130,18 +130,28 @@ class LoopTestService:
         self._ctrl.loop_test_state = self.create_loop_test_state()
 
     def is_loop_test_complete(self):
+        """流程门禁：只有用户点击"完成第一步测试"后才返回 True。"""
+        return self._ctrl.loop_test_state.completed
+
+    def _are_loop_records_complete(self):
+        """内部辅助：三相记录是否齐全（用于 finalize 前置校验）。"""
         records = self._ctrl.loop_test_state.records
         return all(records[ph] is not None for ph in ('A', 'B', 'C'))
 
     def finalize_loop_test(self):
-        records = self._ctrl.loop_test_state.records
-        if not all(records[ph] is not None for ph in ('A', 'B', 'C')):
+        if not self._are_loop_records_complete():
             self._set_loop_test_feedback(
                 '请先完成 A/B/C 三相回路连通性记录，再点击\u201c完成第一步测试\u201d。', "red")
             return
+        self._ctrl.exit_loop_test_mode()   # 先退出回路检查模式，恢复断路器联锁
         self._ctrl.loop_test_state.completed = True
         self._set_loop_test_feedback(
-            "第一步【回路连通性测试】已确认完成，后续操作将不再影响该步骤状态。", "#006600")
+            "第一步【回路连通性测试】已确认完成，回路检查模式已退出，后续操作将不再影响该步骤状态。",
+            "#006600")
 
     def get_loop_test_blockers(self):
         return [text for text, done in self.get_loop_test_steps() if not done]
+
+    def are_loop_records_complete(self):
+        """供 UI 步骤显示使用：三相是否已记录（未必已点完成按钮）。"""
+        return self._are_loop_records_complete()
