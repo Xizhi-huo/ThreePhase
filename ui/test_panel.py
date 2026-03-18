@@ -70,35 +70,42 @@ class TestPanelMixin:
             " padding:2px 10px; border-radius:3px;")
         btn_exit.clicked.connect(self.exit_test_mode)
 
+        self._tp_admin_mode = False
+        self.tp_btn_admin = QtWidgets.QPushButton("🔧 管理员")
+        self.tp_btn_admin.setCheckable(True)
+        self.tp_btn_admin.setStyleSheet(
+            "background:#7c3aed; color:white; font-size:12px;"
+            " padding:2px 8px; border-radius:3px;"
+            " QPushButton:checked{background:#4c1d95;}")
+        self.tp_btn_admin.clicked.connect(self._on_tp_toggle_admin)
+
         trow.addWidget(title, 1)
+        trow.addWidget(self.tp_btn_admin)
         trow.addWidget(self.tp_btn_reset)
         trow.addWidget(btn_exit)
         tl.addWidget(top)
 
-        # ── 步骤进度点 ────────────────────────────────────────────────
+        # ── 步骤进度点（管理员模式下变为可点击按钮）─────────────────────
+        self._tp_forced_step: int | None = None   # None = 自动推算
         step_bar = QtWidgets.QWidget()
         step_bar.setStyleSheet(
             f"background:{_TITLE_BG}; border-bottom:1px solid #e2e8f0;")
         step_bar.setFixedHeight(52)
         srow = QtWidgets.QHBoxLayout(step_bar)
         srow.setContentsMargins(8, 6, 8, 6)
-        self.tp_step_dots: list = []
-        for name in ["①回路", "②线压", "③相序", "④压差", "⑤同步"]:
-            col = QtWidgets.QWidget()
-            col.setStyleSheet(f"background:{_TITLE_BG}; border:none;")
-            cly = QtWidgets.QVBoxLayout(col)
-            cly.setContentsMargins(0, 0, 0, 0)
-            cly.setSpacing(1)
-            dot = QtWidgets.QLabel("●")
-            dot.setAlignment(QtCore.Qt.AlignCenter)
-            dot.setStyleSheet("font-size:16px; color:#cbd5e1; border:none;")
-            lbl = QtWidgets.QLabel(name)
-            lbl.setAlignment(QtCore.Qt.AlignCenter)
-            lbl.setStyleSheet("font-size:10px; color:#94a3b8; border:none;")
-            cly.addWidget(dot)
-            cly.addWidget(lbl)
-            srow.addWidget(col, 1)
-            self.tp_step_dots.append((dot, lbl))
+        self.tp_step_btns: list = []   # list of QPushButton, index 0 = step 1
+        _step_names = ["①回路", "②线压", "③相序", "④压差", "⑤同步"]
+        for idx, name in enumerate(_step_names):
+            step_num = idx + 1
+            btn = QtWidgets.QPushButton(f"●\n{name}")
+            btn.setFlat(True)
+            btn.setCheckable(True)
+            btn.setCursor(QtCore.Qt.ArrowCursor)   # 默认不可点击外观
+            btn.setStyleSheet(self._tp_dot_style("idle"))
+            btn.clicked.connect(
+                lambda _chk, s=step_num: self._on_tp_step_btn_clicked(s))
+            srow.addWidget(btn, 1)
+            self.tp_step_btns.append(btn)
         tl.addWidget(step_bar)
 
         # ── 滚动内容区 ────────────────────────────────────────────────
@@ -433,6 +440,28 @@ class TestPanelMixin:
             self.tp_s2_rec_btns[ph] = btn
         lay.addWidget(rrow)
 
+        # ── Gen 频率/幅值/相位调节（让两台发电机电压调到同一水平）──────
+        adj_note = QtWidgets.QLabel("调节发电机使各 PT 线电压均达到 100V:")
+        adj_note.setStyleSheet("color:#1d4ed8; font-size:11px; font-weight:bold;")
+        lay.addWidget(adj_note)
+        self._tp_s2_fap = {}
+        self._make_gen_fap_block(lay, '_tp_s2_fap', 1)
+        self._make_gen_fap_block(lay, '_tp_s2_fap', 2)
+
+        # ── 已记录线电压汇总表 ────────────────────────────────────────
+        rec_grp = self._make_grp("线电压记录（目标: 100V）")
+        rec_lay = QtWidgets.QVBoxLayout(rec_grp)
+        rec_lay.setSpacing(2)
+        self.tp_s2_rec_lbls = {}
+        for key in ('PT1_AB', 'PT1_BC', 'PT1_CA',
+                    'PT2_AB', 'PT2_BC', 'PT2_CA',
+                    'PT3_AB', 'PT3_BC', 'PT3_CA'):
+            lbl = QtWidgets.QLabel(f"{key}: 未记录")
+            lbl.setStyleSheet("font-size:11px; color:#94a3b8;")
+            rec_lay.addWidget(lbl)
+            self.tp_s2_rec_lbls[key] = lbl
+        lay.addWidget(rec_grp)
+
         self.tp_s2_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
         self.tp_s2_fb_lbl.setWordWrap(True)
         self.tp_s2_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
@@ -521,6 +550,19 @@ class TestPanelMixin:
             rh.addWidget(btn)
         lay.addWidget(rrow)
 
+        # ── 压差记录汇总 ──────────────────────────────────────────────
+        diff_grp = self._make_grp("已记录压差值（期望：接近 0V）")
+        diff_lay = QtWidgets.QVBoxLayout(diff_grp)
+        diff_lay.setSpacing(2)
+        self.tp_s4_diff_lbls = {}   # key: (gen_id, phase)
+        for gid in (1, 2):
+            for ph in ('A', 'B', 'C'):
+                lbl = QtWidgets.QLabel(f"Gen{gid} {ph}相: 未记录")
+                lbl.setStyleSheet("font-size:11px; color:#94a3b8;")
+                diff_lay.addWidget(lbl)
+                self.tp_s4_diff_lbls[(gid, ph)] = lbl
+        lay.addWidget(diff_grp)
+
         self.tp_s4_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
         self.tp_s4_fb_lbl.setWordWrap(True)
         self.tp_s4_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
@@ -537,16 +579,38 @@ class TestPanelMixin:
 
         self.tp_s5_step_lbls = self._make_step_list(lay, 12)
 
+        # ── 远程启动信号（自动模式必须打开才能让仲裁器控制发电机）──────
+        rs_row = QtWidgets.QWidget()
+        rs_row.setStyleSheet(f"background:{_SECTION_BG};")
+        rs_h = QtWidgets.QHBoxLayout(rs_row)
+        rs_h.setContentsMargins(4, 2, 4, 2)
+        rs_lbl = QtWidgets.QLabel("远程启动信号:")
+        rs_lbl.setStyleSheet("color:#64748b; font-size:11px;")
+        self.tp_s5_remote_btn = QtWidgets.QPushButton("⚡ 开启自动")
+        self.tp_s5_remote_btn.setCheckable(True)
+        self.tp_s5_remote_btn.setStyleSheet(
+            "background:#e2e8f0; color:#475569; font-size:12px;"
+            " font-weight:bold; padding:3px 10px; border-radius:3px;")
+        self.tp_s5_remote_btn.clicked.connect(self._on_tp_s5_remote_toggle)
+        rs_h.addWidget(rs_lbl)
+        rs_h.addStretch()
+        rs_h.addWidget(self.tp_s5_remote_btn)
+        lay.addWidget(rs_row)
+
         self._make_gen_block(
             lay, 's5', 1,
             mode_options=[("手动", "manual"), ("自动", "auto")],
             show_engine=True,
         )
+        self._tp_s5_fap = {}
+        self._make_gen_fap_block(lay, '_tp_s5_fap', 1)
+
         self._make_gen_block(
             lay, 's5', 2,
             mode_options=[("手动", "manual"), ("自动", "auto")],
             show_engine=True,
         )
+        self._make_gen_fap_block(lay, '_tp_s5_fap', 2)
 
         bar_hdr = QtWidgets.QLabel("同步误差监测（越低越好，趋近零可合闸）:")
         bar_hdr.setStyleSheet("color:#475569; font-size:11px; font-weight:bold;")
@@ -691,6 +755,19 @@ class TestPanelMixin:
         elif step == 5:
             self.ctrl.finalize_sync_test()
 
+    def _on_tp_s5_remote_toggle(self, checked):
+        self.ctrl.sim_state.remote_start_signal = checked
+        if checked:
+            self.tp_s5_remote_btn.setText("⚡ 关闭自动")
+            self.tp_s5_remote_btn.setStyleSheet(
+                "background:#16a34a; color:white; font-size:12px;"
+                " font-weight:bold; padding:3px 10px; border-radius:3px;")
+        else:
+            self.tp_s5_remote_btn.setText("⚡ 开启自动")
+            self.tp_s5_remote_btn.setStyleSheet(
+                "background:#e2e8f0; color:#475569; font-size:12px;"
+                " font-weight:bold; padding:3px 10px; border-radius:3px;")
+
     def _tp_s2_record(self, phase, pair):
         sim = self.ctrl.sim_state
         n1 = sim.probe1_node or ""
@@ -705,7 +782,146 @@ class TestPanelMixin:
     # ════════════════════════════════════════════════════════════════════
     # Helpers
     # ════════════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _tp_dot_style(state: str) -> str:
+        """
+        state: 'idle' | 'done' | 'active' | 'admin_idle' | 'admin_active'
+        """
+        base = ("QPushButton{border:none; border-radius:4px;"
+                " font-size:11px; padding:2px;}")
+        if state == "done":
+            return base + "QPushButton{color:#16a34a; background:#dcfce7;}"
+        if state == "active":
+            return base + ("QPushButton{color:#1d4ed8; background:#dbeafe;"
+                           " font-weight:bold; font-size:12px;}")
+        if state == "admin_idle":
+            return (base + "QPushButton{color:#7c3aed; background:#ede9fe;}"
+                    "QPushButton:hover{background:#c4b5fd;}"
+                    "QPushButton:checked{background:#7c3aed; color:white;}")
+        if state == "admin_active":
+            return (base + "QPushButton{color:white; background:#7c3aed;"
+                    " font-weight:bold;}"
+                    "QPushButton:hover{background:#6d28d9;}")
+        # idle
+        return base + "QPushButton{color:#94a3b8; background:transparent;}"
+
+    def _on_tp_toggle_admin(self, checked):
+        """管理员模式：显示/隐藏步骤详情 Tab 2-6，步骤按钮变为可点击。"""
+        self._tp_admin_mode = checked
+        self.tp_btn_admin.setText("🔧 管理员 ✓" if checked else "🔧 管理员")
+        if not checked:
+            # 退出管理员模式：清除强制步骤，恢复正常推算
+            self._tp_forced_step = None
+            for btn in self.tp_step_btns:
+                btn.setChecked(False)
+                btn.setCursor(QtCore.Qt.ArrowCursor)
+        else:
+            for btn in self.tp_step_btns:
+                btn.setCursor(QtCore.Qt.PointingHandCursor)
+        for i in range(2, 7):
+            try:
+                self.tab_widget.setTabVisible(i, checked)
+            except AttributeError:
+                pass
+
+    def _on_tp_step_btn_clicked(self, step_num: int):
+        """管理员点击步骤按钮 → 强制跳转到该步骤面板。"""
+        if not self._tp_admin_mode:
+            return
+        if self._tp_forced_step == step_num:
+            # 再次点击同一步骤：取消强制，恢复自动
+            self._tp_forced_step = None
+            for btn in self.tp_step_btns:
+                btn.setChecked(False)
+        else:
+            self._tp_forced_step = step_num
+            for i, btn in enumerate(self.tp_step_btns):
+                btn.setChecked(i + 1 == step_num)
+
+    def _make_gen_fap_block(self, parent_lay, store_key, gen_id, read_only=False):
+        """
+        在 parent_lay 中插入 Gen-N 的 频率/幅值/相位 可调控件。
+        store_key : 'tp_s2_fap' | 'tp_s5_fap'  — 存到 self.<store_key>[gen_id]
+        read_only : True = 只显示，不可调（自动模式下设置）
+        返回 entry_map {attr: (slider, entry, read_only_lbl)}
+        """
+        c = self.ctrl
+        gen = c.sim_state.gen1 if gen_id == 1 else c.sim_state.gen2
+
+        grp = QtWidgets.QGroupBox(f"Gen {gen_id} 频率/幅值/相位")
+        grp.setStyleSheet(_GRP_STYLE.format(bg="#ffffff"))
+        glay = QtWidgets.QVBoxLayout(grp)
+        glay.setSpacing(2)
+        glay.setContentsMargins(4, 4, 4, 4)
+
+        specs = [
+            ("频率(Hz)", 450, 550, int(gen.freq * 10),       10, 'freq',      48.0, 52.0),
+            ("幅值(V)",  0, 15000, int(gen.amp),               1, 'amp',       0.0, 15000.0),
+            ("相位(°)", -1800, 1800, int(gen.phase_deg * 10), 10, 'phase_deg', -180.0, 180.0),
+        ]
+        entry_map = {}
+        for label, vmin, vmax, init, scale, attr, clo, chi in specs:
+            row_w = QtWidgets.QWidget()
+            row_w.setStyleSheet("background:#ffffff;")
+            rh = QtWidgets.QHBoxLayout(row_w)
+            rh.setContentsMargins(0, 0, 0, 0)
+            rh.setSpacing(3)
+
+            lbl = QtWidgets.QLabel(label)
+            lbl.setFixedWidth(66)
+            lbl.setStyleSheet("font-size:11px; color:#64748b; background:#ffffff;")
+
+            sl = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+            sl.setRange(vmin, vmax)
+            sl.setValue(init)
+            sl.setFixedHeight(16)
+            sl.setEnabled(not read_only)
+
+            entry = QtWidgets.QLineEdit(f"{getattr(gen, attr):.1f}")
+            entry.setFixedWidth(56)
+            entry.setStyleSheet("font-size:11px;")
+            entry.setEnabled(not read_only)
+            entry.setReadOnly(read_only)
+
+            def _sl_ch(val, _a=attr, _sc=scale, _e=entry, _gid=gen_id):
+                v = round(val / _sc, 3)
+                setattr(c.sim_state.gen1 if _gid == 1 else c.sim_state.gen2, _a, v)
+                _e.setText(f"{v:.1f}")
+
+            def _en_ch(_a=attr, _sc=scale, _sl=sl, _gid=gen_id,
+                        _clo=clo, _chi=chi, _e=entry):
+                try:
+                    v = max(_clo, min(_chi, float(_e.text())))
+                    setattr(c.sim_state.gen1 if _gid == 1 else c.sim_state.gen2, _a, v)
+                    _sl.blockSignals(True)
+                    _sl.setValue(int(v * _sc))
+                    _sl.blockSignals(False)
+                    _e.setText(f"{v:.1f}")
+                except ValueError:
+                    pass
+
+            if not read_only:
+                sl.valueChanged.connect(_sl_ch)
+                entry.returnPressed.connect(_en_ch)
+                entry.editingFinished.connect(_en_ch)
+
+            rh.addWidget(lbl)
+            rh.addWidget(sl, 1)
+            rh.addWidget(entry)
+            glay.addWidget(row_w)
+            entry_map[attr] = (sl, entry)
+
+        parent_lay.addWidget(grp)
+        store = getattr(self, store_key, {})
+        store[gen_id] = entry_map
+        setattr(self, store_key, store)
+        return entry_map
+
     def _current_test_step(self) -> int:
+        # 管理员模式强制指定步骤时直接返回
+        if self._tp_admin_mode and self._tp_forced_step is not None:
+            return self._tp_forced_step
         c = self.ctrl
         if not c.is_loop_test_complete():
             return 1
@@ -727,20 +943,29 @@ class TestPanelMixin:
         sim  = self.ctrl.sim_state
         step = self._current_test_step()
 
-        # ── Step dots ─────────────────────────────────────────────────
-        for i, (dot, nlbl) in enumerate(self.tp_step_dots):
+        # ── Step dots / admin buttons ──────────────────────────────────
+        auto_step = self._current_test_step.__wrapped__(self) \
+            if hasattr(self._current_test_step, '__wrapped__') else None
+        # 计算自然完成步骤（不受 forced 影响）
+        c = self.ctrl
+        _auto = (1 if not c.is_loop_test_complete() else
+                 2 if not c.is_pt_voltage_check_complete() else
+                 3 if not c.is_pt_phase_check_complete() else
+                 4 if not (c.pt_exam_states[1].completed and
+                           c.pt_exam_states[2].completed) else 5)
+        for i, btn in enumerate(self.tp_step_btns):
             s = i + 1
-            if s < step:
-                dot.setStyleSheet("font-size:16px; color:#16a34a; border:none;")
-                nlbl.setStyleSheet("font-size:10px; color:#16a34a; border:none;")
-            elif s == step:
-                dot.setStyleSheet(
-                    "font-size:20px; color:#1d4ed8; border:none;")
-                nlbl.setStyleSheet(
-                    "font-size:10px; color:#1d4ed8; font-weight:bold; border:none;")
+            is_active = (s == step)
+            if self._tp_admin_mode:
+                style = "admin_active" if is_active else "admin_idle"
             else:
-                dot.setStyleSheet("font-size:16px; color:#cbd5e1; border:none;")
-                nlbl.setStyleSheet("font-size:10px; color:#94a3b8; border:none;")
+                if s < _auto:
+                    style = "done"
+                elif s == _auto:
+                    style = "active"
+                else:
+                    style = "idle"
+            btn.setStyleSheet(self._tp_dot_style(style))
 
         # ── Show only current step section ────────────────────────────
         for s, grp in self._tp_step_grps.items():
@@ -920,6 +1145,31 @@ class TestPanelMixin:
         else:
             self.tp_s2_probe_lbl.setText("当前表笔: 未放置")
 
+        # 线电压记录汇总
+        records = self.ctrl.pt_voltage_check_state.records
+        for key, lbl in self.tp_s2_rec_lbls.items():
+            rec = records.get(key)
+            if rec is not None:
+                v = rec.get('voltage', 0)
+                ok = 85.0 <= v <= 115.0
+                lbl.setText(f"{key}: {v:.1f} V {'✓' if ok else '⚠'}")
+                lbl.setStyleSheet(
+                    f"font-size:11px; color:{'#15803d' if ok else '#dc2626'};")
+            else:
+                lbl.setText(f"{key}: 未记录")
+                lbl.setStyleSheet("font-size:11px; color:#94a3b8;")
+
+        # 同步 Gen fap 滑块/输入框
+        for gid, entry_map in getattr(self, '_tp_s2_fap', {}).items():
+            gen = sim.gen1 if gid == 1 else sim.gen2
+            for attr, (sl, entry) in entry_map.items():
+                scale = 10 if attr in ('freq', 'phase_deg') else 1
+                sl.blockSignals(True)
+                sl.setValue(int(getattr(gen, attr) * scale))
+                sl.blockSignals(False)
+                if not entry.hasFocus():
+                    entry.setText(f"{getattr(gen, attr):.1f}")
+
         state = self.ctrl.pt_voltage_check_state
         self.tp_s2_fb_lbl.setText(state.feedback)
         self.tp_s2_fb_lbl.setStyleSheet(
@@ -965,6 +1215,24 @@ class TestPanelMixin:
                 f"font-size:11px; color:"
                 f"{'#15803d' if done else ('#1e293b' if in_mode else '#94a3b8')};")
 
+        # 显示已记录压差值
+        for gid in (1, 2):
+            records = self.ctrl.pt_exam_states[gid].records
+            for ph in ('A', 'B', 'C'):
+                lbl = self.tp_s4_diff_lbls.get((gid, ph))
+                if lbl is None:
+                    continue
+                rec = records.get(ph)
+                if rec is not None:
+                    v = rec.get('voltage', 0)
+                    ok = abs(v) < 5.0
+                    lbl.setText(f"Gen{gid} {ph}相: {v:.2f} V {'✓' if ok else '⚠偏大'}")
+                    lbl.setStyleSheet(
+                        f"font-size:11px; color:{'#15803d' if ok else '#dc2626'};")
+                else:
+                    lbl.setText(f"Gen{gid} {ph}相: 未记录")
+                    lbl.setStyleSheet("font-size:11px; color:#94a3b8;")
+
         state = self.ctrl.pt_exam_states[gen_id]
         self.tp_s4_fb_lbl.setText(state.feedback)
         self.tp_s4_fb_lbl.setStyleSheet(
@@ -979,6 +1247,38 @@ class TestPanelMixin:
             lbl.setStyleSheet(
                 f"font-size:11px; color:"
                 f"{'#15803d' if done else ('#1e293b' if in_mode else '#94a3b8')};")
+
+        # 同步远程启动按钮状态
+        rs = sim.remote_start_signal
+        self.tp_s5_remote_btn.blockSignals(True)
+        self.tp_s5_remote_btn.setChecked(rs)
+        self.tp_s5_remote_btn.blockSignals(False)
+        if rs:
+            self.tp_s5_remote_btn.setText("⚡ 关闭自动")
+            self.tp_s5_remote_btn.setStyleSheet(
+                "background:#16a34a; color:white; font-size:12px;"
+                " font-weight:bold; padding:3px 10px; border-radius:3px;")
+        else:
+            self.tp_s5_remote_btn.setText("⚡ 开启自动")
+            self.tp_s5_remote_btn.setStyleSheet(
+                "background:#e2e8f0; color:#475569; font-size:12px;"
+                " font-weight:bold; padding:3px 10px; border-radius:3px;")
+
+        # Gen fap 控件：auto 模式下只显示，不可调
+        for gid, entry_map in getattr(self, '_tp_s5_fap', {}).items():
+            gen = sim.gen1 if gid == 1 else sim.gen2
+            is_auto = (gen.mode == "auto")
+            for attr, (sl, entry) in entry_map.items():
+                scale = 10 if attr in ('freq', 'phase_deg') else 1
+                sl.blockSignals(True)
+                sl.setValue(int(getattr(gen, attr) * scale))
+                sl.blockSignals(False)
+                sl.setEnabled(not is_auto)
+                if not entry.hasFocus():
+                    entry.setText(f"{getattr(gen, attr):.1f}")
+                entry.setReadOnly(is_auto)
+                entry.setStyleSheet(
+                    f"font-size:11px; background:{'#f1f5f9' if is_auto else '#ffffff'};")
 
         gen1, gen2 = sim.gen1, sim.gen2
         freq_diff  = abs(gen1.freq - gen2.freq)
