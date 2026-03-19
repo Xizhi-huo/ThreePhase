@@ -130,24 +130,31 @@ class PtVoltageCheckService:
                 f"当前表笔不在 {n1_expect} 与 {n2_expect} 上，请重新放置后再记录。", "red")
             return
 
-        meter_v = getattr(self._ctrl.physics, 'meter_voltage', None)
+        meter_v_sec = getattr(self._ctrl.physics, 'meter_voltage', None)   # 二次侧 ≈100V
         meter_status = getattr(self._ctrl.physics, 'meter_status', 'idle')
-        if meter_v is None or meter_status not in ('ok', 'danger'):
+        if meter_v_sec is None or meter_status not in ('ok', 'danger'):
             self._set_feedback("当前测量结果无效，请确认表笔接在同一 PT 的两相端子上。", "red")
             return
 
+        # 换算回一次侧线电压（教学中关心的实际电压量）
+        from domain.constants import PT_RATIO as _PT_RATIO
+        primary_v = meter_v_sec * _PT_RATIO          # ≈ 10500 V
+
         state.records[key] = {
-            'voltage': meter_v,
+            'voltage': primary_v,       # 存一次侧值，单位 V
+            'voltage_sec': meter_v_sec, # 保留二次侧，供历史对比
             'reading': self._ctrl.physics.meter_reading,
         }
 
         all_rec = all(state.records[k] is not None for k in _ALL_KEYS)
+        # 一次侧额定线电压 10500V，±15% 容差由二次侧 status 已判定
         if meter_status != 'ok':
             rec_color = "#cc6600"
-            rec_note = f"（⚠️ 测量值 {meter_v:.1f}V 偏离目标 100V，请检查发电机输出电压后重新测量）"
+            rec_note = (f"（⚠️ 一次侧测量值 {primary_v:.0f} V，"
+                        f"二次侧 {meter_v_sec:.1f} V，偏离额定 100V，请调整后重新测量）")
         else:
             rec_color = "#006600"
-            rec_note = f"（{meter_v:.1f}V，约 100V，正常）"
+            rec_note = f"（一次侧 {primary_v:.0f} V ≈ 10500 V，正常）"
 
         if all_rec:
             msg = f"PT1/PT2/PT3 三组线电压已全部记录完成{rec_note}，请点击「完成第二步测试」确认。"
@@ -171,10 +178,12 @@ class PtVoltageCheckService:
         return self._ctrl.pt_voltage_check_state.completed
 
     def _are_records_complete(self):
-        """内部辅助：九项是否已全部记录且均在合格范围 [85, 115V] 内（用于 finalize 前置校验）。"""
+        """内部辅助：九项是否已全部记录且均在合格范围内（用于 finalize 前置校验）。
+        voltage 字段存一次侧值（V），额定 10500V，±15% → [8925, 12075V]。
+        """
         records = self._ctrl.pt_voltage_check_state.records
         return all(
-            records[k] is not None and 85.0 <= records[k]['voltage'] <= 115.0
+            records[k] is not None and 8925.0 <= records[k]['voltage'] <= 12075.0
             for k in _ALL_KEYS
         )
 
@@ -185,16 +194,18 @@ class PtVoltageCheckService:
             records = state.records
             missing = [k for k in _ALL_KEYS if records[k] is None]
             bad = [k for k in _ALL_KEYS
-                   if records[k] is not None and not (85.0 <= records[k]['voltage'] <= 115.0)]
+                   if records[k] is not None
+                   and not (8925.0 <= records[k]['voltage'] <= 12075.0)]
             if missing:
                 self._set_feedback(
                     f'以下项目尚未完成记录：{", ".join(missing)}。请补充测量后再点击「完成第二步测试」。',
                     "red")
             else:
-                bad_str = "、".join(f"{k}={records[k]['voltage']:.1f}V" for k in bad)
+                bad_str = "、".join(
+                    f"{k}={records[k]['voltage']/1000:.2f} kV" for k in bad)
                 self._set_feedback(
-                    f'以下线电压偏离目标 100V（需在 85～115V 内）：{bad_str}。'
-                    '请调整发电机输出电压，使各 PT 线电压均约为 100V，再点击「完成第二步测试」。',
+                    f'以下线电压偏离目标 10.5 kV（需在 8.925～12.075 kV 内）：{bad_str}。'
+                    '请调整发电机输出电压，使各 PT 一次侧线电压均约为 10.5 kV，再点击「完成第二步测试」。',
                     "red")
             return
         state.completed = True

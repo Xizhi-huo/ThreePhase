@@ -155,24 +155,43 @@ class PtExamService:
             self._set_pt_exam_feedback(gen_id, msg, "red")
             return
 
-        meter_v      = getattr(self._ctrl.physics, 'meter_voltage', None)
+        meter_v_sec  = getattr(self._ctrl.physics, 'meter_voltage', None)  # 二次侧
         meter_status = getattr(self._ctrl.physics, 'meter_status', 'idle')
-        if meter_v is None or meter_status not in ('ok', 'danger'):
+        if meter_v_sec is None or meter_status not in ('ok', 'danger'):
             self._set_pt_exam_feedback(gen_id, "当前测量结果无效，请确认表笔接在 PT 二次端子排对应端子上。", "red")
             return
+
+        from domain.constants import PT_RATIO as _PT_RATIO
+        primary_diff = meter_v_sec * _PT_RATIO   # 换算回一次侧压差（V）
+
         if meter_status != 'ok':
-            self._set_pt_exam_feedback(gen_id, f"{phase} 相 PT 二次端子压差为 {meter_v:.1f} V，暂不满足合闸条件，请继续调整。", "red")
+            self._set_pt_exam_feedback(
+                gen_id,
+                f"{phase} 相 PT 一次侧压差为 {primary_diff:.0f} V（二次侧 {meter_v_sec:.2f} V），"
+                "相序不匹配，请检查接线。", "red")
+            return
+
+        # 压差阈值：二次侧 < 5 V，即一次侧 < 525 V（5 × PT_RATIO）
+        _THRESHOLD_PRIMARY = 5.0 * _PT_RATIO   # 525 V
+        if primary_diff >= _THRESHOLD_PRIMARY:
+            self._set_pt_exam_feedback(
+                gen_id,
+                f"{phase} 相一次侧压差 {primary_diff:.0f} V（二次侧 {meter_v_sec:.2f} V）"
+                f"超出允许范围（需 < {_THRESHOLD_PRIMARY:.0f} V / 5.00 V），"
+                "请先调节发电机频率与电压使两侧接近后再记录。", "red")
             return
 
         self._ctrl.pt_exam_states[gen_id].records[phase] = {
-            'voltage': meter_v,
+            'voltage': primary_diff,        # 存一次侧值（V）
+            'voltage_sec': meter_v_sec,     # 保留二次侧供参考
             'reading': self._ctrl.physics.meter_reading,
         }
         all_rec = all(self._ctrl.pt_exam_states[gen_id].records[ph] is not None for ph in ('A', 'B', 'C'))
         if all_rec:
-            msg = f"Gen {gen_id} 三相 PT 二次端子压差已全部记录完成。"
+            msg = f"Gen {gen_id} 三相 PT 压差已全部记录完成。"
         else:
-            msg = f"Gen {gen_id} {phase} 相 PT 二次端子压差记录完成：{meter_v:.1f} V。"
+            msg = (f"Gen {gen_id} {phase} 相 PT 压差记录完成："
+                   f"一次侧 {primary_diff:.0f} V（二次侧 {meter_v_sec:.2f} V）。")
         self._set_pt_exam_feedback(gen_id, msg, "#006600")
 
     def get_pt_exam_steps(self, gen_id):
@@ -185,14 +204,12 @@ class PtExamService:
 
         if gen_id == 1:
             steps = [
-                ("1. 恢复中性点小电阻接地",
-                 gnd_ok or has_any),
-                ("2. 将 Gen1 切至工作位置并合闸（建立母排参考）",
-                 gen1_on_bus or has_any),
-                ("3. 确认 Gen2 断路器处于断开状态",
-                 (not gen2.breaker_closed) or has_any),
+                # 前置条件始终反映实时状态，不因"已录过"而提前勾选
+                ("1. 恢复中性点小电阻接地", gnd_ok),
+                ("2. 将 Gen1 切至工作位置并合闸（建立母排参考）", gen1_on_bus),
+                ("3. 确认 Gen2 断路器处于断开状态", not gen2.breaker_closed),
                 ("4. 开启万用表并连接 PT1 与 PT2 同相端子",
-                 self._ctrl.sim_state.multimeter_mode or has_any),
+                 self._ctrl.sim_state.multimeter_mode),
                 ("5. 记录 A 相 PT 二次端子压差", records['A'] is not None),
                 ("6. 记录 B 相 PT 二次端子压差", records['B'] is not None),
                 ("7. 记录 C 相 PT 二次端子压差", records['C'] is not None),
@@ -200,14 +217,11 @@ class PtExamService:
         else:
             gen2_running_not_closed = gen2.running and not gen2.breaker_closed
             steps = [
-                ("1. 恢复中性点小电阻接地",
-                 gnd_ok or has_any),
-                ("2. 确认 Gen1 已并入母排（作为母排参考）",
-                 gen1_on_bus or has_any),
-                ("3. 启动 Gen2，保持断路器断开",
-                 gen2_running_not_closed or has_any),
+                ("1. 恢复中性点小电阻接地", gnd_ok),
+                ("2. 确认 Gen1 已并入母排（作为母排参考）", gen1_on_bus),
+                ("3. 启动 Gen2，保持断路器断开", gen2_running_not_closed),
                 ("4. 开启万用表并连接 PT3 与 PT2 同相端子",
-                 self._ctrl.sim_state.multimeter_mode or has_any),
+                 self._ctrl.sim_state.multimeter_mode),
                 ("5. 记录 A 相 PT 二次端子压差", records['A'] is not None),
                 ("6. 记录 B 相 PT 二次端子压差", records['B'] is not None),
                 ("7. 记录 C 相 PT 二次端子压差", records['C'] is not None),

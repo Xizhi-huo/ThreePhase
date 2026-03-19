@@ -56,13 +56,8 @@ class PtPhaseCheckService:
             ("3. 恢复中性点小电阻接地", gnd_ok),
             ("4. 确认 Gen1 在工作位并入母排（提供 PT1/PT2 参考电压）", gen1_on_bus),
             ("5. 启动 Gen2，保持断路器断开（提供 PT3 参考电压）", gen2_running_open),
-            ("6. 开启万用表，在母排拓扑页测量同相端子", sim.multimeter_mode),
-            ("7. 记录 PT1 A 相相序（PT1_A ↔ PT2_A）", rec['PT1_A'] is not None),
-            ("8. 记录 PT1 B 相相序（PT1_B ↔ PT2_B）", rec['PT1_B'] is not None),
-            ("9. 记录 PT1 C 相相序（PT1_C ↔ PT2_C）", rec['PT1_C'] is not None),
-            ("10. 记录 PT3 A 相相序（PT3_A ↔ PT2_A）", rec['PT3_A'] is not None),
-            ("11. 记录 PT3 B 相相序（PT3_B ↔ PT2_B）", rec['PT3_B'] is not None),
-            ("12. 记录 PT3 C 相相序（PT3_C ↔ PT2_C）", rec['PT3_C'] is not None),
+            ("6. 接入相序仪至 PT1，记录 PT1 三相相序", all(rec[f'PT1_{p}'] is not None for p in 'ABC')),
+            ("7. 接入相序仪至 PT3，记录 PT3 三相相序", all(rec[f'PT3_{p}'] is not None for p in 'ABC')),
         ]
         if state.completed:
             return [(text, True) for text, _ in steps]
@@ -102,10 +97,6 @@ class PtPhaseCheckService:
                 self._set_feedback(
                     "测量 PT3 相序时，Gen2 断路器应保持断开状态。", "red")
                 return
-
-        if not sim.multimeter_mode:
-            self._set_feedback("请先开启万用表。", "red")
-            return
 
         phase_order = ('A', 'B', 'C')
         for prev in phase_order[:phase_order.index(phase)]:

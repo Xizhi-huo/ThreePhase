@@ -78,6 +78,7 @@ class PtExamTabMixin:
             self._pt_target_rb[val] = rb
         outer.addWidget(target_grp)
 
+
         # ── 操作按钮 ──────────────────────────────────────────────────────
         act_row = QtWidgets.QWidget()
         act_row.setStyleSheet("background:#f8fbff;")
@@ -232,9 +233,10 @@ class PtExamTabMixin:
             for phase, lbl in self.pt_exam_record_labels.items():
                 rec = records[phase]
                 if rec is not None:
-                    lbl.setText(f"{rec['voltage']:.1f} V  [可合闸]")
+                    lbl.setText(f"{rec['voltage']:.0f} V  [可合闸]")
                     lbl.setStyleSheet("font-size:15px; color:#006400;")
             return
+        
 
         # ── 更新测试横幅和按钮文字 ────────────────────────────────────────
         self.pt_exam_mode_banner.setVisible(both_started)
@@ -295,5 +297,5 @@ class PtExamTabMixin:
                 lbl.setText("未记录")
                 lbl.setStyleSheet("font-size:15px; color:#999999;")
             else:
-                lbl.setText(f"{record['voltage']:.1f} V  [可合闸]")
+                lbl.setText(f"{record['voltage']:.0f} V  [可合闸]")
                 lbl.setStyleSheet("font-size:15px; color:#006400;")

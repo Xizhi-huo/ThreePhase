@@ -5,7 +5,7 @@ services/_physics_measurement.py
 
 import numpy as np
 
-from domain.constants import NEUTRAL_RESISTOR_OHMS, PT_RATIO, PRIMARY_AMP
+from domain.constants import NEUTRAL_RESISTOR_OHMS, PT_RATIO
 from domain.enums import BreakerPosition
 from domain.node_map import NODES
 
@@ -13,34 +13,34 @@ from domain.node_map import NODES
 class MeasurementMixin:
     """中性点接地状态、PT 二次电压计算与万用表交互仿真。"""
 
-    def _whole_cycle_rms(self, wave: np.ndarray, freq_hz: float,
-                         n_cycles: int = 3) -> float:
-        """
-        从波形缓冲中截取 n_cycles 个完整周期，计算 RMS；
-        再以 EMA 滤波稳定示值，消除滑动窗口边沿毛刺。
-
-        Parameters
-        ----------
-        wave      : 1-D ndarray，物理引擎的 plot_data 列（200 点，60 ms）
-        freq_hz   : 对应发电机/母排的实际频率（Hz）
-        n_cycles  : 期望使用的完整周期数（默认 3）
-
-        Returns
-        -------
-        ema 稳定后的 RMS 值
-        """
-        freq_hz = max(freq_hz, 1.0)               # 防零除
-        spc = 1.0 / (freq_hz * self.wave_sample_dt)  # samples per cycle
+    def _whole_cycle_rms_raw(self, wave: np.ndarray, freq_hz: float,
+                             n_cycles: int = 3) -> float:
+        """整周期截断后的纯 RMS，不修改任何 EMA 状态。"""
+        freq_hz = max(freq_hz, 1.0)
+        spc = 1.0 / (freq_hz * self.wave_sample_dt)
         n_use = max(1, round(min(n_cycles, len(wave) / spc) * spc))
         n_use = min(n_use, len(wave))
-        raw_rms = float(np.sqrt(np.mean(wave[-n_use:] ** 2)))
-        # EMA 平滑
-        if self._meter_v_ema is None:
-            self._meter_v_ema = raw_rms
+        return float(np.sqrt(np.mean(wave[-n_use:] ** 2)))
+
+    def _ema_update(self, key: str, raw_value: float) -> float:
+        """
+        对指定 key 独立维护 EMA，各测量路径互不串扰。
+        key 示例: 'intra_diff', 'cross_rms1', 'cross_rms2'
+        """
+        if not hasattr(self, '_meter_ema_dict'):
+            self._meter_ema_dict: dict = {}
+        if key not in self._meter_ema_dict:
+            self._meter_ema_dict[key] = raw_value
         else:
-            self._meter_v_ema = (self._meter_ema_alpha * raw_rms
-                                 + (1.0 - self._meter_ema_alpha) * self._meter_v_ema)
-        return self._meter_v_ema
+            a = self._meter_ema_alpha
+            self._meter_ema_dict[key] = a * raw_value + (1.0 - a) * self._meter_ema_dict[key]
+        return self._meter_ema_dict[key]
+
+    def _ema_reset(self, *keys):
+        """探针切换时清除指定 key 的历史，避免拖尾。"""
+        if hasattr(self, '_meter_ema_dict'):
+            for k in keys:
+                self._meter_ema_dict.pop(k, None)
 
     def _update_grounding(self, sim):
         ga_data = self.plot_data['ga']
@@ -82,7 +82,8 @@ class MeasurementMixin:
         if not hasattr(self, '_meter_last_probes'):
             self._meter_last_probes = _cur_probes
         if _cur_probes != self._meter_last_probes:
-            self._meter_v_ema = None
+            self._meter_v_ema = None   # 保留兼容旧代码
+            self._ema_reset('intra_diff', 'cross_rms1', 'cross_rms2')
             self._meter_last_probes = _cur_probes
 
         if sim.multimeter_mode:
@@ -145,11 +146,12 @@ class MeasurementMixin:
                         _freq = sim_ref.gen2.freq
                     else:
                         _freq = self.bus_freq or 50.0
-                    primary_rms = self._whole_cycle_rms(wave_diff, _freq)
+                    raw_rms = self._whole_cycle_rms_raw(wave_diff, _freq)
+                    primary_rms = self._ema_update('intra_diff', raw_rms)
                     meter_v = primary_rms / PT_RATIO
                     self.meter_voltage = meter_v
                     self.meter_nodes = (n1, n2)
-                    # ±15% 容差判断（二次侧额定线电压 100V）
+                    # ±15% 容差判断（二次侧额定线电压 100V，变比105:1）
                     if 85.0 <= meter_v <= 115.0:
                         self.meter_status = "ok"
                         self.meter_color = "green"
@@ -159,9 +161,11 @@ class MeasurementMixin:
                     else:
                         self.meter_status = "danger"
                         self.meter_color = "red"
+                    primary_display = meter_v * PT_RATIO   # 换算回一次侧
                     self.meter_reading = (
                         f"线电压: {info1[4]} ↔ {info2[4]} | "
-                        f"测量值={meter_v:.1f}V"
+                        f"一次侧={primary_display/1000:.2f} kV"
+                        f"（二次侧={meter_v:.1f} V）"
                         + ("  [正常]" if self.meter_status == "ok" else
                            "  [异常]" if self.meter_status == "danger" else "  [无电压]")
                     )
@@ -184,10 +188,12 @@ class MeasurementMixin:
                     _f2 = (_sim2.gen1.freq if key2.startswith('g1')
                            else _sim2.gen2.freq if key2.startswith('g2')
                            else self.bus_freq or 50.0)
-                    rms1 = self._whole_cycle_rms(self.plot_data[key1], _f1)
-                    rms2 = self._whole_cycle_rms(self.plot_data[key2], _f2)
+                    rms1 = self._ema_update('cross_rms1',
+                               self._whole_cycle_rms_raw(self.plot_data[key1], _f1))
+                    rms2 = self._ema_update('cross_rms2',
+                               self._whole_cycle_rms_raw(self.plot_data[key2], _f2))
                     primary_rms_diff = abs(rms1 - rms2)
-                    sec_rms_diff = primary_rms_diff / ((PRIMARY_AMP / np.sqrt(2)) / 100.0)
+                    sec_rms_diff = primary_rms_diff / PT_RATIO   # 一次侧差值 ÷ 变比 → 二次侧
                     meter_v = sec_rms_diff
                     self.meter_voltage = meter_v
                     self.meter_nodes = (n1, n2)
@@ -204,9 +210,10 @@ class MeasurementMixin:
                             f"相序✗ (端子标{labeled1}/实际{actual_ph1}相"
                             f" ≠ 端子标{labeled2}/实际{actual_ph2}相)"
                         )
+                    primary_diff = meter_v * PT_RATIO   # 换算回一次侧压差
                     self.meter_reading = (
                         f"PT端子: {info1[4]}{ann1} ↔ {info2[4]}{ann2}"
-                        f" | {seq_status} | 压差={meter_v:.1f}V"
+                        f" | {seq_status} | 压差={primary_diff:.0f} V（二次侧={meter_v:.2f} V）"
                     )
                 else:
                     self.meter_status = "invalid"

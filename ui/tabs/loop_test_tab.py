@@ -5,6 +5,7 @@ ui/tabs/loop_test_tab.py
 
 from PyQt5 import QtWidgets
 
+from domain.enums import BreakerPosition
 from ui.tabs.circuit_tab import _qs
 
 _BTN  = "font-size:14px; padding:4px 8px;"
@@ -223,8 +224,11 @@ class LoopTestTabMixin:
         if self.ctrl.is_loop_test_complete():
             summary = "第一步已确认完成：三相回路连通性测试通过，后续操作不再影响本步骤。"
             sc = '#006400'
-        elif sim.gen1.breaker_closed and sim.gen2.breaker_closed:
-            summary = "两台发电机已合闸，可开始测量三相回路。"
+        elif (sim.gen1.breaker_closed
+              and sim.gen1.breaker_position == BreakerPosition.WORKING
+              and sim.gen2.breaker_closed
+              and sim.gen2.breaker_position == BreakerPosition.WORKING):
+            summary = "两台发电机均已切至工作位置并合闸，可开始测量三相回路。"
             sc = '#cc6600'
         else:
             summary = "请按步骤操作：断开小电阻 → 手动模式 → 合闸（不起机）→ 万用表测量。"

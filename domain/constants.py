@@ -19,11 +19,11 @@ plt.rcParams['axes.labelsize']     = 9
 
 # 高压物理系统常量
 PRIMARY_VOLTAGE_KV = 10.5        # 一次侧额定线电压 (10.5 kV)
-PT_SECONDARY_V_LINE = 100.0      # PT二次侧额定线电压 (指导书要求 100VAC)
+PT_SECONDARY_V_LINE = 100.0      # PT 二次侧额定线电压 (100V，行业统一标准)
+PT_RATIO = (PRIMARY_VOLTAGE_KV * 1000) / PT_SECONDARY_V_LINE  # 变比 105:1
 
 # 计算相电压幅值 (V_peak = (V_line / sqrt(3)) * sqrt(2))
 PRIMARY_AMP = (PRIMARY_VOLTAGE_KV * 1000 / math.sqrt(3)) * math.sqrt(2)
-PT_RATIO = (PRIMARY_VOLTAGE_KV * 1000) / PT_SECONDARY_V_LINE
 
 GRID_AMP = PRIMARY_AMP           # 主电网额定幅值升级为高压 (约 8573.2V)
 GRID_FREQ = 50.0

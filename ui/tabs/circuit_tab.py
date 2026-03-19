@@ -4,7 +4,7 @@ ui/tabs/circuit_tab.py
 """
 
 import numpy as np
-from PyQt5 import QtWidgets
+from PyQt5 import QtCore, QtWidgets
 from matplotlib.figure import Figure
 import matplotlib.patheffects as pe
 from matplotlib.patches import Circle, FancyBboxPatch
@@ -12,6 +12,7 @@ from matplotlib.patches import Circle, FancyBboxPatch
 from domain.constants import CT_RATIO, TRIP_CURRENT
 from domain.node_map import NODES
 from ui.tabs.waveform_tab import MplCanvas
+from ui.widgets.phase_seq_meter import PhaseSeqMeterWidget
 
 # 第二步快速记录辅助映射
 _PHASE_PAIR_LABEL = {
@@ -59,6 +60,20 @@ class CircuitTabMixin:
         self.fig2.tight_layout(pad=1.2)
         self.canvas2 = MplCanvas(self.fig2)
         lay.addWidget(self.canvas2)
+
+        # 相序仪：浮动覆盖在 canvas 上，两台发电机正中间
+        # 以 canvas2 为父控件，用绝对定位 move() 放置
+        self.phase_seq_meter = PhaseSeqMeterWidget(self.canvas2)
+        self.phase_seq_meter.setVisible(False)
+
+        # 结果小标签，紧贴在仪器下方
+        self._psm_result_lbl = QtWidgets.QLabel("", self.canvas2)
+        self._psm_result_lbl.setAlignment(QtCore.Qt.AlignCenter)
+        self._psm_result_lbl.setWordWrap(True)
+        self._psm_result_lbl.setStyleSheet(
+            "color:#ecf0f1; font-size:10px; background:rgba(30,39,46,200);"
+            " border-radius:4px; padding:2px 6px;")
+        self._psm_result_lbl.setVisible(False)
 
         # 鼠标点击（万用表）
         self.canvas2.mpl_connect('button_press_event', self._on_circuit_click)
@@ -357,7 +372,7 @@ class CircuitTabMixin:
                                 color='#aa00aa', ha='left', fontsize=7)
 
         self.txt_grounding = ax.text(
-            0.50, CT_Y_TOP, "N线: 未接地", color='gray', ha='center', fontsize=8,
+            0.50, 0.97, "N线: 未接地", color='gray', ha='center', fontsize=8,
             bbox=dict(facecolor='#f5f5f5', edgecolor='gray', boxstyle='round,pad=0.3', alpha=0.9))
 
         self.txt_i2  = ax.text(CT_X_RIGHT, CT_Y_TOP,         "Gen2  CT: 0.00 A",
@@ -396,6 +411,60 @@ class CircuitTabMixin:
         self.txt_circ_flow.set_text(p.circ_msg)
         self.txt_circ_flow.set_color(p.circ_color)
         self.txt_circ_flow.get_bbox_patch().set_edgecolor(p.circ_color)
+
+    # ── 相序仪 Public API ─────────────────────────────────────────────────
+    def connect_phase_seq_meter(self, pt_name: str):
+        """接入相序仪到指定 PT，浮动显示在 canvas 中央两台发电机之间。"""
+        seq = self.ctrl.get_pt_phase_sequence(pt_name)
+        self.phase_seq_meter.connect_pt(pt_name, seq)
+        sim = self.ctrl.sim_state
+        freq = sim.gen1.freq if pt_name in ('PT1', 'PT2') else sim.gen2.freq
+        self.phase_seq_meter.set_freq(freq)
+
+        # 用 axes 边界框将数据坐标 (G1/G2 中点) 转换为 canvas 像素坐标
+        # G1_CX=0.28, G2_CX=0.72, GEN_CY=0.52；xlim=(0,1), ylim=(-0.10,1.02)
+        mw, mh = self.phase_seq_meter.width(), self.phase_seq_meter.height()
+        try:
+            bbox   = self.ax_circuit.get_position()  # axes bbox 占图比例 (y 从底部)
+            xlim   = self.ax_circuit.get_xlim()       # (0.0, 1.0)
+            ylim   = self.ax_circuit.get_ylim()       # (-0.10, 1.02)
+            ax_fx  = (0.50 - xlim[0]) / (xlim[1] - xlim[0])   # 0.50 → 0.50
+            ax_fy  = (0.72 - ylim[0]) / (ylim[1] - ylim[0])   # 0.72 → 发电机上方空白区
+            fig_fx = bbox.x0 + ax_fx * (bbox.x1 - bbox.x0)    # 图比例 x
+            fig_fy = bbox.y0 + ax_fy * (bbox.y1 - bbox.y0)    # 图比例 y (从底)
+            cw     = self.canvas2.width()
+            ch     = self.canvas2.height()
+            px     = int(fig_fx * cw)
+            py     = int((1.0 - fig_fy) * ch)                 # 翻转：Qt y 从顶
+        except Exception:
+            cw, ch = self.canvas2.width(), self.canvas2.height()
+            px, py = cw // 2, ch // 2
+        mx = px - mw // 2
+        my = py - mh // 2
+        self.phase_seq_meter.move(mx, my)
+        self.phase_seq_meter.setVisible(True)
+        self.phase_seq_meter.raise_()
+
+        # 结果标签紧贴仪器下方
+        color = '#2ecc71' if seq == 'ABC' else '#e74c3c'
+        self._psm_result_lbl.setText(
+            f"{pt_name} → {seq}  "
+            f"{'✓ 正序' if seq == 'ABC' else '✗ 逆序'}")
+        self._psm_result_lbl.setStyleSheet(
+            f"color:{color}; font-size:10px;"
+            " background:rgba(30,39,46,200);"
+            " border-radius:4px; padding:2px 6px;")
+        self._psm_result_lbl.adjustSize()
+        lw = self._psm_result_lbl.width()
+        self._psm_result_lbl.move(max(0, px - lw // 2), my + mh + 4)
+        self._psm_result_lbl.setVisible(True)
+        self._psm_result_lbl.raise_()
+
+    def disconnect_phase_seq_meter(self):
+        """断开相序仪，隐藏浮层。"""
+        self.phase_seq_meter.disconnect()
+        self.phase_seq_meter.setVisible(False)
+        self._psm_result_lbl.setVisible(False)
 
     def _render_bus_status(self, p):
         self.bus_status_lbl.setText(p.bus_status_msg)

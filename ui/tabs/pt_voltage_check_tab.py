@@ -246,7 +246,7 @@ class PtVoltageCheckTabMixin:
             for key, lbl in self.pt_voltage_record_labels.items():
                 rec = records.get(key)
                 if rec is not None:
-                    lbl.setText(f"{rec['voltage']:.1f} V ✓")
+                    lbl.setText(f"{rec['voltage']/1000:.2f} kV ✓")
                     lbl.setStyleSheet("font-size:14px; color:#006400;")
             return
 
@@ -308,8 +308,8 @@ class PtVoltageCheckTabMixin:
                 lbl.setText("未记录")
                 lbl.setStyleSheet("font-size:14px; color:#999999;")
             else:
-                v = rec['voltage']
-                ok = 85.0 <= v <= 115.0
-                lbl.setText(f"{v:.1f} V {'✓' if ok else '⚠'}")
+                primary_v = rec['voltage']                 # 一次侧 V（额定 10500V）
+                ok = 8925.0 <= primary_v <= 12075.0        # ±15% of 10500V
+                lbl.setText(f"{primary_v/1000:.2f} kV {'✓' if ok else '⚠'}")
                 lbl.setStyleSheet(
                     f"font-size:14px; color:{'#006400' if ok else '#cc4400'};")

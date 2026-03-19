@@ -81,7 +81,7 @@ class PtPhaseCheckState:
     result: Optional[str] = None   # 'pass' | 'fail' | None
     feedback: str = (
         "请先完成前两步，然后恢复小电阻接地，将 Gen1 并入母排，"
-        "起机 Gen2（不合闸），开启万用表，分别测量 PT1/PT2 和 PT3/PT2 各相端子相序。"
+        "起机 Gen2（不合闸），分别接入相序仪至 PT1 和 PT3 检查相序。"
     )
     feedback_color: str = '#444444'
 

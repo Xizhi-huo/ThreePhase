@@ -129,6 +129,26 @@ class PowerSyncController:
             prefix = {'PT1': 'g1', 'PT2': 'g'}[pt_name]
         return f"{prefix}{actual_phase.lower()}"
 
+    def get_pt_phase_sequence(self, pt_name: str) -> str:
+        """
+        返回 pt_name（'PT1' 或 'PT3'）的三相实际相序。
+
+        原理：通过 resolve_pt_node_plot_key 获取三个端子对应的实际物理波形
+        （'a'/'b'/'c'），判断 A-B-C 端子标注是否构成 ABC（正序）或 ACB（逆序）。
+
+        Returns: 'ABC' | 'ACB'
+        """
+        phase_map = {}
+        for ph in ('A', 'B', 'C'):
+            node = f"{pt_name}_{ph}"
+            key = self.resolve_pt_node_plot_key(node)
+            phase_map[ph] = key[-1]   # 'a', 'b', or 'c'
+
+        order = (phase_map['A'], phase_map['B'], phase_map['C'])
+        # 顺序组合为 ABC（任意循环位移均视为正序）
+        abc_orders = {('a', 'b', 'c'), ('b', 'c', 'a'), ('c', 'a', 'b')}
+        return 'ABC' if order in abc_orders else 'ACB'
+
     def resolve_loop_node_phase(self, node_name):
         _, gen_name, terminal = node_name.split('_', 2)
         if gen_name == 'G2' and self.sim_state.fault_reverse_bc:

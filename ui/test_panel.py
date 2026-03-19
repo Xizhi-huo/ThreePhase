@@ -74,9 +74,9 @@ class TestPanelMixin:
         self.tp_btn_admin = QtWidgets.QPushButton("🔧 管理员")
         self.tp_btn_admin.setCheckable(True)
         self.tp_btn_admin.setStyleSheet(
-            "background:#7c3aed; color:white; font-size:12px;"
-            " padding:2px 8px; border-radius:3px;"
-            " QPushButton:checked{background:#4c1d95;}")
+            "QPushButton{background:#7c3aed; color:white; font-size:12px;"
+            " padding:2px 8px; border-radius:3px;}"
+            "QPushButton:checked{background:#4c1d95;}")
         self.tp_btn_admin.clicked.connect(self._on_tp_toggle_admin)
 
         trow.addWidget(title, 1)
@@ -130,15 +130,15 @@ class TestPanelMixin:
         self.tp_bus_lbl.setAlignment(QtCore.Qt.AlignCenter)
         cl.addWidget(self.tp_bus_lbl)
 
-        mm_btn = QtWidgets.QPushButton("🔌 开启 / 关闭万用表")
-        mm_btn.setStyleSheet(
+        self._tp_mm_btn = QtWidgets.QPushButton("🔌 开启 / 关闭万用表")
+        self._tp_mm_btn.setStyleSheet(
             "background:#fefce8; color:#854d0e; font-weight:bold;"
             " font-size:12px; padding:3px 8px; border-radius:3px;"
             " border:1px solid #fde68a;")
-        mm_btn.clicked.connect(
+        self._tp_mm_btn.clicked.connect(
             lambda: self.multimeter_cb.setChecked(
                 not self.multimeter_cb.isChecked()))
-        cl.addWidget(mm_btn)
+        cl.addWidget(self._tp_mm_btn)
 
         self.tp_meter_lbl = QtWidgets.QLabel("万用表: 关闭")
         self.tp_meter_lbl.setStyleSheet(
@@ -447,7 +447,7 @@ class TestPanelMixin:
         lay.addWidget(rrow)
 
         # ── Gen 频率/幅值/相位调节（让两台发电机电压调到同一水平）──────
-        adj_note = QtWidgets.QLabel("调节发电机使各 PT 线电压均达到 100V:")
+        adj_note = QtWidgets.QLabel("调节发电机使各 PT 一次侧线电压均达到 10.5 kV:")
         adj_note.setStyleSheet("color:#1d4ed8; font-size:11px; font-weight:bold;")
         lay.addWidget(adj_note)
         self._tp_s2_fap = {}
@@ -455,7 +455,7 @@ class TestPanelMixin:
         self._make_gen_fap_block(lay, '_tp_s2_fap', 2)
 
         # ── 已记录线电压汇总表 ────────────────────────────────────────
-        rec_grp = self._make_grp("线电压记录（目标: 100V）")
+        rec_grp = self._make_grp("线电压记录（目标: 10.5 kV 一次侧）")
         rec_lay = QtWidgets.QVBoxLayout(rec_grp)
         rec_lay.setSpacing(2)
         self.tp_s2_rec_lbls = {}
@@ -482,35 +482,63 @@ class TestPanelMixin:
         lay = QtWidgets.QVBoxLayout(grp)
         lay.setSpacing(4)
 
-        self.tp_s3_step_lbls = self._make_step_list(lay, 12)
+        self.tp_s3_step_lbls = self._make_step_list(lay, 7)
 
         gen2_note = QtWidgets.QLabel("Gen2 需起机，断路器保持断开")
         gen2_note.setStyleSheet("color:#d97706; font-size:11px; font-style:italic;")
         lay.addWidget(gen2_note)
         self._make_gen_block(lay, 's3', 2, show_engine=True)
 
-        for pt_name, bg_color in [("PT1", "#1d4ed8"), ("PT3", "#7c3aed")]:
-            pt_lbl = QtWidgets.QLabel(f"{pt_name} 相序记录 ({pt_name}_X ↔ PT2_X):")
-            pt_lbl.setStyleSheet("color:#64748b; font-size:11px;")
-            lay.addWidget(pt_lbl)
-            row_w = QtWidgets.QWidget()
-            row_w.setStyleSheet(f"background:{_SECTION_BG};")
-            row_h = QtWidgets.QHBoxLayout(row_w)
-            row_h.setContentsMargins(0, 0, 0, 0)
-            row_h.setSpacing(4)
-            btns = {}
-            for ph in ('A', 'B', 'C'):
-                btn = self._make_btn(f"{pt_name}_{ph}", bg_color)
-                btn.clicked.connect(
-                    lambda _, pt=pt_name, p=ph: self.ctrl.record_pt_phase_check(pt, p))
-                row_h.addWidget(btn)
-                btns[ph] = btn
-            setattr(self, f'tp_s3_{pt_name.lower()}_btns', btns)
-            lay.addWidget(row_w)
+        # ── 相序仪接入按钮 ────────────────────────────────────────────
+        psm_lbl = QtWidgets.QLabel("相序仪（在母排图右侧查看转盘与指示灯）:")
+        psm_lbl.setStyleSheet("color:#64748b; font-size:11px;")
+        lay.addWidget(psm_lbl)
+        psm_row = QtWidgets.QWidget()
+        psm_row.setStyleSheet(f"background:{_SECTION_BG};")
+        psm_h = QtWidgets.QHBoxLayout(psm_row)
+        psm_h.setContentsMargins(0, 0, 0, 0)
+        psm_h.setSpacing(6)
+        for pt_name, bg in [("PT1", "#1d4ed8"), ("PT3", "#7c3aed")]:
+            btn = self._make_btn(f"📡 接入 {pt_name}", bg)
+            btn.clicked.connect(
+                lambda _, pt=pt_name: self._on_connect_psm(pt))
+            psm_h.addWidget(btn)
+        # 断开按钮
+        btn_disc = self._make_btn("断开", "#64748b")
+        btn_disc.clicked.connect(self._on_disconnect_psm)
+        psm_h.addWidget(btn_disc)
+        lay.addWidget(psm_row)
 
-        self.tp_s3_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
+        # 相序仪结果记录按钮（接入后方可点击）
+        rec_lbl = QtWidgets.QLabel("记录相序结果:")
+        rec_lbl.setStyleSheet("color:#64748b; font-size:11px;")
+        lay.addWidget(rec_lbl)
+        rec_row = QtWidgets.QWidget()
+        rec_row.setStyleSheet(f"background:{_SECTION_BG};")
+        rec_h = QtWidgets.QHBoxLayout(rec_row)
+        rec_h.setContentsMargins(0, 0, 0, 0)
+        rec_h.setSpacing(6)
+        self._tp_s3_rec_btns: dict = {}
+        for pt_name, bg in [("PT1", "#1d4ed8"), ("PT3", "#7c3aed")]:
+            btn = self._make_btn(f"记录 {pt_name}", bg)
+            btn.setEnabled(False)
+            btn.clicked.connect(
+                lambda _, pt=pt_name: self._on_record_psm(pt))
+            rec_h.addWidget(btn)
+            self._tp_s3_rec_btns[pt_name] = btn
+        lay.addWidget(rec_row)
+
+        # 每个 PT 的记录结果状态标签
+        self._tp_s3_result_lbls: dict = {}
+        for pt_name in ('PT1', 'PT3'):
+            lbl = QtWidgets.QLabel(f"{pt_name}: 未记录")
+            lbl.setStyleSheet("color:#94a3b8; font-size:11px; padding:1px 0;")
+            lay.addWidget(lbl)
+            self._tp_s3_result_lbls[pt_name] = lbl
+
+        self.tp_s3_fb_lbl = QtWidgets.QLabel("请先接入相序仪查看结果，再点击记录")
         self.tp_s3_fb_lbl.setWordWrap(True)
-        self.tp_s3_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
+        self.tp_s3_fb_lbl.setStyleSheet("color:#64748b; font-size:12px;")
         lay.addWidget(self.tp_s3_fb_lbl)
 
         cl.addWidget(grp)
@@ -756,6 +784,12 @@ class TestPanelMixin:
             self.ctrl.finalize_pt_voltage_check()
         elif step == 3:
             self.ctrl.finalize_pt_phase_check()
+            # 完成后自动关闭相序仪浮层，无需手动断开
+            if self.ctrl.pt_phase_check_state.completed:
+                try:
+                    self.disconnect_phase_seq_meter()
+                except Exception:
+                    pass
         elif step == 4:
             self.ctrl.finalize_all_pt_exams()
         elif step == 5:
@@ -794,23 +828,74 @@ class TestPanelMixin:
         """
         state: 'idle' | 'done' | 'active' | 'admin_idle' | 'admin_active'
         """
-        base = ("QPushButton{border:none; border-radius:4px;"
-                " font-size:11px; padding:2px;}")
+        base = "border:none; border-radius:4px; font-size:11px; padding:2px;"
         if state == "done":
-            return base + "QPushButton{color:#16a34a; background:#dcfce7;}"
+            return (f"QPushButton{{{base} color:#16a34a; background:#dcfce7;}}")
         if state == "active":
-            return base + ("QPushButton{color:#1d4ed8; background:#dbeafe;"
-                           " font-weight:bold; font-size:12px;}")
+            return (f"QPushButton{{{base} color:#1d4ed8; background:#dbeafe;"
+                    " font-weight:bold; font-size:12px;}")
         if state == "admin_idle":
-            return (base + "QPushButton{color:#7c3aed; background:#ede9fe;}"
+            return (f"QPushButton{{{base} color:#7c3aed; background:#ede9fe;}}"
                     "QPushButton:hover{background:#c4b5fd;}"
                     "QPushButton:checked{background:#7c3aed; color:white;}")
         if state == "admin_active":
-            return (base + "QPushButton{color:white; background:#7c3aed;"
-                    " font-weight:bold;}"
+            return (f"QPushButton{{{base} color:white; background:#7c3aed;"
+                    " font-weight:bold;}}"
                     "QPushButton:hover{background:#6d28d9;}")
         # idle
-        return base + "QPushButton{color:#94a3b8; background:transparent;}"
+        return f"QPushButton{{{base} color:#94a3b8; background:transparent;}}"
+
+    # ── 相序仪回调 ────────────────────────────────────────────────────────
+    def _on_connect_psm(self, pt_name: str):
+        """接入相序仪到指定 PT，驱动母排图侧栏显示。"""
+        try:
+            self.connect_phase_seq_meter(pt_name)   # 方法定义在主窗口 mixin 上
+        except Exception:
+            pass
+        # 接入后才允许记录
+        if pt_name in self._tp_s3_rec_btns:
+            self._tp_s3_rec_btns[pt_name].setEnabled(True)
+        self.tp_s3_fb_lbl.setText(
+            f"相序仪已接入 {pt_name}，请在母排图右侧查看转盘和指示灯，确认结果后点击「记录 {pt_name}」")
+
+    def _on_disconnect_psm(self):
+        """断开相序仪，隐藏侧栏。"""
+        try:
+            self.disconnect_phase_seq_meter()
+        except Exception:
+            pass
+        for btn in self._tp_s3_rec_btns.values():
+            btn.setEnabled(False)
+        self.tp_s3_fb_lbl.setText("相序仪已断开，可重新接入")
+
+    def _on_record_psm(self, pt_name: str):
+        """根据当前相序仪示数记录相序结果到服务层。"""
+        try:
+            seq = self.phase_seq_meter._sequence   # phase_seq_meter 在主窗口 mixin 上
+        except Exception:
+            seq = 'unknown'
+        if seq == 'unknown':
+            self.tp_s3_fb_lbl.setText("请先接入相序仪，再记录结果。")
+            return
+        # 把相序仪结果写入 pt_phase_check_state（逐相批量写入）
+        state = self.ctrl.pt_phase_check_state
+        if not state.started:
+            self.tp_s3_fb_lbl.setText("请先点击「开始第三步测试」再记录。")
+            return
+        phase_match = (seq == 'ABC')
+        for ph in ('A', 'B', 'C'):
+            key = f"{pt_name}_{ph}"
+            state.records[key] = {
+                'phase_match': phase_match,
+                'reading': f"相序仪检测: {pt_name} → {seq}",
+            }
+        result_txt = "正序（ABC）✓" if phase_match else "逆序（ACB）✗"
+        color = "#15803d" if phase_match else "#dc2626"
+        # 写入 state.feedback，避免下次 refresh 刷新回旧文字
+        state.feedback = f"{pt_name} 相序已记录：{result_txt}"
+        state.feedback_color = color
+        if pt_name in self._tp_s3_rec_btns:
+            self._tp_s3_rec_btns[pt_name].setEnabled(False)
 
     def _on_tp_toggle_admin(self, checked):
         """管理员模式：显示/隐藏步骤详情 Tab 2-6，步骤按钮变为可点击。"""
@@ -992,7 +1077,10 @@ class TestPanelMixin:
                 " font-size:12px; padding:4px; border-radius:4px;"
                 " border:1px solid #fcd34d;")
 
-        # ── Multimeter ────────────────────────────────────────────────
+        # ── Multimeter (hidden on step 3 which uses phase seq meter) ──
+        mm_visible = (step != 3)
+        self._tp_mm_btn.setVisible(mm_visible)
+        self.tp_meter_lbl.setVisible(mm_visible)
         if sim.multimeter_mode:
             reading = getattr(self.ctrl.physics, 'meter_reading', '--')
             self.tp_meter_lbl.setText(f"万用表: {reading}")
@@ -1156,9 +1244,9 @@ class TestPanelMixin:
         for key, lbl in self.tp_s2_rec_lbls.items():
             rec = records.get(key)
             if rec is not None:
-                v = rec.get('voltage', 0)
-                ok = 85.0 <= v <= 115.0
-                lbl.setText(f"{key}: {v:.1f} V {'✓' if ok else '⚠'}")
+                v = rec.get('voltage', 0)          # 一次侧 V（额定 10500V）
+                ok = 8925.0 <= v <= 12075.0        # ±15% of 10500V
+                lbl.setText(f"{key}: {v/1000:.2f} kV {'✓' if ok else '⚠'}")
                 lbl.setStyleSheet(
                     f"font-size:11px; color:{'#15803d' if ok else '#dc2626'};")
             else:
@@ -1196,18 +1284,24 @@ class TestPanelMixin:
         self.tp_s3_fb_lbl.setStyleSheet(
             f"color:{state.feedback_color}; font-size:12px;")
 
+        # 更新每个 PT 的记录结果标签
         records = state.records
         for pt_name in ('PT1', 'PT3'):
-            btns = getattr(self, f'tp_s3_{pt_name.lower()}_btns', {})
-            default_bg = "#1d4ed8" if pt_name == 'PT1' else "#7c3aed"
-            for ph, btn in btns.items():
-                key = f"{pt_name}_{ph}"
-                rec = records.get(key)
-                if rec is not None:
-                    bg = "#16a34a" if rec.get('phase_match') else "#dc2626"
+            lbl = self._tp_s3_result_lbls.get(pt_name)
+            if lbl is None:
+                continue
+            all_recs = [records.get(f"{pt_name}_{ph}") for ph in ('A', 'B', 'C')]
+            if all(r is not None for r in all_recs):
+                pm = all_recs[0].get('phase_match', False)
+                if pm:
+                    lbl.setText(f"{pt_name}: 正序（ABC）✓")
+                    lbl.setStyleSheet("color:#15803d; font-size:11px; font-weight:bold;")
                 else:
-                    bg = default_bg
-                btn.setStyleSheet(f"background:{bg}; color:white; {_BTN}")
+                    lbl.setText(f"{pt_name}: 逆序（ACB）✗  — 请检查接线")
+                    lbl.setStyleSheet("color:#dc2626; font-size:11px; font-weight:bold;")
+            else:
+                lbl.setText(f"{pt_name}: 未记录")
+                lbl.setStyleSheet("color:#94a3b8; font-size:11px;")
 
     def _refresh_tp_step4(self):
         gen_id = max(1, self._tp_s4_bg.checkedId())
@@ -1230,9 +1324,9 @@ class TestPanelMixin:
                     continue
                 rec = records.get(ph)
                 if rec is not None:
-                    v = rec.get('voltage', 0)
-                    ok = abs(v) < 5.0
-                    lbl.setText(f"Gen{gid} {ph}相: {v:.2f} V {'✓' if ok else '⚠偏大'}")
+                    v = rec.get('voltage', 0)      # 一次侧压差 V（< 525V 合格，对应二次侧 < 5V）
+                    ok = abs(v) < 525.0
+                    lbl.setText(f"Gen{gid} {ph}相: {v:.0f} V {'✓' if ok else '⚠偏大'}")
                     lbl.setStyleSheet(
                         f"font-size:11px; color:{'#15803d' if ok else '#dc2626'};")
                 else:
