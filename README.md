@@ -1,10 +1,11 @@
 # ThreePhase
 
-### 第 4 步“PT 二次端子压差测试”缺少真正的“已开始”门禁。pt_exam_service.py:68 的 record_pt_measurement() 没检查 started，但 UI 记录按钮直接调用它，见 pt_exam_tab.py:183。结果是不点“开始第四步测试”也能写入记录、推进流程。
 
-### 第 5 步“同步功能测试”同样缺少“已开始”门禁。sync_test_service.py:94 的 record_sync_round() 没检查 started，UI 两个“记录轮次”按钮直接触发，见 sync_test_tab.py:150 和 sync_test_tab.py:164。这会让“开始第五步测试”失去约束意义。
+### 高: 万用表平滑值 EMA 在所有测量路径之间共用，会直接污染第二步、第三步、第四步的测量结果。services/_physics_measurement.py#L16 的 _whole_cycle_rms() 读写同一个 self._meter_v_ema，而它既用于第二步单体线电压，也用于第三步/第四步的两路 RMS 比较；尤其第三步/第四步里连续两次调用 services/_physics_measurement.py#L187 和 services/_physics_measurement.py#L188，第二路 RMS 会以上一路的 EMA 作为历史值，结果两路测量互相串扰。这个会直接影响 meter_voltage 和步骤 3/4 的判定，不只是显示抖动。
 
-### 断路器“闭合”与“真正并入一次系统”建模不一致，可能在试验位/脱开位触发本不该出现的环流、故障告警和跳闸。物理层允许非 WORKING 位置闭合，见 _physics_protection.py:158；但保护和环流逻辑大量只看 breaker_closed，见 _physics_protection.py:56 和 _physics_protection.py:85。这和业务层“WORKING + breaker_closed 才算并网”的判断不一致，会产生错误物理行为和错误显示。
+### 中: 第四步步骤列表仍然会把前置条件提前显示为完成，和当前真实状态不一致。services/pt_exam_service.py#L189 到 services/pt_exam_service.py#L210 里前 1 到 4 项仍然用了 ... or has_any。只要录过任意一相，接地、母排并列、万用表开启这些前置条件就会被显示成已满足，即使用户后来把状态改坏了。流程没被绕过，但步骤显示会误导。
+
+### 中: 第一步摘要文案和实际业务门槛不一致。ui/tabs/loop_test_tab.py#L226 只要 gen1.breaker_closed and gen2.breaker_closed 就显示“两台发电机已合闸，可开始测量三相回路”，但真正业务判断要求的是 WORKING + breaker_closed，见 services/loop_test_service.py#L83 和 services/loop_test_service.py#L86。这会让摘要比真实可测条件更乐观
 
 ### 顺序直接读：
 
