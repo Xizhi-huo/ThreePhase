@@ -13,6 +13,35 @@ from domain.node_map import NODES
 class MeasurementMixin:
     """中性点接地状态、PT 二次电压计算与万用表交互仿真。"""
 
+    def _whole_cycle_rms(self, wave: np.ndarray, freq_hz: float,
+                         n_cycles: int = 3) -> float:
+        """
+        从波形缓冲中截取 n_cycles 个完整周期，计算 RMS；
+        再以 EMA 滤波稳定示值，消除滑动窗口边沿毛刺。
+
+        Parameters
+        ----------
+        wave      : 1-D ndarray，物理引擎的 plot_data 列（200 点，60 ms）
+        freq_hz   : 对应发电机/母排的实际频率（Hz）
+        n_cycles  : 期望使用的完整周期数（默认 3）
+
+        Returns
+        -------
+        ema 稳定后的 RMS 值
+        """
+        freq_hz = max(freq_hz, 1.0)               # 防零除
+        spc = 1.0 / (freq_hz * self.wave_sample_dt)  # samples per cycle
+        n_use = max(1, round(min(n_cycles, len(wave) / spc) * spc))
+        n_use = min(n_use, len(wave))
+        raw_rms = float(np.sqrt(np.mean(wave[-n_use:] ** 2)))
+        # EMA 平滑
+        if self._meter_v_ema is None:
+            self._meter_v_ema = raw_rms
+        else:
+            self._meter_v_ema = (self._meter_ema_alpha * raw_rms
+                                 + (1.0 - self._meter_ema_alpha) * self._meter_v_ema)
+        return self._meter_v_ema
+
     def _update_grounding(self, sim):
         ga_data = self.plot_data['ga']
         gb_data = self.plot_data['gb']
@@ -47,6 +76,15 @@ class MeasurementMixin:
         self.meter_status = "idle"
         self.meter_nodes = None
         self.meter_phase_match = None
+
+        # 当探针位置变化时重置 EMA，避免切换测点后示值拖尾
+        _cur_probes = (sim.probe1_node, sim.probe2_node)
+        if not hasattr(self, '_meter_last_probes'):
+            self._meter_last_probes = _cur_probes
+        if _cur_probes != self._meter_last_probes:
+            self._meter_v_ema = None
+            self._meter_last_probes = _cur_probes
+
         if sim.multimeter_mode:
             n1, n2 = sim.probe1_node, sim.probe2_node
             if n1 and n2:
@@ -98,7 +136,16 @@ class MeasurementMixin:
                     key1 = self.ctrl.resolve_pt_node_plot_key(n1)
                     key2 = self.ctrl.resolve_pt_node_plot_key(n2)
                     wave_diff = self.plot_data[key1] - self.plot_data[key2]
-                    primary_rms = np.sqrt(np.mean(wave_diff ** 2))
+                    # 根据所属 PT 取对应实时频率，做整周期截断 + EMA
+                    _pt_name = _pt1   # 两探针同 PT
+                    sim_ref = self.ctrl.sim_state
+                    if _pt_name == 'PT1':
+                        _freq = sim_ref.gen1.freq
+                    elif _pt_name == 'PT3':
+                        _freq = sim_ref.gen2.freq
+                    else:
+                        _freq = self.bus_freq or 50.0
+                    primary_rms = self._whole_cycle_rms(wave_diff, _freq)
                     meter_v = primary_rms / PT_RATIO
                     self.meter_voltage = meter_v
                     self.meter_nodes = (n1, n2)
@@ -129,8 +176,16 @@ class MeasurementMixin:
                     self.meter_phase_match = phases_match
                     ann1 = f"[实际{actual_ph1}相]" if actual_ph1 != labeled1 else ""
                     ann2 = f"[实际{actual_ph2}相]" if actual_ph2 != labeled2 else ""
-                    rms1 = np.sqrt(np.mean(self.plot_data[key1]**2))
-                    rms2 = np.sqrt(np.mean(self.plot_data[key2]**2))
+                    # 整周期截断 + EMA（分别对两路做平滑，差值也就稳定）
+                    _sim2 = self.ctrl.sim_state
+                    _f1 = (_sim2.gen1.freq if key1.startswith('g1')
+                           else _sim2.gen2.freq if key1.startswith('g2')
+                           else self.bus_freq or 50.0)
+                    _f2 = (_sim2.gen1.freq if key2.startswith('g1')
+                           else _sim2.gen2.freq if key2.startswith('g2')
+                           else self.bus_freq or 50.0)
+                    rms1 = self._whole_cycle_rms(self.plot_data[key1], _f1)
+                    rms2 = self._whole_cycle_rms(self.plot_data[key2], _f2)
                     primary_rms_diff = abs(rms1 - rms2)
                     sec_rms_diff = primary_rms_diff / ((PRIMARY_AMP / np.sqrt(2)) / 100.0)
                     meter_v = sec_rms_diff
