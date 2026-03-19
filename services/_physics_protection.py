@@ -53,7 +53,10 @@ class ProtectionMixin:
             f"🛡️ 继电保护监控中 (跳闸阈值: 一次侧 {TRIP_CURRENT}A / CT二次侧 {TRIP_CURRENT/CT_RATIO:.1f}A)",
             "blue"
         )
-        if sim.gen2.breaker_closed and sim.fault_reverse_bc:
+        # 只有 Gen2 真正并入一次系统（工作位 + 合闸）才触发反相告警
+        if (sim.gen2.breaker_closed and
+                sim.gen2.breaker_position == BreakerPosition.WORKING and
+                sim.fault_reverse_bc):
             self.relay_msg, self.relay_color = (
                 "⚠️ 警告：Gen2 B/C相序接反！合闸后产生短路电流！（模拟中无保护器，实际系统将立即跳闸）",
                 "red"
@@ -73,16 +76,26 @@ class ProtectionMixin:
         # 电压限幅基于额定幅值 ±15%，确保高压系统下垂控制不会把幅值压到低压区间
         _amp_min = GRID_AMP * 0.85
         _amp_max = GRID_AMP * 1.15
+        # 垂降控制仅作用于真正并入一次系统的机组（工作位 + 合闸）
+        g1_on_bus = (sim.gen1.breaker_position == BreakerPosition.WORKING and
+                     sim.gen1.breaker_closed)
+        g2_on_bus = (sim.gen2.breaker_position == BreakerPosition.WORKING and
+                     sim.gen2.breaker_closed)
         if sim.droop_enabled and not sim.paused:
-            if sim.gen1.breaker_closed:
+            if g1_on_bus:
                 sim.gen1.freq = max(48.0, min(52.0, sim.gen1.freq - KP_DROOP * self.ip1))
                 sim.gen1.amp = max(_amp_min, min(_amp_max, sim.gen1.amp - KQ_DROOP * self.iq1))
-            if sim.gen2.breaker_closed:
+            if g2_on_bus:
                 sim.gen2.freq = max(48.0, min(52.0, sim.gen2.freq - KP_DROOP * self.ip2))
                 sim.gen2.amp = max(_amp_min, min(_amp_max, sim.gen2.amp - KQ_DROOP * self.iq2))
 
     def _update_circulating_current(self, sim, a1, a2, delta1, delta2):
-        if sim.gen1.breaker_closed and sim.gen2.breaker_closed:
+        # 仅当两台机组均真正并入一次母排（工作位 + 合闸）时才存在机间环流
+        g1_on_bus = (sim.gen1.breaker_position == BreakerPosition.WORKING and
+                     sim.gen1.breaker_closed)
+        g2_on_bus = (sim.gen2.breaker_position == BreakerPosition.WORKING and
+                     sim.gen2.breaker_closed)
+        if g1_on_bus and g2_on_bus:
             t = self.animation_time
             w1 = 2 * np.pi * sim.gen1.freq
             w2 = 2 * np.pi * sim.gen2.freq

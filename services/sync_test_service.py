@@ -97,6 +97,12 @@ class SyncTestService:
         p = self._ctrl.physics
         state = self._ctrl.sync_test_state
 
+        # ── 门禁：必须先点击"开始第五步测试" ──────────────────────────────
+        if not state.started:
+            self._set_sync_test_feedback(
+                '请先点击"开始第五步测试"，再进行同步功能记录。', "red")
+            return
+
         if not self._ctrl.is_loop_test_complete():
             self._set_sync_test_feedback("请先完成第一步【回路连通性测试】。", "red")
             return

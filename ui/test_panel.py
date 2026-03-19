@@ -238,6 +238,9 @@ class TestPanelMixin:
         # Mode radio buttons (optional)
         mode_rbs: dict = {}
         if mode_options:
+            _pcc_lbl = QtWidgets.QLabel("PCC 模式:")
+            _pcc_lbl.setStyleSheet("color:#64748b; font-size:10px; background:#f8fafc;")
+            ilay.addWidget(_pcc_lbl)
             mr = QtWidgets.QWidget()
             mr.setStyleSheet("background:#f8fafc;")
             mh = QtWidgets.QHBoxLayout(mr)
@@ -257,6 +260,9 @@ class TestPanelMixin:
 
         # Position radio buttons (optional)
         if show_pos:
+            _cab_lbl = QtWidgets.QLabel("开关柜位置:")
+            _cab_lbl.setStyleSheet("color:#64748b; font-size:10px; background:#f8fafc;")
+            ilay.addWidget(_cab_lbl)
             pr = QtWidgets.QWidget()
             pr.setStyleSheet("background:#f8fafc;")
             ph_row = QtWidgets.QHBoxLayout(pr)

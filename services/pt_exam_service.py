@@ -80,6 +80,14 @@ class PtExamService:
         phase = phase.upper()
         gen1, gen2 = self._ctrl.sim_state.gen1, self._ctrl.sim_state.gen2
 
+        # ── 门禁：必须先点击"开始第四步测试" ──────────────────────────────
+        if not self._ctrl.pt_exam_states[gen_id].started:
+            self._set_pt_exam_feedback(
+                gen_id,
+                f'请先点击"开始第四步测试 Gen{gen_id}"，再进行 PT 二次端子压差测量。',
+                "red")
+            return
+
         if not self._ctrl.is_loop_test_complete():
             self._set_pt_exam_feedback(
                 gen_id,
