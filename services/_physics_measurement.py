@@ -107,14 +107,19 @@ class MeasurementMixin:
                 )
                 if loop_pair:
                     loop_done = self.ctrl.loop_test_state.completed
-                    if sim.grounding_mode != "断开" and not loop_done:
+                    # 安全前提：发电机运行时有高压，通断测试会损坏万用表
+                    if (sim.gen1.running or sim.gen2.running) and not loop_done:
                         self.meter_status = "invalid"
                         self.meter_color = "red"
-                        self.meter_reading = "回路演示前请先断开中性点接地"
+                        self.meter_reading = "⚠ 危险：发电机运行中，通断测试须先停机，高压将损坏万用表"
+                    elif sim.grounding_mode != "断开" and not loop_done:
+                        self.meter_status = "invalid"
+                        self.meter_color = "red"
+                        self.meter_reading = "通断测试前请先断开中性点接地（防止通过中性点形成寄生回路）"
                     elif not (sim.gen1.breaker_closed and sim.gen2.breaker_closed):
                         self.meter_status = "invalid"
                         self.meter_color = "red"
-                        self.meter_reading = "回路演示前请先闭合 Gen1 和 Gen2 开关"
+                        self.meter_reading = "通断测试前请先闭合 Gen1 和 Gen2 断路器（使被测回路形成完整通路）"
                     elif info1[2] == info2[2]:
                         self.meter_status = "invalid"
                         self.meter_reading = "请分别选择 G1 与 G2 的三相回路测点进行比较"
@@ -125,11 +130,16 @@ class MeasurementMixin:
                         if phase1 == phase2:
                             self.meter_status = "ok"
                             self.meter_color = "green"
-                            self.meter_reading = f"回路连通: {info1[4]} ↔ {info2[4]} 为同一相回路 [导通/同相]"
+                            self.meter_reading = (
+                                f"通路 [≈0Ω / 蜂鸣] — {info1[4]} ↔ {info2[4]} 导通"
+                            )
                         else:
                             self.meter_status = "danger"
                             self.meter_color = "red"
-                            self.meter_reading = f"相序不对应: {info1[4]} ↔ {info2[4]} 不属于同一相回路 [不导通]"
+                            self.meter_reading = (
+                                f"断路 [∞Ω / 无蜂鸣] — {info1[4]} ↔ {info2[4]} 不通"
+                                f"（疑似接线错误，请检查 {info2[4].split()[0]} 侧接线）"
+                            )
                 elif intra_pt_pair:
                     # 同一 PT 内两相线电压测量（第二步 PT 单体线电压检查）
                     key1 = self.ctrl.resolve_pt_node_plot_key(n1)
@@ -215,11 +225,11 @@ class MeasurementMixin:
                             f"相序✗ (端子标{labeled1}/实际{actual_ph1}相"
                             f" ≠ 端子标{labeled2}/实际{actual_ph2}相)"
                         )
+                    sec_diff = meter_v   # 二次侧压差（V），即万用表直接读数
                     self.meter_reading = (
                         f"PT端子: {info1[4]}{ann1} ↔ {info2[4]}{ann2}"
                         f" | {seq_status}"
-                        f" | 一次侧压差={primary_rms_diff:.0f} V"
-                        f"（机组侧二次={gen_sec:.1f} V，母排侧二次={bus_sec:.1f} V）"
+                        f" | 二次侧压差={sec_diff:.2f} V → 一次侧压差≈{primary_rms_diff:.0f} V"
                     )
                 else:
                     self.meter_status = "invalid"

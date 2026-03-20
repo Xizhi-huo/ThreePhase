@@ -56,9 +56,9 @@ class LoopTestService:
              gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed),
             ("5. 合闸 Gen 2（不要起机，仅闭合开关）",
              gen2.breaker_position == BreakerPosition.WORKING and gen2.breaker_closed),
-            ("6. 开启万用表，在母排拓扑页测量三相回路",
+            ("6. 开启万用表，在母排拓扑页进行三相通断测试",
              sim.multimeter_mode),
-            ("7. 记录 A/B/C 三相回路连通性结果",
+            ("7. 逐相记录 A/B/C 通断结果（导通 ≈0Ω / 断路 ∞Ω）",
              all_rec),
         ]
         if state.completed:
@@ -78,7 +78,8 @@ class LoopTestService:
             return
         if gen1.running or gen2.running:
             self._set_loop_test_feedback(
-                "回路测试期间发电机不应起机！合闸但不起机，处于高压侧断路状态。", "red")
+                "通断测试须在发电机停机状态下进行（万用表靠自身电池注入微小电流，"
+                "发电机运行时高压会干扰测量并损坏万用表）。", "red")
             return
         if not (gen1.breaker_closed and gen1.breaker_position == BreakerPosition.WORKING):
             self._set_loop_test_feedback("请先将 Gen 1 切至工作位置并合闸。", "red")
@@ -111,20 +112,29 @@ class LoopTestService:
         if meter_status not in ('ok', 'danger'):
             self._set_loop_test_feedback("测量结果无效，请确认表笔放在 G1 与 G2 的同相回路测点上。", "red")
             return
-        if meter_status != 'ok':
-            self._set_loop_test_feedback(f"{phase} 相回路测量显示相序不对应，请检查接线后重试。", "red")
-            return
 
+        # 记录测量结果（导通/断路均可记录，故障分析在完成阶段进行）
         self._ctrl.loop_test_state.records[phase] = {
             'status': meter_status,
             'reading': self._ctrl.physics.meter_reading,
         }
         all_rec = all(self._ctrl.loop_test_state.records[ph] is not None for ph in ('A', 'B', 'C'))
-        if all_rec:
-            self._set_loop_test_feedback(
-                "三相回路连通性测试全部完成，电路连通正常，可进行第二步 PT 单体线电压检查。", "#006600")
+        if meter_status == 'ok':
+            if all_rec:
+                self._set_loop_test_feedback(
+                    "三相已全部记录，请点击「完成第一步测试」确认结果。", "#006600")
+            else:
+                self._set_loop_test_feedback(f"{phase} 相导通 [≈0Ω]，请继续测量其余相别。", "#006600")
         else:
-            self._set_loop_test_feedback(f"{phase} 相回路连通正常，请继续测量其余相别。", "#006600")
+            # 断路结果：记录但给出故障提示
+            if all_rec:
+                self._set_loop_test_feedback(
+                    f"{phase} 相断路 [∞Ω]，三相已全部记录，请点击「完成第一步测试」查看故障分析。",
+                    "#cc6600")
+            else:
+                self._set_loop_test_feedback(
+                    f"{phase} 相断路 [∞Ω]（疑似接线错误），已记录结果，请继续测量其余相别。",
+                    "#cc6600")
 
     def reset_loop_test(self):
         self._ctrl.loop_test_state = self.create_loop_test_state()
@@ -141,12 +151,23 @@ class LoopTestService:
     def finalize_loop_test(self):
         if not self._are_loop_records_complete():
             self._set_loop_test_feedback(
-                '请先完成 A/B/C 三相回路连通性记录，再点击\u201c完成第一步测试\u201d。', "red")
+                '请先完成 A/B/C 三相回路连通性记录，再点击"完成第一步测试"。', "red")
             return
-        self._ctrl.exit_loop_test_mode()   # 先退出回路检查模式，恢复断路器联锁
+        # 检查是否存在断路故障相
+        records = self._ctrl.loop_test_state.records
+        fault_phases = [ph for ph in ('A', 'B', 'C')
+                        if records[ph] and records[ph]['status'] != 'ok']
+        if fault_phases:
+            fault_str = '、'.join(fault_phases)
+            self._set_loop_test_feedback(
+                f"回路测试发现故障：{fault_str} 相断路 [∞Ω]，说明对应相接线错误。"
+                f"请检查并纠正接线后重置重测（可在面板页切换 Gen2 故障接线模拟）。",
+                "red")
+            return
+        self._ctrl.exit_loop_test_mode()   # 退出回路检查模式，恢复断路器联锁
         self._ctrl.loop_test_state.completed = True
         self._set_loop_test_feedback(
-            "第一步【回路连通性测试】已确认完成，回路检查模式已退出，后续操作将不再影响该步骤状态。",
+            "第一步【回路连通性测试】已确认完成：三相回路全部导通 [≈0Ω]，接线正确。",
             "#006600")
 
     def get_loop_test_blockers(self):

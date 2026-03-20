@@ -166,8 +166,7 @@ class ProtectionMixin:
         elif generator.mode == "manual" and generator.cmd_close:
             generator.cmd_close = False
             if not generator.breaker_closed:
-                test_mode = (getattr(self.ctrl.sim_state, 'loop_test_mode', False) or
-                             getattr(self.ctrl.sim_state, 'pt_phase_test_mode', False))
+                test_mode = getattr(self.ctrl.sim_state, 'loop_test_mode', False)
                 if generator.breaker_position != BreakerPosition.WORKING or sync_ok or test_mode:
                     generator.breaker_closed = True
                 else:

@@ -41,8 +41,8 @@ class LoopTestTabMixin:
 
         desc = QtWidgets.QLabel(
             "合闸前首先验证三相回路连通性：断开中性点小电阻，将两台发电机切至手动模式，"
-            "依次合闸（不要起机，合闸时处于高压侧），再用万用表分别测量 A/B/C 三相回路，"
-            "确认 G1 与 G2 同相回路导通正常。"
+            "依次合闸（不要起机），再用万用表通断挡分别测量 A/B/C 三相回路（万用表靠自身电池"
+            "注入微小电流），确认 G1 与 G2 同相回路导通正常（可在母排拓扑页观察电流流向动画）。"
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color:#2d5a27; font-size:15px;")
@@ -201,7 +201,7 @@ class LoopTestTabMixin:
                 lbl.setText("√ " + text)
                 lbl.setStyleSheet("font-size:15px; color:#006400;")
             for phase, lbl in self.loop_test_record_labels.items():
-                lbl.setText("回路导通 [连通正常]")
+                lbl.setText("导通 [≈0Ω] ✓")
                 lbl.setStyleSheet("font-size:15px; color:#006400;")
             return
 
@@ -228,10 +228,10 @@ class LoopTestTabMixin:
               and sim.gen1.breaker_position == BreakerPosition.WORKING
               and sim.gen2.breaker_closed
               and sim.gen2.breaker_position == BreakerPosition.WORKING):
-            summary = "两台发电机均已切至工作位置并合闸，可开始测量三相回路。"
+            summary = "两台发电机均已切至工作位置并合闸，可在母排拓扑页开始通断测试（可观察电流流向动画）。"
             sc = '#cc6600'
         else:
-            summary = "请按步骤操作：断开小电阻 → 手动模式 → 合闸（不起机）→ 万用表测量。"
+            summary = "请按步骤操作：断开小电阻 → 手动模式 → 合闸（不起机）→ 母排拓扑页通断测试。"
             sc = '#264653'
         self.loop_test_summary_lbl.setText(summary)
         self.loop_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:15px; color:{sc};")
@@ -262,6 +262,9 @@ class LoopTestTabMixin:
             if record is None:
                 lbl.setText("未记录")
                 lbl.setStyleSheet("font-size:15px; color:#999999;")
-            else:
-                lbl.setText("回路导通 [连通正常]")
+            elif record.get('status') == 'ok':
+                lbl.setText("导通 [≈0Ω] ✓")
                 lbl.setStyleSheet("font-size:15px; color:#006400;")
+            else:
+                lbl.setText("断路 [∞Ω] ⚠")
+                lbl.setStyleSheet("font-size:15px; color:#b45309;")

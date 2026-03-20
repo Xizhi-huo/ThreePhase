@@ -35,12 +35,6 @@ class PtExamService:
         gen_node = f"PT1_{phase}" if gen_id == 1 else f"PT3_{phase}"
         return {bus_node, gen_node}
 
-    def resolve_loop_node_phase(self, node_name):
-        _, gen_name, terminal = node_name.split('_', 2)
-        if gen_name == 'G2' and self._ctrl.sim_state.fault_reverse_bc:
-            return {'A': 'A', 'B': 'C', 'C': 'B'}[terminal]
-        return terminal
-
     def _get_current_pt_phase_match(self, gen_id):
         sim = self._ctrl.sim_state
         if not sim.probe1_node or not sim.probe2_node:
@@ -167,7 +161,7 @@ class PtExamService:
         if meter_status != 'ok':
             self._set_pt_exam_feedback(
                 gen_id,
-                f"{phase} 相 PT 一次侧压差为 {primary_diff:.0f} V（机组侧二次侧 {meter_v_sec:.2f} V），"
+                f"{phase} 相二次侧压差 {meter_v_sec:.2f} V（一次侧≈{primary_diff:.0f} V），"
                 "相序不匹配，请检查接线。", "red")
             return
 
@@ -176,8 +170,8 @@ class PtExamService:
         if primary_diff >= _THRESHOLD_PRIMARY:
             self._set_pt_exam_feedback(
                 gen_id,
-                f"{phase} 相一次侧压差 {primary_diff:.0f} V（机组侧二次侧 {meter_v_sec:.2f} V）"
-                f"超出允许范围（需 < {_THRESHOLD_PRIMARY:.0f} V，对应二次侧 < 5.00 V），"
+                f"{phase} 相二次侧压差 {meter_v_sec:.2f} V（一次侧≈{primary_diff:.0f} V）"
+                f"超出允许范围（二次侧需 < 5.00 V），"
                 "请先调节发电机频率与电压使两侧接近后再记录。", "red")
             return
 
@@ -190,8 +184,8 @@ class PtExamService:
         if all_rec:
             msg = f"Gen {gen_id} 三相 PT 压差已全部记录完成。"
         else:
-            msg = (f"Gen {gen_id} {phase} 相 PT 压差记录完成："
-                   f"一次侧 {primary_diff:.0f} V（二次侧 {meter_v_sec:.2f} V）。")
+            msg = (f"Gen {gen_id} {phase} 相记录完成："
+                   f"二次侧 {meter_v_sec:.2f} V → 一次侧≈{primary_diff:.0f} V。")
         self._set_pt_exam_feedback(gen_id, msg, "#006600")
 
     def get_pt_exam_steps(self, gen_id):

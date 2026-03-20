@@ -19,7 +19,7 @@ class LoopTestState:
     completed: bool = False
     feedback: str = (
         "请先断开中性点小电阻，将两台发电机切至手动模式并合闸（不要起机），"
-        "再用万用表测量三相回路连通性。"
+        "再用万用表通断挡逐相测试（万用表靠自身电池注入微小电流判断回路是否连通）。"
     )
     feedback_color: str = '#444444'
 

@@ -71,7 +71,6 @@ class PhysicsEngine(WaveformMixin, ArbitrationMixin, ProtectionMixin, Measuremen
 
         # 多周期 RMS 滑动平均（EMA）—— 稳定电压示值
         # alpha=0.07 约 14 帧时间常数（~0.5 s @ 30fps），足够滤掉截断毛刺
-        self._meter_v_ema: float | None = None
         self._meter_ema_alpha: float = 0.07
 
     # ── 每帧主调度 ─────────────────────────────────────────────────────────

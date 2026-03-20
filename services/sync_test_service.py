@@ -3,6 +3,7 @@ services/sync_test_service.py
 同步功能测试服务
 """
 
+from domain.constants import GRID_FREQ, GRID_AMP
 from domain.enums import BreakerPosition
 from domain.test_states import SyncTestState
 
@@ -30,10 +31,22 @@ class SyncTestService:
         self._ctrl.sync_test_state.feedback = message
         self._ctrl.sync_test_state.feedback_color = color
 
-    def _is_gen_synced(self, follower, master, freq_tol=0.5, amp_tol=500.0):
-        """判断 follower 是否已同步到 master 的频率和幅值。"""
+    def _is_gen_synced(self, follower, master, freq_tol=0.5, amp_tol=500.0, phase_tol=15.0):
+        """判断 follower 是否已同步到 master 的频率、幅值和相位（三个值均在容差内）。"""
+        phase_diff = abs(follower.phase_deg - master.phase_deg)
+        phase_diff = min(phase_diff, 360.0 - phase_diff)
         return (abs(follower.freq - master.freq) < freq_tol and
-                abs(follower.amp - master.amp) < amp_tol)
+                abs(follower.amp - master.amp) < amp_tol and
+                phase_diff < phase_tol)
+
+    def _are_both_synced(self, freq_tol=0.5, amp_tol=500.0, phase_tol=15.0):
+        """判断两台发电机三个值（频率、幅值、相位）差值是否均在允许范围内。"""
+        gen1, gen2 = self._ctrl.sim_state.gen1, self._ctrl.sim_state.gen2
+        phase_diff = abs(gen1.phase_deg - gen2.phase_deg)
+        phase_diff = min(phase_diff, 360.0 - phase_diff)
+        return (abs(gen1.freq - gen2.freq) < freq_tol and
+                abs(gen1.amp - gen2.amp) < amp_tol and
+                phase_diff < phase_tol)
 
     def get_sync_test_steps(self):
         sim = self._ctrl.sim_state
@@ -72,17 +85,17 @@ class SyncTestService:
              pt_done),
             ("5. [第一轮] 将 Gen 1 切至手动模式并在工作位置合闸（建立母排电压）",
              r1_master_ok or state.round1_done),
-            ("6. [第一轮] 将 Gen 2 切至自动（Auto）同步模式",
+            ("6. [第一轮] 将 Gen 2 切至自动（Auto）同步追踪模式",
              r1_follower_ok or state.round1_done),
-            ("7. [第一轮] 确认 Gen 2 已同步完成（频率/幅值与 Gen 1 匹配）",
+            ("7. [第一轮] 等待 Gen 2 三值（频率/幅值/相位）均与 Gen 1 匹配后记录",
              r1_synced or state.round1_done),
             ("8. [第一轮] 记录结果：Gen 1 基准 → Gen 2 同步完成",
              state.round1_done),
             ("9. [第二轮] 断开 Gen 1，将 Gen 2 切至手动模式并合闸（互换基准）",
              r2_master_ok or state.round2_done),
-            ("10. [第二轮] 将 Gen 1 切至自动（Auto）同步模式",
+            ("10. [第二轮] 将 Gen 1 切至自动（Auto）同步追踪模式",
              r2_follower_ok or state.round2_done),
-            ("11. [第二轮] 确认 Gen 1 已同步完成（频率/幅值与 Gen 2 匹配）",
+            ("11. [第二轮] 等待 Gen 1 三值（频率/幅值/相位）均与 Gen 2 匹配后记录",
              r2_synced or state.round2_done),
             ("12. [第二轮] 记录结果：Gen 2 基准 → Gen 1 同步完成",
              state.round2_done),
@@ -131,8 +144,11 @@ class SyncTestService:
             if not self._is_gen_synced(gen2, gen1):
                 df = abs(gen2.freq - gen1.freq)
                 dv = abs(gen2.amp - gen1.amp)
+                dp = abs(gen2.phase_deg - gen1.phase_deg)
+                dp = min(dp, 360.0 - dp)
                 self._set_sync_test_feedback(
-                    f"Gen 2 尚未同步完成（Δf={df:.2f} Hz，ΔV={dv:.0f} V），请等待同步后再记录。",
+                    f"Gen 2 尚未同步完成（Δf={df:.2f} Hz，ΔV={dv:.0f} V，Δθ={dp:.1f}°），"
+                    "请开启自动追踪后等待三个值均收敛再记录。",
                     "red")
                 return
             state.round1_done = True
@@ -159,8 +175,11 @@ class SyncTestService:
             if not self._is_gen_synced(gen1, gen2):
                 df = abs(gen1.freq - gen2.freq)
                 dv = abs(gen1.amp - gen2.amp)
+                dp = abs(gen1.phase_deg - gen2.phase_deg)
+                dp = min(dp, 360.0 - dp)
                 self._set_sync_test_feedback(
-                    f"Gen 1 尚未同步完成（Δf={df:.2f} Hz，ΔV={dv:.0f} V），请等待同步后再记录。",
+                    f"Gen 1 尚未同步完成（Δf={df:.2f} Hz，ΔV={dv:.0f} V，Δθ={dp:.1f}°），"
+                    "请开启自动追踪后等待三个值均收敛再记录。",
                     "red")
                 return
             state.round2_done = True
@@ -185,9 +204,16 @@ class SyncTestService:
             self._set_sync_test_feedback(
                 '请先完成并记录两轮同步测试，再点击\u201c完成第五步测试\u201d。', "red")
             return
+        # 自动将两台发电机切至自动模式，并恢复额定参数（50 Hz / GRID_AMP / 相位 0°）
+        for gen in (self._ctrl.sim_state.gen1, self._ctrl.sim_state.gen2):
+            gen.mode      = "auto"
+            gen.freq      = GRID_FREQ
+            gen.amp       = GRID_AMP
+            gen.phase_deg = 0.0
         self._ctrl.sync_test_state.completed = True
         self._set_sync_test_feedback(
-            "第五步【同步功能测试】已确认完成，系统恢复正常自动合闸逻辑。", "#006600")
+            "第五步【同步功能测试】已确认完成，两台发电机已自动切至 Auto 模式并恢复额定参数，"
+            "系统恢复正常自动合闸逻辑。", "#006600")
 
     def get_sync_test_blockers(self):
         return [text for text, done in self.get_sync_test_steps() if not done]

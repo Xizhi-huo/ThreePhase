@@ -14,14 +14,11 @@ from domain.node_map import NODES
 from ui.tabs.waveform_tab import MplCanvas
 from ui.widgets.phase_seq_meter import PhaseSeqMeterWidget
 
-# 第二步快速记录辅助映射
-_PHASE_PAIR_LABEL = {
-    frozenset({'A', 'B'}): 'AB',
-    frozenset({'B', 'C'}): 'BC',
-    frozenset({'C', 'A'}): 'CA',
-}
-_PHASE_TO_PAIR = {'A': 'AB', 'B': 'BC', 'C': 'CA'}
-
+# 回路动画用到的布局常量（与 _draw_circuit_content 保持一致）
+_LOOP_CB_BOT  = 0.24
+_LOOP_CB_TOP  = 0.31
+_LOOP_PROBE_Y = 0.405
+_LOOP_BUS_Y   = {'A': 0.115, 'B': 0.090, 'C': 0.065}
 
 # 热力颜色工具
 def rms_to_heat_color(rms: float) -> str:
@@ -77,6 +74,7 @@ class CircuitTabMixin:
 
         # 鼠标点击（万用表）
         self.canvas2.mpl_connect('button_press_event', self._on_circuit_click)
+        self._loop_anim_offset = 0.0   # 回路连通测试电流动画进度（跨重绘持久）
         self._draw_circuit_content()
 
         # 快速记录栏已移至右侧测试控制条，此处不再重复显示
@@ -281,7 +279,7 @@ class CircuitTabMixin:
             ax.text(xpos, neutral_y, 'N', fontsize=12, ha='center', va='center',
                     weight='bold', color=NEUTRAL_COLOR, path_effects=_stroke)
         self.txt_bus_source = ax.text(
-            0.50, -0.035, "Dead Bus (无电)", weight='bold', ha='center', fontsize=10,
+            0.50, 0, "Dead Bus (无电)", weight='bold', ha='center', fontsize=10,
             color='#1e293b',
             bbox=dict(facecolor='#f8fafc', edgecolor='#cbd5e1',
                       boxstyle='round,pad=0.3', alpha=0.92))
@@ -314,6 +312,14 @@ class CircuitTabMixin:
             ax.plot(x, y, 'o', color='k', markersize=4.5, zorder=6)
             ax.text(x, y+0.018, phase, fontsize=6, ha='center', color=phase_color, weight='bold')
         ax.text(0.50, 0.438, "三相回路连通测点", fontsize=7, ha='center', color='#444')
+
+        # ── 回路连通测试电流流向动画（导通时显示移动点，断路时显示 X 符号）──
+        self.loop_anim_wire_ok, = ax.plot([], [], '-', lw=2.5, alpha=0.55, zorder=9)
+        self.loop_anim_dots,    = ax.plot([], [], 'o', markersize=7,  alpha=0.90, zorder=12)
+        self.loop_anim_gap_l,   = ax.plot([], [], '-', lw=2.0, color='#94a3b8',  zorder=9)
+        self.loop_anim_gap_r,   = ax.plot([], [], '-', lw=2.0, color='#94a3b8',  zorder=9)
+        self.loop_anim_x1,      = ax.plot([], [], '-', lw=2.5, color='#ef4444',  zorder=12)
+        self.loop_anim_x2,      = ax.plot([], [], '-', lw=2.5, color='#ef4444',  zorder=12)
 
         # ── 3. 中性点接地 ─────────────────────────────────────────────────
         self.gnd_data1 = draw_generator_neutral_ground(G1_CX)
@@ -382,11 +388,12 @@ class CircuitTabMixin:
         self.txt_iq2 = ax.text(CT_X_RIGHT, CT_Y_TOP-2*CT_DY, "  Iq = 0.00 A  (无功)",
                                 color='#aa00aa', ha='left', fontsize=7)
 
+
         self.txt_circ_flow = ax.text(
-            0.30, -0.06, "机组间无环流", color='gray', ha='center', weight='bold', fontsize=9,
+            0.50, -0.045, "机组间无环流", color='gray', ha='center', weight='bold', fontsize=9,
             bbox=dict(facecolor='#ffffff', edgecolor='gray', alpha=0.9, boxstyle='round,pad=0.3'))
         self.txt_meter = ax.text(
-            0.70, -0.06, "万用表未开启", color='black', ha='center', weight='bold', fontsize=9,
+            0.50, -0.095, "万用表未开启", color='black', ha='center', weight='bold', fontsize=9,
             bbox=dict(facecolor='#ffffcc', edgecolor='black', boxstyle='round,pad=0.4'),
             clip_on=False)
 
@@ -583,168 +590,90 @@ class CircuitTabMixin:
             self.probe1_plot.set_data([], [])
             self.probe2_plot.set_data([], [])
 
-    def _render_circuit_quick_record(self, p):
-        """更新母排拓扑页底部快速记录栏的按钮状态与提示文字。"""
-        sim = self.ctrl.sim_state
-        if not sim.multimeter_mode or not (sim.probe1_node and sim.probe2_node):
-            self.circuit_mode_lbl.setText("万用表未开启或表笔未放置")
-            for ph in ('A', 'B', 'C'):
-                btn = getattr(self, f'circuit_rec_btn_{ph}')
-                btn.setEnabled(False)
-                btn.setStyleSheet("font-size:13px;")
-            return
+        # ── 回路连通测试电流动画（沿真实电路路径：探针→断路器→母排→断路器→探针）──
+        _PHASE_CLR_MPL = {'A': '#b45309', 'B': '#1a9c3c', 'C': '#d62828'}
+        mn = p.meter_nodes
+        ms = p.meter_status
+        loop_done = self.ctrl.loop_test_state.completed
+        is_loop = (mn and not loop_done and
+                   mn[0] and mn[0].startswith('LOOP_G') and
+                   mn[1] and mn[1].startswith('LOOP_G'))
+        if is_loop:
+            # n1 = probe1（红表笔，电流出发点）  n2 = probe2（黑表笔，电流到达点）
+            # 不做坐标对换，严格按表笔顺序决定动画方向
+            n1, n2 = mn
+            x1, y1 = NODES[n1][:2]
+            x2, y2 = NODES[n2][:2]
+            phase_str = NODES[n1][3]
+            clr = _PHASE_CLR_MPL[phase_str]
+            bus_y = _LOOP_BUS_Y[phase_str]
 
-        info1 = NODES[sim.probe1_node]
-        loop_pair = info1[2].startswith('Loop')
+            # 完整回路路径（顺序即电流方向：红表笔→断路器→母排→断路器→黑表笔）
+            wpts = np.array([
+                [x1,  y1            ],   # 红表笔 (probe1)
+                [x1,  _LOOP_CB_TOP  ],   # probe1 侧断路器上端
+                [x1,  _LOOP_CB_BOT  ],   # probe1 侧断路器下端
+                [x1,  bus_y         ],   # probe1 侧母排接入点
+                [x2,  bus_y         ],   # probe2 侧母排接入点（水平穿越母排）
+                [x2,  _LOOP_CB_BOT  ],   # probe2 侧断路器下端
+                [x2,  _LOOP_CB_TOP  ],   # probe2 侧断路器上端
+                [x2,  y2            ],   # 黑表笔 (probe2)
+            ])
+            seg_lens = np.sqrt(np.sum(np.diff(wpts, axis=0)**2, axis=1))
+            cum = np.concatenate([[0.0], np.cumsum(seg_lens)])
+            total = cum[-1]
 
-        if loop_pair:
-            state = self.ctrl.loop_test_state
-            if state.completed:
-                self.circuit_mode_lbl.setText("第一步已完成，数据已锁定")
-                for ph in ('A', 'B', 'C'):
-                    getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
-                return
-            self.circuit_mode_lbl.setText("第一步：回路连通性 — 快速记录")
-            for ph in ('A', 'B', 'C'):
-                recorded = state.records[ph] is not None
-                btn = getattr(self, f'circuit_rec_btn_{ph}')
-                btn.setEnabled(not recorded)
-                btn.setStyleSheet(
-                    f"font-size:13px; background:{'#c8f0c8' if recorded else '#ffffff'};")
-        elif not self.ctrl.is_pt_voltage_check_complete():
-            # ── 第二步：PT 单体线电压检查 ──────────────────────────────────────
-            n1, n2 = sim.probe1_node, sim.probe2_node
-            _pt1 = n1.rsplit('_', 1)[0] if n1 and '_' in n1 else ''
-            _pt2 = n2.rsplit('_', 1)[0] if n2 and '_' in n2 else ''
-            _ph1 = n1.rsplit('_', 1)[1] if n1 and '_' in n1 else ''
-            _ph2 = n2.rsplit('_', 1)[1] if n2 and '_' in n2 else ''
-            intra_pt = (_pt1 == _pt2 and _pt1 in ('PT1', 'PT2', 'PT3') and
-                        _ph1 in ('A', 'B', 'C') and _ph2 in ('A', 'B', 'C') and _ph1 != _ph2)
-            if not intra_pt:
-                self.circuit_mode_lbl.setText("第二步：请将两支表笔放在同一 PT 的两相端子上")
-                for ph in ('A', 'B', 'C'):
-                    btn = getattr(self, f'circuit_rec_btn_{ph}')
-                    btn.setEnabled(False)
-                    btn.setStyleSheet("font-size:13px;")
-                return
-            state2 = self.ctrl.pt_voltage_check_state
-            pair_key = _PHASE_PAIR_LABEL.get(frozenset({_ph1, _ph2}), '')
-            self.circuit_mode_lbl.setText(f"第二步：{_pt1} {pair_key}线电压 — 快速记录")
-            for ph in ('A', 'B', 'C'):
-                btn = getattr(self, f'circuit_rec_btn_{ph}')
-                this_pair = _PHASE_TO_PAIR[ph]
-                rec_key = f"{_pt1}_{this_pair}"
-                already_rec = state2.records.get(rec_key) is not None
-                is_current = (this_pair == pair_key)
-                btn.setEnabled(is_current and not already_rec)
-                btn.setStyleSheet(
-                    f"font-size:13px; background:{'#c8f0c8' if already_rec else '#ffffff'};")
-        elif not self.ctrl.is_pt_phase_check_complete():
-            # ── 第三步：PT 相序检查 ────────────────────────────────────────────
-            pt_name = None
-            for node in (sim.probe1_node, sim.probe2_node):
-                if node and node.startswith('PT') and not node.startswith('PT2'):
-                    pt_name = node.split('_')[0]  # 'PT1' or 'PT3'
-                    break
-            if pt_name is None:
-                self.circuit_mode_lbl.setText("第三步：请将表笔放在 PT1_X 或 PT3_X 与 PT2_X 上")
-                for ph in ('A', 'B', 'C'):
-                    getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
-                return
-            state = self.ctrl.pt_phase_check_state
-            if state.completed:
-                self.circuit_mode_lbl.setText("第三步 PT相序已完成，数据已锁定")
-                for ph in ('A', 'B', 'C'):
-                    getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
-                return
-            self.circuit_mode_lbl.setText(f"第三步：{pt_name}/PT2 相序 — 快速记录")
-            records = state.records
-            for ph in ('A', 'B', 'C'):
-                key = f"{pt_name}_{ph}"
-                recorded = records.get(key) is not None
-                btn = getattr(self, f'circuit_rec_btn_{ph}')
-                btn.setEnabled(not recorded)
-                btn.setStyleSheet(
-                    f"font-size:13px; background:{'#c8f0c8' if recorded else '#ffffff'};")
+            if ms == 'ok':
+                self._loop_anim_offset = (self._loop_anim_offset + 0.038) % 1.0
+                self.loop_anim_wire_ok.set_data(wpts[:, 0], wpts[:, 1])
+                self.loop_anim_wire_ok.set_color(clr)
+                n_dots = 5
+                dot_xs, dot_ys = [], []
+                for i in range(n_dots):
+                    t = (self._loop_anim_offset + i / n_dots) % 1.0
+                    d = t * total
+                    idx = int(np.clip(np.searchsorted(cum, d, side='right') - 1,
+                                      0, len(wpts) - 2))
+                    seg_d = cum[idx + 1] - cum[idx]
+                    s = (d - cum[idx]) / seg_d if seg_d > 1e-10 else 0.0
+                    dot_xs.append(wpts[idx, 0] + s * (wpts[idx+1, 0] - wpts[idx, 0]))
+                    dot_ys.append(wpts[idx, 1] + s * (wpts[idx+1, 1] - wpts[idx, 1]))
+                self.loop_anim_dots.set_data(dot_xs, dot_ys)
+                self.loop_anim_dots.set_color(clr)
+                self.loop_anim_gap_l.set_data([], [])
+                self.loop_anim_gap_r.set_data([], [])
+                self.loop_anim_x1.set_data([], [])
+                self.loop_anim_x2.set_data([], [])
+            elif ms == 'danger':
+                self._loop_anim_offset = 0.0
+                self.loop_anim_wire_ok.set_data([], [])
+                self.loop_anim_dots.set_data([], [])
+                mid_x  = (x1 + x2) / 2
+                toward = np.sign(x2 - x1)   # +1 左→右，-1 右→左
+                gap, xsz = 0.025, 0.011
+                # probe1 侧路径延伸到断口前（朝 probe2 方向退 gap）
+                g1 = np.array([[x1, y1], [x1, _LOOP_CB_TOP], [x1, _LOOP_CB_BOT],
+                                [x1, bus_y], [mid_x - toward * gap, bus_y]])
+                # probe2 侧路径从断口后开始（朝 probe2 方向前进 gap）
+                g2 = np.array([[mid_x + toward * gap, bus_y], [x2, bus_y],
+                                [x2, _LOOP_CB_BOT], [x2, _LOOP_CB_TOP], [x2, y2]])
+                self.loop_anim_gap_l.set_data(g1[:, 0], g1[:, 1])
+                self.loop_anim_gap_r.set_data(g2[:, 0], g2[:, 1])
+                self.loop_anim_x1.set_data([mid_x - xsz, mid_x + xsz],
+                                            [bus_y - 0.012, bus_y + 0.012])
+                self.loop_anim_x2.set_data([mid_x + xsz, mid_x - xsz],
+                                            [bus_y - 0.012, bus_y + 0.012])
+            else:
+                self._clear_loop_anim()
         else:
-            # ── 第四步：PT 压差测试 ────────────────────────────────────────────
-            gen_id = getattr(self, '_pt_target_bg').checkedId()
-            if gen_id <= 0:
-                gen_id = 1
-            state = self.ctrl.pt_exam_states[gen_id]
-            if state.completed:
-                self.circuit_mode_lbl.setText(f"第四步 Gen {gen_id} 已完成，数据已锁定")
-                for ph in ('A', 'B', 'C'):
-                    getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
-                return
-            if not state.started:
-                self.circuit_mode_lbl.setText("第四步尚未开始 — 请在第四步标签页点击「开始第四步测试」")
-                for ph in ('A', 'B', 'C'):
-                    getattr(self, f'circuit_rec_btn_{ph}').setEnabled(False)
-                return
-            self.circuit_mode_lbl.setText(f"第四步：Gen {gen_id} PT 二次压差 — 快速记录")
-            for ph in ('A', 'B', 'C'):
-                recorded = state.records[ph] is not None
-                btn = getattr(self, f'circuit_rec_btn_{ph}')
-                btn.setEnabled(not recorded)
-                btn.setStyleSheet(
-                    f"font-size:13px; background:{'#c8f0c8' if recorded else '#ffffff'};")
+            self._clear_loop_anim()
 
-    def _on_quick_record(self, phase):
-        """母排拓扑页快速记录按钮回调。"""
-        sim = self.ctrl.sim_state
-        if not (sim.probe1_node and sim.probe2_node):
-            return
-        info1 = NODES[sim.probe1_node]
-        loop_pair = info1[2].startswith('Loop')
-        if loop_pair:
-            self.ctrl.record_loop_measurement(phase)
-            st = self.ctrl.loop_test_state
-            self.circuit_rec_feedback.setText(st.feedback)
-            self.circuit_rec_feedback.setStyleSheet(
-                f"font-size:13px; color:{_qs(st.feedback_color)}; min-width:220px;")
-        elif not self.ctrl.is_pt_voltage_check_complete():
-            # 第二步：PT 单体线电压 — 直接记录同一 PT 内两相端子的线电压
-            n1, n2 = sim.probe1_node, sim.probe2_node
-            _pt1 = n1.rsplit('_', 1)[0] if n1 and '_' in n1 else ''
-            _pt2 = n2.rsplit('_', 1)[0] if n2 and '_' in n2 else ''
-            _ph1 = n1.rsplit('_', 1)[1] if n1 and '_' in n1 else ''
-            _ph2 = n2.rsplit('_', 1)[1] if n2 and '_' in n2 else ''
-            intra_pt = (_pt1 == _pt2 and _pt1 in ('PT1', 'PT2', 'PT3') and
-                        _ph1 in ('A', 'B', 'C') and _ph2 in ('A', 'B', 'C') and _ph1 != _ph2)
-            if not intra_pt:
-                return
-            pair_key = _PHASE_PAIR_LABEL.get(frozenset({_ph1, _ph2}), '')
-            if _PHASE_TO_PAIR.get(phase) != pair_key:
-                return  # 按下的按钮与当前表笔所在线对不对应
-            self.ctrl.record_pt_voltage_measurement(_pt1, pair_key)
-            st = self.ctrl.pt_voltage_check_state
-            self.circuit_rec_feedback.setText(st.feedback)
-            self.circuit_rec_feedback.setStyleSheet(
-                f"font-size:13px; color:{_qs(st.feedback_color)}; min-width:220px;")
-        elif not self.ctrl.is_pt_phase_check_complete():
-            # 第三步：PT 相序检查快速记录
-            pt_name = None
-            for node in (sim.probe1_node, sim.probe2_node):
-                if node and node.startswith('PT') and not node.startswith('PT2'):
-                    pt_name = node.split('_')[0]
-                    break
-            if pt_name is None:
-                return
-            self.ctrl.record_pt_phase_check(pt_name, phase)
-            st = self.ctrl.pt_phase_check_state
-            self.circuit_rec_feedback.setText(st.feedback)
-            self.circuit_rec_feedback.setStyleSheet(
-                f"font-size:13px; color:{_qs(st.feedback_color)}; min-width:220px;")
-        else:
-            # 第四步：PT 压差测试（只有已开始才记录）
-            gen_id = getattr(self, '_pt_target_bg').checkedId()
-            if gen_id <= 0:
-                gen_id = 1
-            if not self.ctrl.pt_exam_states[gen_id].started:
-                return
-            self.ctrl.record_pt_measurement(phase, gen_id)
-            st = self.ctrl.pt_exam_states[gen_id]
-            self.circuit_rec_feedback.setText(st.feedback)
-            self.circuit_rec_feedback.setStyleSheet(
-                f"font-size:13px; color:{_qs(st.feedback_color)}; min-width:220px;")
+    def _clear_loop_anim(self):
+        self._loop_anim_offset = 0.0
+        self.loop_anim_wire_ok.set_data([], [])
+        self.loop_anim_dots.set_data([], [])
+        self.loop_anim_gap_l.set_data([], [])
+        self.loop_anim_gap_r.set_data([], [])
+        self.loop_anim_x1.set_data([], [])
+        self.loop_anim_x2.set_data([], [])
+

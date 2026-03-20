@@ -143,6 +143,8 @@ class TestPanelMixin:
         self.tp_meter_lbl = QtWidgets.QLabel("万用表: 关闭")
         self.tp_meter_lbl.setStyleSheet(
             "color:#94a3b8; font-size:12px; padding:2px;")
+        self.tp_meter_lbl.setWordWrap(True)
+        self.tp_meter_lbl.setMaximumWidth(320)
         cl.addWidget(self.tp_meter_lbl)
 
         # ── 各步骤专属区 ─────────────────────────────────────────────
@@ -554,6 +556,12 @@ class TestPanelMixin:
 
         self._make_gen_block(lay, 's4', 1, show_engine=True)
         self._make_gen_block(lay, 's4', 2, show_engine=True)
+
+        adj_note = QtWidgets.QLabel("调节 Gen 2 频率/幅值使 PT 二次压差趋近于零:")
+        adj_note.setStyleSheet("color:#1d4ed8; font-size:11px; font-weight:bold;")
+        lay.addWidget(adj_note)
+        self._tp_s4_fap = {}
+        self._make_gen_fap_block(lay, '_tp_s4_fap', 2)
 
         sel_lbl = QtWidgets.QLabel("测试对象:")
         sel_lbl.setStyleSheet("color:#64748b; font-size:11px;")
@@ -1065,8 +1073,6 @@ class TestPanelMixin:
         step = self._current_test_step()
 
         # ── Step dots / admin buttons ──────────────────────────────────
-        auto_step = self._current_test_step.__wrapped__(self) \
-            if hasattr(self._current_test_step, '__wrapped__') else None
         # 计算自然完成步骤（不受 forced 影响）
         c = self.ctrl
         _auto = (1 if not c.is_loop_test_complete() else
@@ -1236,8 +1242,12 @@ class TestPanelMixin:
         for ph, lbl in self.tp_s1_rec_lbls.items():
             rec = records.get(ph)
             if rec is not None:
-                lbl.setText(f"{ph} 相: 回路导通 ✓")
-                lbl.setStyleSheet("color:#15803d; font-size:12px;")
+                if rec.get('status') == 'ok':
+                    lbl.setText(f"{ph} 相: 导通 [≈0Ω] ✓")
+                    lbl.setStyleSheet("color:#15803d; font-size:12px;")
+                else:
+                    lbl.setText(f"{ph} 相: 断路 [∞Ω] ⚠")
+                    lbl.setStyleSheet("color:#b45309; font-size:12px;")
             else:
                 lbl.setText(f"{ph} 相: 未记录")
                 lbl.setStyleSheet("color:#94a3b8; font-size:12px;")
@@ -1334,6 +1344,7 @@ class TestPanelMixin:
                 lbl.setStyleSheet("color:#94a3b8; font-size:11px;")
 
     def _refresh_tp_step4(self):
+        sim = self.ctrl.sim_state
         gen_id = max(1, self._tp_s4_bg.checkedId())
         in_mode = (self.ctrl.pt_exam_states[1].started and
                    self.ctrl.pt_exam_states[2].started)
@@ -1362,6 +1373,17 @@ class TestPanelMixin:
                 else:
                     lbl.setText(f"Gen{gid} {ph}相: 未记录")
                     lbl.setStyleSheet("font-size:11px; color:#94a3b8;")
+
+        # 同步 Gen2 fap 滑块/输入框
+        for gid, entry_map in getattr(self, '_tp_s4_fap', {}).items():
+            gen = sim.gen1 if gid == 1 else sim.gen2
+            for attr, (sl, entry) in entry_map.items():
+                scale = 10 if attr in ('freq', 'phase_deg') else 1
+                sl.blockSignals(True)
+                sl.setValue(int(getattr(gen, attr) * scale))
+                sl.blockSignals(False)
+                if not entry.hasFocus():
+                    entry.setText(f"{getattr(gen, attr):.1f}")
 
         state = self.ctrl.pt_exam_states[gen_id]
         self.tp_s4_fb_lbl.setText(state.feedback)

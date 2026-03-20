@@ -233,24 +233,40 @@ class SyncTestTabMixin:
         self.sync_test_summary_lbl.setText(summary)
         self.sync_test_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:15px; color:{sc};")
 
+        def _phase_diff(a, b):
+            d = abs(a.phase_deg - b.phase_deg)
+            return min(d, 360.0 - d)
+
         ref_gen = getattr(p, 'bus_reference_gen', None)
         if ref_gen == 1 and gen2.mode == "auto":
             df = abs(gen2.freq - gen1.freq)
             dv = abs(gen2.amp - gen1.amp)
+            dp = _phase_diff(gen2, gen1)
             ok = self.ctrl._is_gen_synced(gen2, gen1)
             color = '#006400' if ok else '#cc4400'
             self.sync_test_live_lbl.setText(
-                f"[第一轮] Gen2跟踪Gen1 — Δf={df:.3f} Hz，ΔV={dv:.0f} V  "
+                f"[第一轮] Gen2跟踪Gen1 — Δf={df:.3f} Hz，ΔV={dv:.0f} V，Δθ={dp:.1f}°  "
                 f"{'[已同步 ✓]' if ok else '[同步中…]'}")
             self.sync_test_live_lbl.setStyleSheet(f"font-size:15px; color:{color};")
         elif ref_gen == 2 and gen1.mode == "auto":
             df = abs(gen1.freq - gen2.freq)
             dv = abs(gen1.amp - gen2.amp)
+            dp = _phase_diff(gen1, gen2)
             ok = self.ctrl._is_gen_synced(gen1, gen2)
             color = '#006400' if ok else '#cc4400'
             self.sync_test_live_lbl.setText(
-                f"[第二轮] Gen1跟踪Gen2 — Δf={df:.3f} Hz，ΔV={dv:.0f} V  "
+                f"[第二轮] Gen1跟踪Gen2 — Δf={df:.3f} Hz，ΔV={dv:.0f} V，Δθ={dp:.1f}°  "
                 f"{'[已同步 ✓]' if ok else '[同步中…]'}")
+            self.sync_test_live_lbl.setStyleSheet(f"font-size:15px; color:{color};")
+        elif gen1.mode == "auto" and gen2.mode == "auto":
+            df = abs(gen1.freq - gen2.freq)
+            dv = abs(gen1.amp - gen2.amp)
+            dp = _phase_diff(gen1, gen2)
+            ok = self.ctrl._is_gen_synced(gen1, gen2)
+            color = '#006400' if ok else '#cc4400'
+            self.sync_test_live_lbl.setText(
+                f"[最终] 双机自动 — Δf={df:.3f} Hz，ΔV={dv:.0f} V，Δθ={dp:.1f}°  "
+                f"{'[三值收敛 ✓ 可完成]' if ok else '[等待收敛…]'}")
             self.sync_test_live_lbl.setStyleSheet(f"font-size:15px; color:{color};")
         else:
             self.sync_test_live_lbl.setText(
