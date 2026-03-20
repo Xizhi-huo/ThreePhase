@@ -5,7 +5,7 @@ services/_physics_measurement.py
 
 import numpy as np
 
-from domain.constants import NEUTRAL_RESISTOR_OHMS, PT_RATIO
+from domain.constants import NEUTRAL_RESISTOR_OHMS, PT_GEN_RATIO, PT_BUS_RATIO
 from domain.enums import BreakerPosition
 from domain.node_map import NODES
 
@@ -61,12 +61,11 @@ class MeasurementMixin:
             self.ground_color = "green"
 
     def _update_pt_measurements(self, bus_a, a1, a2):
-        pt_ratio = PT_RATIO
-        self.pt1_v = (a1  / np.sqrt(2) * np.sqrt(3)) / pt_ratio
-        self.pt2_v = (bus_a / np.sqrt(2) * np.sqrt(3)) / pt_ratio
+        self.pt1_v = (a1  / np.sqrt(2) * np.sqrt(3)) / PT_GEN_RATIO
+        self.pt2_v = (bus_a / np.sqrt(2) * np.sqrt(3)) / PT_BUS_RATIO
         # PT3 始终读 Gen2 自身的发电电压（Gen2 起机不合闸时提供相序参考）
         pt3_amp = a2
-        self.pt3_v = (pt3_amp / np.sqrt(2) * np.sqrt(3)) / pt_ratio
+        self.pt3_v = (pt3_amp / np.sqrt(2) * np.sqrt(3)) / PT_GEN_RATIO
 
     def _update_multimeter(self, sim):
         _UI_NODES = NODES
@@ -82,7 +81,6 @@ class MeasurementMixin:
         if not hasattr(self, '_meter_last_probes'):
             self._meter_last_probes = _cur_probes
         if _cur_probes != self._meter_last_probes:
-            self._meter_v_ema = None   # 保留兼容旧代码
             self._ema_reset('intra_diff', 'cross_rms1', 'cross_rms2')
             self._meter_last_probes = _cur_probes
 
@@ -148,11 +146,15 @@ class MeasurementMixin:
                         _freq = self.bus_freq or 50.0
                     raw_rms = self._whole_cycle_rms_raw(wave_diff, _freq)
                     primary_rms = self._ema_update('intra_diff', raw_rms)
-                    meter_v = primary_rms / PT_RATIO
+                    # 按所属 PT 使用对应变比：机组侧≈57.02，母排侧=100
+                    _pt_ratio = PT_GEN_RATIO if _pt_name in ('PT1', 'PT3') else PT_BUS_RATIO
+                    meter_v = primary_rms / _pt_ratio
                     self.meter_voltage = meter_v
                     self.meter_nodes = (n1, n2)
-                    # ±15% 容差判断（二次侧额定线电压 100V，变比105:1）
-                    if 85.0 <= meter_v <= 115.0:
+                    # ±15% 容差：均以一次侧 [8925V, 12075V] 为基准折算到各 PT 二次侧
+                    _ok_lo = 8925.0 / _pt_ratio
+                    _ok_hi = 12075.0 / _pt_ratio
+                    if _ok_lo <= meter_v <= _ok_hi:
                         self.meter_status = "ok"
                         self.meter_color = "green"
                     elif meter_v < 1.0:
@@ -161,7 +163,7 @@ class MeasurementMixin:
                     else:
                         self.meter_status = "danger"
                         self.meter_color = "red"
-                    primary_display = meter_v * PT_RATIO   # 换算回一次侧
+                    primary_display = meter_v * _pt_ratio   # 换算回一次侧
                     self.meter_reading = (
                         f"线电压: {info1[4]} ↔ {info2[4]} | "
                         f"一次侧={primary_display/1000:.2f} kV"
@@ -193,8 +195,11 @@ class MeasurementMixin:
                     rms2 = self._ema_update('cross_rms2',
                                self._whole_cycle_rms_raw(self.plot_data[key2], _f2))
                     primary_rms_diff = abs(rms1 - rms2)
-                    sec_rms_diff = primary_rms_diff / PT_RATIO   # 一次侧差值 ÷ 变比 → 二次侧
-                    meter_v = sec_rms_diff
+                    # 各侧用自己变比折算二次侧电压（用于显示）
+                    gen_sec  = rms1 / PT_GEN_RATIO   # 机组侧 PT 二次侧相电压
+                    bus_sec  = rms2 / PT_BUS_RATIO   # 母排侧 PT 二次侧相电压
+                    # meter_voltage 以机组侧变比折算，供 pt_exam_service 逆算一次侧
+                    meter_v = primary_rms_diff / PT_GEN_RATIO
                     self.meter_voltage = meter_v
                     self.meter_nodes = (n1, n2)
                     if phases_match:
@@ -210,10 +215,11 @@ class MeasurementMixin:
                             f"相序✗ (端子标{labeled1}/实际{actual_ph1}相"
                             f" ≠ 端子标{labeled2}/实际{actual_ph2}相)"
                         )
-                    primary_diff = meter_v * PT_RATIO   # 换算回一次侧压差
                     self.meter_reading = (
                         f"PT端子: {info1[4]}{ann1} ↔ {info2[4]}{ann2}"
-                        f" | {seq_status} | 压差={primary_diff:.0f} V（二次侧={meter_v:.2f} V）"
+                        f" | {seq_status}"
+                        f" | 一次侧压差={primary_rms_diff:.0f} V"
+                        f"（机组侧二次={gen_sec:.1f} V，母排侧二次={bus_sec:.1f} V）"
                     )
                 else:
                     self.meter_status = "invalid"

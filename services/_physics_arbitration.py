@@ -20,8 +20,6 @@ class ArbitrationMixin:
         step_f = 0.005 * sim.sync_gain * speed_factor
         if abs(err_f) > step_f:
             generator.freq = round(generator.freq + np.sign(err_f) * step_f, 3)
-        elif sim.sync_gain > 3.0:
-            generator.freq = round(generator.freq + np.sign(err_f + 0.001) * (0.005 * sim.sync_gain * speed_factor), 3)
         else:
             generator.freq = target_freq
 
@@ -29,8 +27,6 @@ class ArbitrationMixin:
         step_a = 5.0 * sim.sync_gain * speed_factor
         if abs(err_a) > step_a:
             generator.amp = round(generator.amp + np.sign(err_a) * step_a, 1)
-        elif sim.sync_gain > 3.0:
-            generator.amp = round(generator.amp + np.sign(err_a + 0.01) * (5.0 * sim.sync_gain * speed_factor), 1)
         else:
             generator.amp = target_amp
 
@@ -39,8 +35,6 @@ class ArbitrationMixin:
         step_p = 0.5 * sim.sync_gain * self._control_speed_factor(sim)
         if abs(phase_error) > step_p:
             generator.phase_deg = round(generator.phase_deg - np.sign(phase_error) * step_p, 1)
-        elif sim.sync_gain > 3.0:
-            generator.phase_deg = round(generator.phase_deg - np.sign(phase_error + 0.01) * step_p, 1)
         else:
             generator.phase_deg = round(target_phase_deg, 1)
 

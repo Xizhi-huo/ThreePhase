@@ -137,8 +137,10 @@ class PtVoltageCheckService:
             return
 
         # 换算回一次侧线电压（教学中关心的实际电压量）
-        from domain.constants import PT_RATIO as _PT_RATIO
-        primary_v = meter_v_sec * _PT_RATIO          # ≈ 10500 V
+        from domain.constants import PT_GEN_RATIO as _PT_GEN_RATIO, PT_BUS_RATIO as _PT_BUS_RATIO
+        _pt_name = (sim.probe1_node or '').split('_')[0]
+        _pt_ratio = _PT_GEN_RATIO if _pt_name in ('PT1', 'PT3') else _PT_BUS_RATIO
+        primary_v = meter_v_sec * _pt_ratio          # ≈ 10500 V（无论哪侧PT均还原一次侧）
 
         state.records[key] = {
             'voltage': primary_v,       # 存一次侧值，单位 V

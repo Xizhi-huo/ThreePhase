@@ -75,7 +75,7 @@ class PtExamService:
         gen_id : int   – 1 或 2，由调用方（UI 按钮回调）显式传入，
                          服务层不访问任何 UI 控件。
         """
-        if gen_id <= 0:
+        if gen_id not in (1, 2):
             gen_id = 1
         phase = phase.upper()
         gen1, gen2 = self._ctrl.sim_state.gen1, self._ctrl.sim_state.gen2
@@ -161,23 +161,23 @@ class PtExamService:
             self._set_pt_exam_feedback(gen_id, "当前测量结果无效，请确认表笔接在 PT 二次端子排对应端子上。", "red")
             return
 
-        from domain.constants import PT_RATIO as _PT_RATIO
-        primary_diff = meter_v_sec * _PT_RATIO   # 换算回一次侧压差（V）
+        from domain.constants import PT_GEN_RATIO as _PT_GEN_RATIO
+        primary_diff = meter_v_sec * _PT_GEN_RATIO   # 换算回一次侧压差（V）
 
         if meter_status != 'ok':
             self._set_pt_exam_feedback(
                 gen_id,
-                f"{phase} 相 PT 一次侧压差为 {primary_diff:.0f} V（二次侧 {meter_v_sec:.2f} V），"
+                f"{phase} 相 PT 一次侧压差为 {primary_diff:.0f} V（机组侧二次侧 {meter_v_sec:.2f} V），"
                 "相序不匹配，请检查接线。", "red")
             return
 
-        # 压差阈值：二次侧 < 5 V，即一次侧 < 525 V（5 × PT_RATIO）
-        _THRESHOLD_PRIMARY = 5.0 * _PT_RATIO   # 525 V
+        # 压差阈值：机组侧 PT 二次侧 < 5 V，即一次侧 < 285 V（5 × PT_GEN_RATIO≈56.99）
+        _THRESHOLD_PRIMARY = 5.0 * _PT_GEN_RATIO   # ≈ 285 V
         if primary_diff >= _THRESHOLD_PRIMARY:
             self._set_pt_exam_feedback(
                 gen_id,
-                f"{phase} 相一次侧压差 {primary_diff:.0f} V（二次侧 {meter_v_sec:.2f} V）"
-                f"超出允许范围（需 < {_THRESHOLD_PRIMARY:.0f} V / 5.00 V），"
+                f"{phase} 相一次侧压差 {primary_diff:.0f} V（机组侧二次侧 {meter_v_sec:.2f} V）"
+                f"超出允许范围（需 < {_THRESHOLD_PRIMARY:.0f} V，对应二次侧 < 5.00 V），"
                 "请先调节发电机频率与电压使两侧接近后再记录。", "red")
             return
 

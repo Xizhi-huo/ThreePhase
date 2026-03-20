@@ -882,6 +882,36 @@ class TestPanelMixin:
         if not state.started:
             self.tp_s3_fb_lbl.setText("请先点击「开始第三步测试」再记录。")
             return
+        # ── 前置条件门禁 ───────────────────────────────────────────────────
+        if not self.ctrl.is_loop_test_complete():
+            state.feedback = "请先完成第一步【回路连通性测试】，再进行相序检查。"
+            state.feedback_color = "red"
+            return
+        if not self.ctrl.is_pt_voltage_check_complete():
+            state.feedback = "请先完成第二步【PT 单体线电压检查】，再进行相序检查。"
+            state.feedback_color = "red"
+            return
+        sim = self.ctrl.sim_state
+        from domain.enums import BreakerPosition
+        if sim.grounding_mode != "小电阻接地":
+            state.feedback = "请先恢复中性点小电阻接地，再进行相序检查。"
+            state.feedback_color = "red"
+            return
+        gen1 = sim.gen1
+        if gen1.breaker_position != BreakerPosition.WORKING or not gen1.breaker_closed:
+            state.feedback = "请先确认 Gen1 已并入母排，建立 PT1/PT2 参考电压。"
+            state.feedback_color = "red"
+            return
+        if pt_name == 'PT3':
+            gen2 = sim.gen2
+            if not gen2.running:
+                state.feedback = "测量 PT3 相序时，请先启动 Gen2（保持断路器断开）。"
+                state.feedback_color = "red"
+                return
+            if gen2.breaker_closed:
+                state.feedback = "测量 PT3 相序时，Gen2 断路器应保持断开状态。"
+                state.feedback_color = "red"
+                return
         phase_match = (seq == 'ABC')
         for ph in ('A', 'B', 'C'):
             key = f"{pt_name}_{ph}"
@@ -1324,8 +1354,8 @@ class TestPanelMixin:
                     continue
                 rec = records.get(ph)
                 if rec is not None:
-                    v = rec.get('voltage', 0)      # 一次侧压差 V（< 525V 合格，对应二次侧 < 5V）
-                    ok = abs(v) < 525.0
+                    v = rec.get('voltage', 0)      # 一次侧压差 V（< 285V 合格，对应机组侧二次侧 < 5V）
+                    ok = abs(v) < 285.0
                     lbl.setText(f"Gen{gid} {ph}相: {v:.0f} V {'✓' if ok else '⚠偏大'}")
                     lbl.setStyleSheet(
                         f"font-size:11px; color:{'#15803d' if ok else '#dc2626'};")

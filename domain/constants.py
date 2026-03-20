@@ -19,8 +19,10 @@ plt.rcParams['axes.labelsize']     = 9
 
 # 高压物理系统常量
 PRIMARY_VOLTAGE_KV = 10.5        # 一次侧额定线电压 (10.5 kV)
-PT_SECONDARY_V_LINE = 100.0      # PT 二次侧额定线电压 (100V，行业统一标准)
-PT_RATIO = (PRIMARY_VOLTAGE_KV * 1000) / PT_SECONDARY_V_LINE  # 变比 105:1
+
+# PT 变比（两侧不同）
+PT_GEN_RATIO  = 11000.0 / 193.0  # 机组侧 PT 变比 (PT1/PT3): 11000V:193V ≈ 56.99
+PT_BUS_RATIO  = 100.0            # 母排侧 PT 变比 (PT2): 100:1 → 10000V:100V
 
 # 计算相电压幅值 (V_peak = (V_line / sqrt(3)) * sqrt(2))
 PRIMARY_AMP = (PRIMARY_VOLTAGE_KV * 1000 / math.sqrt(3)) * math.sqrt(2)
