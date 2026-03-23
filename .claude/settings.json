@@ -10,7 +10,9 @@
       "Bash(grep -n \"mode.*auto\\\\|auto.*mode\\\\|gen.mode\\\\|arbitrator_enabled\\\\|enable_arbitrator\" /Users/promise/Downloads/3/Intership/ThreePhase/domain/*.py)",
       "WebSearch",
       "Bash(ls /Users/promise/Downloads/3/Intership/ThreePhase/services/pt_phase*)",
-      "Bash(grep -n \"\\\\.completed = True\" /Users/promise/Downloads/3/Intership/ThreePhase/services/*.py)"
+      "Bash(grep -n \"\\\\.completed = True\" /Users/promise/Downloads/3/Intership/ThreePhase/services/*.py)",
+      "Bash(grep -n \"def _render_pt_phase_check\" /Users/promise/Downloads/3/Intership/ThreePhase/ui/tabs/*.py)",
+      "Bash(grep -n \"set_freq\" /Users/promise/Downloads/3/Intership/ThreePhase/ui/tabs/*.py)"
     ]
   }
 }

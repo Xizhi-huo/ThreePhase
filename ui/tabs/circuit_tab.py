@@ -13,6 +13,7 @@ from domain.constants import CT_RATIO, TRIP_CURRENT
 from domain.node_map import NODES
 from ui.tabs.waveform_tab import MplCanvas
 from ui.widgets.phase_seq_meter import PhaseSeqMeterWidget
+from ui.widgets.multimeter_widget import MultimeterWidget
 
 # 回路动画用到的布局常量（与 _draw_circuit_content 保持一致）
 _LOOP_CB_BOT  = 0.24
@@ -62,6 +63,10 @@ class CircuitTabMixin:
         # 以 canvas2 为父控件，用绝对定位 move() 放置
         self.phase_seq_meter = PhaseSeqMeterWidget(self.canvas2)
         self.phase_seq_meter.setVisible(False)
+
+        # 仿真万用表：与相序仪同位置，不同步骤互斥显示
+        self.multimeter_widget = MultimeterWidget(self.canvas2)
+        self.multimeter_widget.setVisible(False)
 
         # 结果小标签，紧贴在仪器下方
         self._psm_result_lbl = QtWidgets.QLabel("", self.canvas2)
@@ -570,25 +575,62 @@ class CircuitTabMixin:
             txt.set_text(f"{label}: {v:.1f}V")
             txt.set_color('#15803d' if v > 90.0 else '#9a3412' if v > 10.0 else '#94a3b8')
 
+    def _mm_canvas_center(self):
+        """将电路坐标 (0.50, 0.72) 转换为 canvas2 像素坐标，供万用表定位。"""
+        try:
+            bbox   = self.ax_circuit.get_position()
+            xlim   = self.ax_circuit.get_xlim()
+            ylim   = self.ax_circuit.get_ylim()
+            ax_fx  = (0.50 - xlim[0]) / (xlim[1] - xlim[0])
+            ax_fy  = (0.72 - ylim[0]) / (ylim[1] - ylim[0])
+            fig_fx = bbox.x0 + ax_fx * (bbox.x1 - bbox.x0)
+            fig_fy = bbox.y0 + ax_fy * (bbox.y1 - bbox.y0)
+            cw     = self.canvas2.width()
+            ch     = self.canvas2.height()
+            return int(fig_fx * cw), int((1.0 - fig_fy) * ch)
+        except Exception:
+            return self.canvas2.width() // 2, self.canvas2.height() // 2
+
     def _render_multimeter(self, p):
-        if self.ctrl.sim_state.multimeter_mode:
-            self.txt_meter.set_text(p.meter_reading)
-            self.txt_meter.set_color(getattr(p, 'meter_color', 'black'))
-            self.txt_meter.set_visible(True)
-            if self.ctrl.sim_state.probe1_node:
-                nx, ny = NODES[self.ctrl.sim_state.probe1_node][:2]
+        sim = self.ctrl.sim_state
+        if sim.multimeter_mode:
+            # ── 电路图上的表笔标记点（保留原有 matplotlib 标记）────────
+            if sim.probe1_node:
+                nx, ny = NODES[sim.probe1_node][:2]
                 self.probe1_plot.set_data([nx], [ny])
             else:
                 self.probe1_plot.set_data([], [])
-            if self.ctrl.sim_state.probe2_node:
-                nx, ny = NODES[self.ctrl.sim_state.probe2_node][:2]
+            if sim.probe2_node:
+                nx, ny = NODES[sim.probe2_node][:2]
                 self.probe2_plot.set_data([nx], [ny])
             else:
                 self.probe2_plot.set_data([], [])
+            # 文字读数由 Widget 显示，隐藏 matplotlib 文本标注
+            self.txt_meter.set_visible(False)
+
+            # ── 万用表 Widget 定位与更新 ──────────────────────────────
+            n1   = sim.probe1_node
+            mode = 'resistance' if (n1 and n1.startswith('LOOP_')) else 'voltage_ac'
+            mw, mh = self.multimeter_widget.width(), self.multimeter_widget.height()
+            px, py = self._mm_canvas_center()
+            cw, ch = self.canvas2.width(), self.canvas2.height()
+            mx = max(0, min(px - mw // 2, cw - mw))
+            my = max(0, min(py - mh // 2, ch - mh))
+            self.multimeter_widget.update_state(
+                voltage=getattr(p, 'meter_voltage', None),
+                status=getattr(p, 'meter_status', 'idle'),
+                probe1=sim.probe1_node,
+                probe2=sim.probe2_node,
+                mode=mode,
+            )
+            self.multimeter_widget.move(mx, my)
+            self.multimeter_widget.setVisible(True)
+            self.multimeter_widget.raise_()
         else:
             self.txt_meter.set_visible(False)
             self.probe1_plot.set_data([], [])
             self.probe2_plot.set_data([], [])
+            self.multimeter_widget.setVisible(False)
 
         # ── 回路连通测试电流动画（沿真实电路路径：探针→断路器→母排→断路器→探针）──
         _PHASE_CLR_MPL = {'A': '#b45309', 'B': '#1a9c3c', 'C': '#d62828'}
