@@ -868,7 +868,7 @@ class TestPanelMixin:
                     "QPushButton:checked{background:#7c3aed; color:white;}")
         if state == "admin_active":
             return (f"QPushButton{{{base} color:white; background:#7c3aed;"
-                    " font-weight:bold;}}"
+                    " font-weight:bold;}"
                     "QPushButton:hover{background:#6d28d9;}")
         # idle
         return f"QPushButton{{{base} color:#94a3b8; background:transparent;}}"
