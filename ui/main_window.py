@@ -159,6 +159,7 @@ class PowerSyncUI(
         # _render_circuit_quick_record 已移除（记录功能集中在右侧测试条）
         self._render_loop_test(p)
         self._render_pt_voltage_check(p)
+        self._render_pt_record_tables(p)
         self._render_pt_phase_check(p)
         self._render_sync_test(p)
         self._render_pt_exam(p)

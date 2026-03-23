@@ -205,24 +205,40 @@ class ArbitrationMixin:
             self.first_ready = None
 
         # ── 第二步特殊追踪：Gen2 追 Gen1，Gen1 小幅抖动 ──────────────────────
-        # Gen1 抖动步长必须 < Gen2 追踪步长（step_f≈0.0015Hz/帧，step_a≈1.8V/帧）
-        # 否则 Gen2 永远追不上。用有界随机游走 + 硬边界钳位。
-        _FREQ_LO, _FREQ_HI = 49.85, 50.15   # Hz
-        _AMP_LO,  _AMP_HI  = 10395.0, 10605.0  # V
+        _FREQ_LO, _FREQ_HI = 49.85, 50.15    # Gen1 频率范围 Hz
+        _AMP_LO,  _AMP_HI  = 10395.0, 10605.0  # Gen1 幅值范围 V
+        # Gen2 慢速追踪步长（秒级响应，约 0.015 Hz/s、15 V/s、0.6°/s）
+        _TRK_F  = 0.01     # Hz/帧
+        _TRK_A  = 0.5      # V/帧
+        _TRK_P  = 0.02     # °/帧
         pvc_active = getattr(self.ctrl, 'pt_voltage_check_state', None)
         pvc_active = pvc_active is not None and pvc_active.started
         if pvc_active and not sim.paused:
-            # Gen1 在母排上时加小随机抖动，模拟真实发电机的微小波动
-            # 步长远小于 Gen2 追踪步长，确保 Gen2 能始终跟上
+            # Gen1 有界随机游走，模拟真实发电机微小波动
             if sim.gen1.running:
                 sim.gen1.freq = round(
                     max(_FREQ_LO, min(_FREQ_HI,
-                        sim.gen1.freq + random.uniform(-0.001, 0.001))), 3)
+                        sim.gen1.freq + random.uniform(-0.02, 0.02))), 3)
+                # 幅值：随机游走 + 断路器闭合后向额定值的弱收敛偏置（0.5 V/帧）
+                _amp_jitter = random.uniform(-5.0, 5.0)
+                if sim.gen1.breaker_closed:
+                    _amp_err = GRID_AMP - sim.gen1.amp
+                    _amp_jitter += min(abs(_amp_err), 0.5) * (1 if _amp_err >= 0 else -1)
                 sim.gen1.amp = round(
                     max(_AMP_LO, min(_AMP_HI,
-                        sim.gen1.amp + random.uniform(-1.0, 1.0))), 1)
+                        sim.gen1.amp + _amp_jitter)), 1)
                 # 相位不施加抖动
-            # Gen2 起机且断路器断开时，自动追赶 Gen1 的频率/幅值/相位
+            # Gen2 起机且断路器断开时，以秒级步长慢速追赶 Gen1
             if sim.gen2.running and not sim.gen2.breaker_closed:
-                self.auto_adjust_local(sim.gen2, sim, sim.gen1.freq, sim.gen1.amp)
-                self.auto_adjust_phase(sim.gen2, sim, sim.gen1.phase_deg)
+                for _gen, _target, _step, _attr in (
+                    (sim.gen2, sim.gen1.freq,      _TRK_F, 'freq'),
+                    (sim.gen2, sim.gen1.amp,       _TRK_A, 'amp'),
+                    (sim.gen2, sim.gen1.phase_deg, _TRK_P, 'phase_deg'),
+                ):
+                    _cur = getattr(_gen, _attr)
+                    _err = _target - _cur
+                    if abs(_err) <= _step:
+                        setattr(_gen, _attr, round(_target, 3))
+                    else:
+                        setattr(_gen, _attr,
+                                round(_cur + (1 if _err > 0 else -1) * _step, 3))

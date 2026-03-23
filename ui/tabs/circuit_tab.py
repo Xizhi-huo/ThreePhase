@@ -132,7 +132,7 @@ class CircuitTabMixin:
         PT_LBL_Y  = PT_GEN_CY - PT_SIZE - 0.045
         PT2_LBL_Y = PT2_CY    - PT_SIZE - 0.045
 
-        CT_X_LEFT  = 0.02;  CT_X_RIGHT = 0.78
+        CT_X_LEFT  = -0.03;  CT_X_RIGHT = 0.88
         CT_Y_TOP   = 0.88;  CT_DY = 0.055
 
         # ── 内部绘图辅助函数 ──────────────────────────────────────────────
@@ -377,11 +377,11 @@ class CircuitTabMixin:
 
         # ── 5. 文字信息区 ─────────────────────────────────────────────────
         self.txt_i1  = ax.text(CT_X_LEFT, CT_Y_TOP,         "Gen1  CT: 0.00 A",
-                                color='#cc2200', ha='left', weight='bold', fontsize=8)
+                                color='#cc2200', ha='left', weight='bold', fontsize=8, clip_on=False)
         self.txt_ip1 = ax.text(CT_X_LEFT, CT_Y_TOP-CT_DY,   "  Ip = 0.00 A  (有功)",
-                                color='#0055aa', ha='left', fontsize=7)
+                                color='#0055aa', ha='left', fontsize=7, clip_on=False)
         self.txt_iq1 = ax.text(CT_X_LEFT, CT_Y_TOP-2*CT_DY, "  Iq = 0.00 A  (无功)",
-                                color='#aa00aa', ha='left', fontsize=7)
+                                color='#aa00aa', ha='left', fontsize=7, clip_on=False)
 
         self.txt_grounding = ax.text(
             0.50, 1.01, "N线: 未接地", color='gray', ha='center', fontsize=8,
@@ -389,11 +389,11 @@ class CircuitTabMixin:
             bbox=dict(facecolor='#f5f5f5', edgecolor='gray', boxstyle='round,pad=0.3', alpha=0.9))
 
         self.txt_i2  = ax.text(CT_X_RIGHT, CT_Y_TOP,         "Gen2  CT: 0.00 A",
-                                color='#cc2200', ha='left', weight='bold', fontsize=8)
+                                color='#cc2200', ha='left', weight='bold', fontsize=8, clip_on=False)
         self.txt_ip2 = ax.text(CT_X_RIGHT, CT_Y_TOP-CT_DY,   "  Ip = 0.00 A  (有功)",
-                                color='#0055aa', ha='left', fontsize=7)
+                                color='#0055aa', ha='left', fontsize=7, clip_on=False)
         self.txt_iq2 = ax.text(CT_X_RIGHT, CT_Y_TOP-2*CT_DY, "  Iq = 0.00 A  (无功)",
-                                color='#aa00aa', ha='left', fontsize=7)
+                                color='#aa00aa', ha='left', fontsize=7, clip_on=False)
 
 
         self.txt_circ_flow = ax.text(
@@ -406,6 +406,95 @@ class CircuitTabMixin:
 
         self.probe1_plot, = ax.plot([], [], 'ro', markersize=12, alpha=0.8)
         self.probe2_plot, = ax.plot([], [], 'ko', markersize=12, alpha=0.8)
+
+        # ── PT 线电压记录表（Step 2 激活时显示，位于接地符号上方）──────────
+        # ylim=(-0.10, 1.02)，y_frac = (y_data + 0.10) / 1.12
+        # 接地符号顶端 y≈0.776  →  y_frac≈0.782
+        # 两表上边界 y_frac≈0.920（y_data≈0.930，不与 CT 文字 x 重叠）
+        # 左表(PT1+PT2)：x_frac 0.13–0.43，右表(PT3)：x_frac 0.57–0.77
+        _blank6 = [["PT1 AB","---"],["PT1 BC","---"],["PT1 CA","---"],
+                   ["PT2 AB","---"],["PT2 BC","---"],["PT2 CA","---"]]
+        _blank3 = [["AB","---"],["BC","---"],["CA","---"]]
+        _hdr    = ["测量项", "二次侧(V)"]
+
+        def _mk(blank, bbox, hdr=None):
+            h = hdr if hdr is not None else _hdr
+            nc = len(h)
+            t = ax.table(cellText=[list(r) for r in blank], colLabels=h,
+                         bbox=bbox, cellLoc='center')
+            t.auto_set_font_size(False)
+            t.set_fontsize(6.5)
+            for c in range(nc):
+                cell = t[(0, c)]
+                cell.set_facecolor('#334155')
+                cell.get_text().set_color('white')
+                cell.get_text().set_fontweight('bold')
+            for r in range(1, len(blank)+1):
+                for c in range(nc):
+                    t[(r, c)].set_facecolor('#f1f5f9')
+                    t[(r, c)].set_edgecolor('#cbd5e1')
+            t.set_visible(False)
+            return t
+
+        self.tbl_left  = _mk(_blank6, [0.08, 0.782, 0.22, 0.138])   # PT1+PT2
+        self.tbl_right = _mk(_blank3, [0.67, 0.782, 0.20, 0.138])   # PT3
+
+        _ty = 0.932   # title text y（data coords，表顶稍上方）
+        self.tbl_left_title  = ax.text(0.19, _ty, "PT1 / PT2 电压记录",
+                                        fontsize=7, ha='center', weight='bold',
+                                        color='#9a3412', clip_on=False)
+        self.tbl_right_title = ax.text(0.77, _ty, "PT3 电压记录",
+                                        fontsize=7, ha='center', weight='bold',
+                                        color='#9a3412', clip_on=False)
+        self.tbl_left_title.set_visible(False)
+        self.tbl_right_title.set_visible(False)
+
+        _h2 = ["相位", "状态"]
+        _h3 = ["PT", "相序"]
+        _h4 = ["相位", "压差(V)"]
+        _h5 = ["轮次", "状态"]
+
+        # ── 步骤1：三相回路导通记录（Gen1 上方左侧）──────────────────────
+        _b_s1 = [["A", "---"], ["B", "---"], ["C", "---"]]
+        self.tbl_s1 = _mk(_b_s1, [0.08, 0.782, 0.22, 0.100], _h2)
+        self.tbl_s1_title = ax.text(0.19, 0.894, "三相回路导通记录",
+                                     fontsize=7, ha='center', weight='bold',
+                                     color='#9a3412', clip_on=False)
+        self.tbl_s1_title.set_visible(False)
+
+        # ── 步骤3：PT相序检查记录（左: PT1，右: PT3）──────────────────────
+        _b_s3 = [["---", "---"]]
+        self.tbl_s3_left  = _mk(_b_s3, [0.08, 0.782, 0.22, 0.060], _h3)
+        self.tbl_s3_right = _mk(_b_s3, [0.67, 0.782, 0.20, 0.060], _h3)
+        self.tbl_s3_left_title  = ax.text(0.19, 0.854, "PT1 相序记录",
+                                           fontsize=7, ha='center', weight='bold',
+                                           color='#9a3412', clip_on=False)
+        self.tbl_s3_right_title = ax.text(0.77, 0.854, "PT3 相序记录",
+                                           fontsize=7, ha='center', weight='bold',
+                                           color='#9a3412', clip_on=False)
+        self.tbl_s3_left_title.set_visible(False)
+        self.tbl_s3_right_title.set_visible(False)
+
+        # ── 步骤4：PT考核压差记录（左: Gen1，右: Gen2）────────────────────
+        _b_s4 = [["A", "---"], ["B", "---"], ["C", "---"]]
+        self.tbl_s4_left  = _mk(_b_s4, [0.08, 0.782, 0.22, 0.100], _h4)
+        self.tbl_s4_right = _mk([list(r) for r in _b_s4], [0.67, 0.782, 0.20, 0.100], _h4)
+        self.tbl_s4_left_title  = ax.text(0.19, 0.894, "Gen1 压差记录",
+                                           fontsize=7, ha='center', weight='bold',
+                                           color='#9a3412', clip_on=False)
+        self.tbl_s4_right_title = ax.text(0.77, 0.894, "Gen2 压差记录",
+                                           fontsize=7, ha='center', weight='bold',
+                                           color='#9a3412', clip_on=False)
+        self.tbl_s4_left_title.set_visible(False)
+        self.tbl_s4_right_title.set_visible(False)
+
+        # ── 步骤5：同步测试轮次记录（居中）────────────────────────────────
+        _b_s5 = [["第一轮", "---"], ["第二轮", "---"]]
+        self.tbl_s5 = _mk(_b_s5, [0.35, 0.782, 0.30, 0.080], _h5)
+        self.tbl_s5_title = ax.text(0.50, 0.874, "同步测试记录",
+                                     fontsize=7, ha='center', weight='bold',
+                                     color='#9a3412', clip_on=False)
+        self.tbl_s5_title.set_visible(False)
 
     def rebuild_circuit_diagram(self):
         """PT 黑盒模式切换时重绘拓扑图（由 ctrl 调用）。"""
@@ -720,4 +809,151 @@ class CircuitTabMixin:
         self.loop_anim_gap_r.set_data([], [])
         self.loop_anim_x1.set_data([], [])
         self.loop_anim_x2.set_data([], [])
+
+    # ── 测试步骤记录表渲染（拓扑图内，各步骤共用）──────────────────────
+    def _render_pt_record_tables(self, p):
+        # 确定当前步骤（取最高已激活的步骤）
+        step = 0
+        if getattr(self, '_test_mode_active', False):
+            step = 1
+            try:
+                if getattr(self.ctrl.pt_voltage_check_state, 'started', False):
+                    step = 2
+            except AttributeError:
+                pass
+            try:
+                if getattr(self.ctrl.pt_phase_check_state, 'started', False):
+                    step = 3
+            except AttributeError:
+                pass
+            try:
+                if (getattr(self.ctrl.pt_exam_states[1], 'started', False) or
+                        getattr(self.ctrl.pt_exam_states[2], 'started', False)):
+                    step = 4
+            except (AttributeError, KeyError):
+                pass
+            try:
+                if getattr(self.ctrl.sync_test_state, 'started', False):
+                    step = 5
+            except AttributeError:
+                pass
+
+        # 各步骤表格可见性
+        for obj in (self.tbl_s1, self.tbl_s1_title):
+            obj.set_visible(step == 1)
+        for obj in (self.tbl_left, self.tbl_right,
+                    self.tbl_left_title, self.tbl_right_title):
+            obj.set_visible(step == 2)
+        for obj in (self.tbl_s3_left, self.tbl_s3_right,
+                    self.tbl_s3_left_title, self.tbl_s3_right_title):
+            obj.set_visible(step == 3)
+        for obj in (self.tbl_s4_left, self.tbl_s4_right,
+                    self.tbl_s4_left_title, self.tbl_s4_right_title):
+            obj.set_visible(step == 4)
+        for obj in (self.tbl_s5, self.tbl_s5_title):
+            obj.set_visible(step == 5)
+
+        if step == 0:
+            return
+
+        # ── 步骤1：三相回路导通 ──────────────────────────────────────
+        if step == 1:
+            records = getattr(getattr(self.ctrl, 'loop_test_state', None), 'records', {})
+            for row_idx, ph in enumerate(['A', 'B', 'C'], start=1):
+                rec = records.get(ph)
+                self.tbl_s1[(row_idx, 0)].get_text().set_text(ph)
+                if rec is not None:
+                    ok = rec.get('status') == 'ok'
+                    self.tbl_s1[(row_idx, 1)].get_text().set_text("导通" if ok else "断路")
+                    bg = '#dcfce7' if ok else '#fee2e2'
+                else:
+                    self.tbl_s1[(row_idx, 1)].get_text().set_text("---")
+                    bg = '#f1f5f9'
+                for c in range(2):
+                    self.tbl_s1[(row_idx, c)].set_facecolor(bg)
+
+        # ── 步骤2：PT 线电压 ─────────────────────────────────────────
+        elif step == 2:
+            state = getattr(self.ctrl, 'pt_voltage_check_state', None)
+            records = state.records if state is not None else {}
+            left_keys = [('PT1','AB'),('PT1','BC'),('PT1','CA'),
+                         ('PT2','AB'),('PT2','BC'),('PT2','CA')]
+            for row_idx, (pt, pair) in enumerate(left_keys, start=1):
+                key = f"{pt}_{pair}"
+                rec = records.get(key)
+                self.tbl_left[(row_idx, 0)].get_text().set_text(f"{pt} {pair}")
+                if rec is not None:
+                    v_sec = rec.get('voltage_sec', 0.0)
+                    ok    = 8925.0 <= rec.get('voltage', 0.0) <= 12075.0
+                    self.tbl_left[(row_idx, 1)].get_text().set_text(f"{v_sec:.1f}")
+                    bg = '#dcfce7' if ok else '#fee2e2'
+                else:
+                    self.tbl_left[(row_idx, 1)].get_text().set_text("---")
+                    bg = '#f1f5f9'
+                for c in range(2):
+                    self.tbl_left[(row_idx, c)].set_facecolor(bg)
+            for row_idx, pair in enumerate(['AB', 'BC', 'CA'], start=1):
+                rec = records.get(f"PT3_{pair}")
+                self.tbl_right[(row_idx, 0)].get_text().set_text(pair)
+                if rec is not None:
+                    v_sec = rec.get('voltage_sec', 0.0)
+                    ok    = 8925.0 <= rec.get('voltage', 0.0) <= 12075.0
+                    self.tbl_right[(row_idx, 1)].get_text().set_text(f"{v_sec:.1f}")
+                    bg = '#dcfce7' if ok else '#fee2e2'
+                else:
+                    self.tbl_right[(row_idx, 1)].get_text().set_text("---")
+                    bg = '#f1f5f9'
+                for c in range(2):
+                    self.tbl_right[(row_idx, c)].set_facecolor(bg)
+
+        # ── 步骤3：PT 相序 ───────────────────────────────────────────
+        elif step == 3:
+            state = getattr(self.ctrl, 'pt_phase_check_state', None)
+            records = state.records if state is not None else {}
+            for tbl, pt_name in [(self.tbl_s3_left, 'PT1'), (self.tbl_s3_right, 'PT3')]:
+                all_recs = [records.get(f"{pt_name}_{ph}") for ph in ('A', 'B', 'C')]
+                tbl[(1, 0)].get_text().set_text(pt_name)
+                if all(r is not None for r in all_recs):
+                    ok = all_recs[0].get('phase_match', False)
+                    tbl[(1, 1)].get_text().set_text("正序ABC" if ok else "逆序ACB")
+                    bg = '#dcfce7' if ok else '#fee2e2'
+                else:
+                    tbl[(1, 1)].get_text().set_text("---")
+                    bg = '#f1f5f9'
+                for c in range(2):
+                    tbl[(1, c)].set_facecolor(bg)
+
+        # ── 步骤4：PT 考核压差（PT1/PT3 二次侧 − PT2 二次侧）────────────
+        elif step == 4:
+            records_2 = getattr(
+                getattr(self.ctrl, 'pt_voltage_check_state', None), 'records', {})
+            _ph_to_pair = {'A': 'AB', 'B': 'BC', 'C': 'CA'}
+            for tbl, pt_name in [(self.tbl_s4_left, 'PT1'), (self.tbl_s4_right, 'PT3')]:
+                for row_idx, ph in enumerate(['A', 'B', 'C'], start=1):
+                    pair = _ph_to_pair[ph]
+                    pt_rec  = records_2.get(f"{pt_name}_{pair}")
+                    pt2_rec = records_2.get(f"PT2_{pair}")
+                    tbl[(row_idx, 0)].get_text().set_text(pair)
+                    if pt_rec is not None and pt2_rec is not None:
+                        diff = pt_rec.get('voltage_sec', 0.0) - pt2_rec.get('voltage_sec', 0.0)
+                        tbl[(row_idx, 1)].get_text().set_text(f"{diff:.1f}")
+                        bg = '#e0f2fe'
+                    else:
+                        tbl[(row_idx, 1)].get_text().set_text("---")
+                        bg = '#f1f5f9'
+                    for c in range(2):
+                        tbl[(row_idx, c)].set_facecolor(bg)
+
+        # ── 步骤5：同步测试轮次 ──────────────────────────────────────
+        elif step == 5:
+            state = getattr(self.ctrl, 'sync_test_state', None)
+            r1 = getattr(state, 'round1_done', False) if state else False
+            r2 = getattr(state, 'round2_done', False) if state else False
+            for row_idx, (label, done) in enumerate([("第一轮", r1), ("第二轮", r2)], start=1):
+                self.tbl_s5[(row_idx, 0)].get_text().set_text(label)
+                self.tbl_s5[(row_idx, 1)].get_text().set_text("已记录" if done else "---")
+                bg = '#dcfce7' if done else '#f1f5f9'
+                for c in range(2):
+                    self.tbl_s5[(row_idx, c)].set_facecolor(bg)
+
 

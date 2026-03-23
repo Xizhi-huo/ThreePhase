@@ -371,16 +371,6 @@ class TestPanelMixin:
             self.tp_s1_rec_btns[ph] = btn
         lay.addWidget(rrow)
 
-        rec_grp = self._make_grp("三相回路记录")
-        rec_lay = QtWidgets.QVBoxLayout(rec_grp)
-        self.tp_s1_rec_lbls = {}
-        for ph in ('A', 'B', 'C'):
-            lbl = QtWidgets.QLabel(f"{ph} 相: 未记录")
-            lbl.setStyleSheet("color:#94a3b8; font-size:12px;")
-            rec_lay.addWidget(lbl)
-            self.tp_s1_rec_lbls[ph] = lbl
-        lay.addWidget(rec_grp)
-
         self.tp_s1_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
         self.tp_s1_fb_lbl.setWordWrap(True)
         self.tp_s1_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
@@ -528,20 +518,6 @@ class TestPanelMixin:
         self._make_gen_fap_block(lay, '_tp_s2_fap', 1)
         self._make_gen_fap_block(lay, '_tp_s2_fap', 2)
 
-        # ── 已记录线电压汇总表 ────────────────────────────────────────
-        rec_grp = self._make_grp("线电压记录（目标: 10.5 kV 一次侧）")
-        rec_lay = QtWidgets.QVBoxLayout(rec_grp)
-        rec_lay.setSpacing(2)
-        self.tp_s2_rec_lbls = {}
-        for key in ('PT1_AB', 'PT1_BC', 'PT1_CA',
-                    'PT2_AB', 'PT2_BC', 'PT2_CA',
-                    'PT3_AB', 'PT3_BC', 'PT3_CA'):
-            lbl = QtWidgets.QLabel(f"{key}: 未记录")
-            lbl.setStyleSheet("font-size:11px; color:#94a3b8;")
-            rec_lay.addWidget(lbl)
-            self.tp_s2_rec_lbls[key] = lbl
-        lay.addWidget(rec_grp)
-
         self.tp_s2_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
         self.tp_s2_fb_lbl.setWordWrap(True)
         self.tp_s2_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
@@ -602,14 +578,6 @@ class TestPanelMixin:
             self._tp_s3_rec_btns[pt_name] = btn
         lay.addWidget(rec_row)
 
-        # 每个 PT 的记录结果状态标签
-        self._tp_s3_result_lbls: dict = {}
-        for pt_name in ('PT1', 'PT3'):
-            lbl = QtWidgets.QLabel(f"{pt_name}: 未记录")
-            lbl.setStyleSheet("color:#94a3b8; font-size:11px; padding:1px 0;")
-            lay.addWidget(lbl)
-            self._tp_s3_result_lbls[pt_name] = lbl
-
         self.tp_s3_fb_lbl = QtWidgets.QLabel("请先接入相序仪查看结果，再点击记录")
         self.tp_s3_fb_lbl.setWordWrap(True)
         self.tp_s3_fb_lbl.setStyleSheet("color:#64748b; font-size:12px;")
@@ -663,19 +631,6 @@ class TestPanelMixin:
                     p, max(1, self._tp_s4_bg.checkedId())))
             rh.addWidget(btn)
         lay.addWidget(rrow)
-
-        # ── 压差记录汇总 ──────────────────────────────────────────────
-        diff_grp = self._make_grp("已记录压差值（期望：接近 0V）")
-        diff_lay = QtWidgets.QVBoxLayout(diff_grp)
-        diff_lay.setSpacing(2)
-        self.tp_s4_diff_lbls = {}   # key: (gen_id, phase)
-        for gid in (1, 2):
-            for ph in ('A', 'B', 'C'):
-                lbl = QtWidgets.QLabel(f"Gen{gid} {ph}相: 未记录")
-                lbl.setStyleSheet("font-size:11px; color:#94a3b8;")
-                diff_lay.addWidget(lbl)
-                self.tp_s4_diff_lbls[(gid, ph)] = lbl
-        lay.addWidget(diff_grp)
 
         self.tp_s4_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
         self.tp_s4_fb_lbl.setWordWrap(True)
@@ -777,14 +732,6 @@ class TestPanelMixin:
         btn_r2.clicked.connect(lambda: self.ctrl.record_sync_round(2))
         lay.addWidget(btn_r2)
 
-        self.tp_s5_r1_lbl = QtWidgets.QLabel("第一轮: 未记录")
-        self.tp_s5_r1_lbl.setStyleSheet("color:#94a3b8; font-size:12px;")
-        lay.addWidget(self.tp_s5_r1_lbl)
-
-        self.tp_s5_r2_lbl = QtWidgets.QLabel("第二轮: 未记录")
-        self.tp_s5_r2_lbl.setStyleSheet("color:#94a3b8; font-size:12px;")
-        lay.addWidget(self.tp_s5_r2_lbl)
-
         self.tp_s5_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
         self.tp_s5_fb_lbl.setWordWrap(True)
         self.tp_s5_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
@@ -862,6 +809,7 @@ class TestPanelMixin:
             self.ctrl.finalize_loop_test()
         elif step == 2:
             self.ctrl.finalize_pt_voltage_check()
+            self.multimeter_cb.setChecked(False)  # 步骤二结束后自动关闭万用表
         elif step == 3:
             self.ctrl.finalize_pt_phase_check()
             # 完成后自动关闭相序仪浮层，无需手动断开
@@ -1310,20 +1258,6 @@ class TestPanelMixin:
         for btn in self.tp_s1_rec_btns.values():
             btn.setEnabled(active)
 
-        records = self.ctrl.loop_test_state.records
-        for ph, lbl in self.tp_s1_rec_lbls.items():
-            rec = records.get(ph)
-            if rec is not None:
-                if rec.get('status') == 'ok':
-                    lbl.setText(f"{ph} 相: 导通 [≈0Ω] ✓")
-                    lbl.setStyleSheet("color:#15803d; font-size:12px;")
-                else:
-                    lbl.setText(f"{ph} 相: 断路 [∞Ω] ⚠")
-                    lbl.setStyleSheet("color:#b45309; font-size:12px;")
-            else:
-                lbl.setText(f"{ph} 相: 未记录")
-                lbl.setStyleSheet("color:#94a3b8; font-size:12px;")
-
         state = self.ctrl.loop_test_state
         self.tp_s1_fb_lbl.setText(state.feedback)
         self.tp_s1_fb_lbl.setStyleSheet(
@@ -1350,20 +1284,6 @@ class TestPanelMixin:
             self.tp_s2_probe_lbl.setText(f"当前表笔: {n1} ↔ {n2}")
         else:
             self.tp_s2_probe_lbl.setText("当前表笔: 未放置")
-
-        # 线电压记录汇总
-        records = self.ctrl.pt_voltage_check_state.records
-        for key, lbl in self.tp_s2_rec_lbls.items():
-            rec = records.get(key)
-            if rec is not None:
-                v = rec.get('voltage', 0)          # 一次侧 V（额定 10500V）
-                ok = 8925.0 <= v <= 12075.0        # ±15% of 10500V
-                lbl.setText(f"{key}: {v/1000:.2f} kV {'✓' if ok else '⚠'}")
-                lbl.setStyleSheet(
-                    f"font-size:11px; color:{'#15803d' if ok else '#dc2626'};")
-            else:
-                lbl.setText(f"{key}: 未记录")
-                lbl.setStyleSheet("font-size:11px; color:#94a3b8;")
 
         # 同步 PT 变比三值行（发电机运行时锁定输入）
         any_running = sim.gen1.running or sim.gen2.running
@@ -1406,25 +1326,6 @@ class TestPanelMixin:
         self.tp_s3_fb_lbl.setStyleSheet(
             f"color:{state.feedback_color}; font-size:12px;")
 
-        # 更新每个 PT 的记录结果标签
-        records = state.records
-        for pt_name in ('PT1', 'PT3'):
-            lbl = self._tp_s3_result_lbls.get(pt_name)
-            if lbl is None:
-                continue
-            all_recs = [records.get(f"{pt_name}_{ph}") for ph in ('A', 'B', 'C')]
-            if all(r is not None for r in all_recs):
-                pm = all_recs[0].get('phase_match', False)
-                if pm:
-                    lbl.setText(f"{pt_name}: 正序（ABC）✓")
-                    lbl.setStyleSheet("color:#15803d; font-size:11px; font-weight:bold;")
-                else:
-                    lbl.setText(f"{pt_name}: 逆序（ACB）✗  — 请检查接线")
-                    lbl.setStyleSheet("color:#dc2626; font-size:11px; font-weight:bold;")
-            else:
-                lbl.setText(f"{pt_name}: 未记录")
-                lbl.setStyleSheet("color:#94a3b8; font-size:11px;")
-
     def _refresh_tp_step4(self):
         sim = self.ctrl.sim_state
         gen_id = max(1, self._tp_s4_bg.checkedId())
@@ -1437,24 +1338,6 @@ class TestPanelMixin:
             lbl.setStyleSheet(
                 f"font-size:11px; color:"
                 f"{'#15803d' if done else ('#1e293b' if in_mode else '#94a3b8')};")
-
-        # 显示已记录压差值
-        for gid in (1, 2):
-            records = self.ctrl.pt_exam_states[gid].records
-            for ph in ('A', 'B', 'C'):
-                lbl = self.tp_s4_diff_lbls.get((gid, ph))
-                if lbl is None:
-                    continue
-                rec = records.get(ph)
-                if rec is not None:
-                    v = rec.get('voltage', 0)      # 一次侧压差 V（< 285V 合格，对应机组侧二次侧 < 5V）
-                    ok = abs(v) < 285.0
-                    lbl.setText(f"Gen{gid} {ph}相: {v:.0f} V {'✓' if ok else '⚠偏大'}")
-                    lbl.setStyleSheet(
-                        f"font-size:11px; color:{'#15803d' if ok else '#dc2626'};")
-                else:
-                    lbl.setText(f"Gen{gid} {ph}相: 未记录")
-                    lbl.setStyleSheet("font-size:11px; color:#94a3b8;")
 
         # 同步 Gen2 fap 滑块/输入框
         for gid, entry_map in getattr(self, '_tp_s4_fap', {}).items():
@@ -1525,16 +1408,6 @@ class TestPanelMixin:
             bar, val_lbl, max_val = self.tp_s5_bars[key]
             bar.setValue(min(1000, int(1000 * diff / max_val)))
             val_lbl.setText(f"{diff:.1f}")
-
-        state = self.ctrl.sync_test_state
-        self.tp_s5_r1_lbl.setText(
-            "第一轮: 已记录 ✓" if state.round1_done else "第一轮: 未记录")
-        self.tp_s5_r1_lbl.setStyleSheet(
-            f"color:{'#15803d' if state.round1_done else '#94a3b8'}; font-size:12px;")
-        self.tp_s5_r2_lbl.setText(
-            "第二轮: 已记录 ✓" if state.round2_done else "第二轮: 未记录")
-        self.tp_s5_r2_lbl.setStyleSheet(
-            f"color:{'#15803d' if state.round2_done else '#94a3b8'}; font-size:12px;")
 
         self.tp_s5_fb_lbl.setText(state.feedback)
         self.tp_s5_fb_lbl.setStyleSheet(
