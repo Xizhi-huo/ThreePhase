@@ -3,11 +3,16 @@ services/_physics_protection.py
 继电保护、垂降控制、环流监控与断路器逻辑 Mixin ── PhysicsEngine 的保护职责。
 """
 
+import math
+
 import numpy as np
 
 from domain.constants import (TRIP_CURRENT, CT_RATIO, GRID_FREQ, GRID_AMP,
                                XS, KP_DROOP, KQ_DROOP)
 from domain.enums import BreakerPosition
+
+# 线电压 RMS → 峰值相电压转换系数（与 _physics_core 中保持一致）
+_PEAK = math.sqrt(2.0 / 3.0)
 
 
 def _heat_color(rms: float) -> str:
@@ -36,16 +41,18 @@ class ProtectionMixin:
         delta2 = wave_state['ang_g2'] - wave_state['ang_bus']
 
         if g1_connected:
+            # g1a_sample/ga_sample 已是峰值相电压，直接相减得环流峰值
             self.i1_rms = abs((wave_state['g1a_sample'] - wave_state['ga_sample']) / XS)
-            self.ip1 = (a1 * np.sin(delta1)) / XS
-            self.iq1 = (a1 * np.cos(delta1) - wave_state['bus_a']) / XS
+            # a1/a2 为线电压 RMS，乘以 _PEAK 转为峰值相电压后计算功率电流
+            self.ip1 = _PEAK * (a1 * np.sin(delta1)) / XS
+            self.iq1 = _PEAK * (a1 * np.cos(delta1) - wave_state['bus_a']) / XS
         else:
             self.i1_rms = self.ip1 = self.iq1 = 0.0
 
         if g2_connected:
             self.i2_rms = abs((wave_state['g2a_sample'] - wave_state['ga_sample']) / XS)
-            self.ip2 = (a2 * np.sin(delta2)) / XS
-            self.iq2 = (a2 * np.cos(delta2) - wave_state['bus_a']) / XS
+            self.ip2 = _PEAK * (a2 * np.sin(delta2)) / XS
+            self.iq2 = _PEAK * (a2 * np.cos(delta2) - wave_state['bus_a']) / XS
         else:
             self.i2_rms = self.ip2 = self.iq2 = 0.0
 
@@ -104,8 +111,9 @@ class ProtectionMixin:
 
             ang1 = w1 * t + p1
             ang2 = w2 * t + p2
-            e1_r, e1_i = a1 * np.cos(ang1), a1 * np.sin(ang1)
-            e2_r, e2_i = a2 * np.cos(ang2), a2 * np.sin(ang2)
+            # a1/a2 为线电压 RMS → 转为峰值相电压后计算环流相量
+            e1_r, e1_i = a1 * _PEAK * np.cos(ang1), a1 * _PEAK * np.sin(ang1)
+            e2_r, e2_i = a2 * _PEAK * np.cos(ang2), a2 * _PEAK * np.sin(ang2)
 
             i12_r = (e1_r - e2_r) / (2 * XS)
             i12_i = (e1_i - e2_i) / (2 * XS)
@@ -140,7 +148,7 @@ class ProtectionMixin:
 
         sync_ok = True if is_isolated and not self.bus_live else (
             abs(generator.freq - ref_freq) <= 0.5 and
-            abs(ref_amp - a_value) <= 400.0 and
+            abs(ref_amp - a_value) <= 490.0 and
             abs(diff_deg) <= 15.0
         )
 
@@ -152,13 +160,13 @@ class ProtectionMixin:
             if is_isolated and not self.bus_live:
                 if (not sync_test_active and
                         abs(generator.freq - GRID_FREQ) < 0.1 and
-                        abs(GRID_AMP - a_value) <= 150.0 and
+                        abs(GRID_AMP - a_value) <= 185.0 and
                         not generator.breaker_closed):
                     generator.breaker_closed = True
             else:
                 if (self.ctrl.is_sync_test_complete()
                         and abs(generator.freq - ref_freq) < 0.1
-                        and abs(ref_amp - a_value) <= 150.0
+                        and abs(ref_amp - a_value) <= 185.0
                         and abs(diff_deg) <= 1.5
                         and not generator.breaker_closed):
                     generator.breaker_closed = True
@@ -194,7 +202,7 @@ class ProtectionMixin:
             setattr(self, flash_attr, 0)
             return
 
-        if self.bus_live and abs(generator.freq - ref_freq) < 0.2 and abs(ref_amp - a_value) <= 150.0 and abs(diff_deg) <= 5.0:
+        if self.bus_live and abs(generator.freq - ref_freq) < 0.2 and abs(ref_amp - a_value) <= 185.0 and abs(diff_deg) <= 5.0:
             setattr(self, flash_attr, 15)
         if getattr(self, flash_attr) > 0:
             setattr(self, flash_attr, getattr(self, flash_attr) - 1)

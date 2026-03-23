@@ -3,6 +3,8 @@ services/_physics_arbitration.py
 母排仲裁与自动同步 Mixin ── PhysicsEngine 的仲裁职责。
 """
 
+import random
+
 import numpy as np
 
 from domain.constants import GRID_FREQ, GRID_AMP
@@ -24,7 +26,7 @@ class ArbitrationMixin:
             generator.freq = target_freq
 
         err_a = target_amp - generator.amp
-        step_a = 5.0 * sim.sync_gain * speed_factor
+        step_a = 6.0 * sim.sync_gain * speed_factor
         if abs(err_a) > step_a:
             generator.amp = round(generator.amp + np.sign(err_a) * step_a, 1)
         else:
@@ -185,8 +187,8 @@ class ArbitrationMixin:
         if mode2 == "auto" and sim.gen2.running:
             self.auto_adjust_local(sim.gen2, sim, ref_freq, ref_amp)
 
-        g1_ready = (abs(sim.gen1.freq - GRID_FREQ) < 0.2) and (abs(sim.gen1.actual_amp - GRID_AMP) < 150.0)
-        g2_ready = (abs(sim.gen2.freq - GRID_FREQ) < 0.2) and (abs(sim.gen2.actual_amp - GRID_AMP) < 150.0)
+        g1_ready = (abs(sim.gen1.freq - GRID_FREQ) < 0.2) and (abs(sim.gen1.actual_amp - GRID_AMP) < 185.0)
+        g2_ready = (abs(sim.gen2.freq - GRID_FREQ) < 0.2) and (abs(sim.gen2.actual_amp - GRID_AMP) < 185.0)
 
         if sim.remote_start_signal:
             if not (g1_on_bus or g2_on_bus):
@@ -201,3 +203,26 @@ class ArbitrationMixin:
             self.arb_msg, self.arb_color = "🛠️ 仲裁器: 待命 (请闭合远程启动信号)", "#00ff00"
             self.dead_bus_timer = 0.0
             self.first_ready = None
+
+        # ── 第二步特殊追踪：Gen2 追 Gen1，Gen1 小幅抖动 ──────────────────────
+        # Gen1 抖动步长必须 < Gen2 追踪步长（step_f≈0.0015Hz/帧，step_a≈1.8V/帧）
+        # 否则 Gen2 永远追不上。用有界随机游走 + 硬边界钳位。
+        _FREQ_LO, _FREQ_HI = 49.85, 50.15   # Hz
+        _AMP_LO,  _AMP_HI  = 10395.0, 10605.0  # V
+        pvc_active = getattr(self.ctrl, 'pt_voltage_check_state', None)
+        pvc_active = pvc_active is not None and pvc_active.started
+        if pvc_active and not sim.paused:
+            # Gen1 在母排上时加小随机抖动，模拟真实发电机的微小波动
+            # 步长远小于 Gen2 追踪步长，确保 Gen2 能始终跟上
+            if sim.gen1.running:
+                sim.gen1.freq = round(
+                    max(_FREQ_LO, min(_FREQ_HI,
+                        sim.gen1.freq + random.uniform(-0.001, 0.001))), 3)
+                sim.gen1.amp = round(
+                    max(_AMP_LO, min(_AMP_HI,
+                        sim.gen1.amp + random.uniform(-1.0, 1.0))), 1)
+                # 相位不施加抖动
+            # Gen2 起机且断路器断开时，自动追赶 Gen1 的频率/幅值/相位
+            if sim.gen2.running and not sim.gen2.breaker_closed:
+                self.auto_adjust_local(sim.gen2, sim, sim.gen1.freq, sim.gen1.amp)
+                self.auto_adjust_phase(sim.gen2, sim, sim.gen1.phase_deg)

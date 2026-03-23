@@ -3,9 +3,14 @@ services/_physics_core.py
 波形生成与历史缓冲 Mixin ── PhysicsEngine 的波形核心职责。
 """
 
+import math
+
 import numpy as np
 
 from domain.constants import MAX_POINTS, GRID_FREQ, GRID_AMP, XS
+
+# 线电压 RMS → 峰值相电压转换系数
+_PEAK = math.sqrt(2.0 / 3.0)
 
 
 class WaveformMixin:
@@ -16,10 +21,12 @@ class WaveformMixin:
 
     @staticmethod
     def _three_phase_samples(base_angle, amp, shift_b, shift_c, prefix):
+        # amp 为线电压 RMS；转换为峰值相电压后再做 sin 波形
+        peak = amp * _PEAK
         return {
-            f'{prefix}a': amp * np.sin(base_angle),
-            f'{prefix}b': amp * np.sin(base_angle + shift_b),
-            f'{prefix}c': amp * np.sin(base_angle + shift_c),
+            f'{prefix}a': peak * np.sin(base_angle),
+            f'{prefix}b': peak * np.sin(base_angle + shift_b),
+            f'{prefix}c': peak * np.sin(base_angle + shift_c),
         }
 
     def _build_wave_history(self, w_bus, w_g1, w_g2, p_bus, p_g1, p_g2, bus_a, a1, a2, shift_b, shift_c):
@@ -63,7 +70,7 @@ class WaveformMixin:
             if generator.mode == "auto" and not generator.breaker_closed:
                 generator.actual_amp = target_amp
             else:
-                climb_speed = 150.0 * sim.gov_gain * speed_factor
+                climb_speed = 185.0 * sim.gov_gain * speed_factor
                 if generator.actual_amp < target_amp:
                     generator.actual_amp = min(target_amp, generator.actual_amp + climb_speed)
                 elif generator.actual_amp > target_amp:
@@ -105,9 +112,10 @@ class WaveformMixin:
             'p_g1': p_g1, 'p_g2': p_g2,
             'bus_w': bus_w, 'bus_p': bus_p, 'bus_a': bus_a,
             'ang_bus': ang_bus, 'ang_g1': ang_g1, 'ang_g2': ang_g2,
-            'ga_sample': bus_a * np.sin(bus_w * self.animation_time + bus_p),
-            'g1a_sample': a1 * np.sin(w_g1 * self.animation_time + p_g1),
-            'g2a_sample': a2 * np.sin(w_g2 * self.animation_time + p_g2),
+            # ga/g1a/g2a_sample 为峰值相电压，供电流保护计算使用
+            'ga_sample':  bus_a * _PEAK * np.sin(bus_w * self.animation_time + bus_p),
+            'g1a_sample': a1    * _PEAK * np.sin(w_g1  * self.animation_time + p_g1),
+            'g2a_sample': a2    * _PEAK * np.sin(w_g2  * self.animation_time + p_g2),
         }
 
     def _update_wave_history(self, prev_animation_time, wave_state, a1, a2, shift_b, shift_c, g1_connected, g2_connected):

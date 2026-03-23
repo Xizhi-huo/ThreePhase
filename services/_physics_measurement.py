@@ -5,7 +5,7 @@ services/_physics_measurement.py
 
 import numpy as np
 
-from domain.constants import NEUTRAL_RESISTOR_OHMS, PT_GEN_RATIO, PT_BUS_RATIO
+from domain.constants import NEUTRAL_RESISTOR_OHMS
 from domain.enums import BreakerPosition
 from domain.node_map import NODES
 
@@ -61,11 +61,11 @@ class MeasurementMixin:
             self.ground_color = "green"
 
     def _update_pt_measurements(self, bus_a, a1, a2):
-        self.pt1_v = (a1  / np.sqrt(2) * np.sqrt(3)) / PT_GEN_RATIO
-        self.pt2_v = (bus_a / np.sqrt(2) * np.sqrt(3)) / PT_BUS_RATIO
-        # PT3 始终读 Gen2 自身的发电电压（Gen2 起机不合闸时提供相序参考）
-        pt3_amp = a2
-        self.pt3_v = (pt3_amp / np.sqrt(2) * np.sqrt(3)) / PT_GEN_RATIO
+        # a1/a2/bus_a 均为线电压 RMS，直接除以变比得 PT 二次侧线电压
+        sim = self.ctrl.sim_state
+        self.pt1_v = a1    / sim.pt_gen_ratio
+        self.pt2_v = bus_a / sim.pt_bus_ratio
+        self.pt3_v = a2    / sim.pt_gen_ratio
 
     def _update_multimeter(self, sim):
         _UI_NODES = NODES
@@ -157,7 +157,8 @@ class MeasurementMixin:
                     raw_rms = self._whole_cycle_rms_raw(wave_diff, _freq)
                     primary_rms = self._ema_update('intra_diff', raw_rms)
                     # 按所属 PT 使用对应变比：机组侧≈57.02，母排侧=100
-                    _pt_ratio = PT_GEN_RATIO if _pt_name in ('PT1', 'PT3') else PT_BUS_RATIO
+                    _sim_r = self.ctrl.sim_state
+                    _pt_ratio = _sim_r.pt_gen_ratio if _pt_name in ('PT1', 'PT3') else _sim_r.pt_bus_ratio
                     meter_v = primary_rms / _pt_ratio
                     self.meter_voltage = meter_v
                     self.meter_nodes = (n1, n2)
@@ -206,10 +207,11 @@ class MeasurementMixin:
                                self._whole_cycle_rms_raw(self.plot_data[key2], _f2))
                     primary_rms_diff = abs(rms1 - rms2)
                     # 各侧用自己变比折算二次侧电压（用于显示）
-                    gen_sec  = rms1 / PT_GEN_RATIO   # 机组侧 PT 二次侧相电压
-                    bus_sec  = rms2 / PT_BUS_RATIO   # 母排侧 PT 二次侧相电压
+                    _sim_r2 = self.ctrl.sim_state
+                    gen_sec  = rms1 / _sim_r2.pt_gen_ratio   # 机组侧 PT 二次侧相电压
+                    bus_sec  = rms2 / _sim_r2.pt_bus_ratio   # 母排侧 PT 二次侧相电压
                     # meter_voltage 以机组侧变比折算，供 pt_exam_service 逆算一次侧
-                    meter_v = primary_rms_diff / PT_GEN_RATIO
+                    meter_v = primary_rms_diff / _sim_r2.pt_gen_ratio
                     self.meter_voltage = meter_v
                     self.meter_nodes = (n1, n2)
                     if phases_match:

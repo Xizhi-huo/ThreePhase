@@ -68,8 +68,8 @@ class WaveformTabMixin:
         self.ax_c.set_xlabel("Recent Window (°)", fontsize=9)
 
         self.ax_p.set_title("Phasor Diagram", pad=28, fontsize=11, weight='bold')
-        self.ax_p.set_rmax(10000)
-        self.ax_p.set_rticks([3000, 6000, 9000])
+        self.ax_p.set_rmax(13000)
+        self.ax_p.set_rticks([3500, 7000, 10500])
         self.ax_p.set_rlabel_position(22)
         self.ax_p.set_thetagrids(
             np.arange(0, 360, 45),

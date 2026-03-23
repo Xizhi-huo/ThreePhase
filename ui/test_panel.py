@@ -395,7 +395,79 @@ class TestPanelMixin:
         lay = QtWidgets.QVBoxLayout(grp)
         lay.setSpacing(4)
 
-        self.tp_s2_step_lbls = self._make_step_list(lay, 8)
+        self.tp_s2_step_lbls = self._make_step_list(lay, 9)
+
+        # ── PT 变比设置（停机状态下确认，运行中不可修改）──────────────
+        pt_ratio_grp = self._make_grp("PT 变比参数（停机状态下确认）")
+        pt_ratio_lay = QtWidgets.QVBoxLayout(pt_ratio_grp)
+        pt_ratio_lay.setSpacing(4)
+        pt_ratio_lay.setContentsMargins(4, 6, 4, 4)
+
+        # _tp_s2_ratio_rows: { ratio_attr: (pri_spin, sec_spin, ratio_lbl) }
+        self._tp_s2_ratio_rows: dict = {}
+
+        for row_label, ratio_attr, pri_default, sec_default in [
+            ("PT1/PT3 (机组侧)", "pt_gen_ratio", 11000, 193),
+            ("PT2 (母排侧)",     "pt_bus_ratio",  10000, 100),
+        ]:
+            # 行标题
+            hdr = QtWidgets.QLabel(row_label)
+            hdr.setStyleSheet("font-size:11px; color:#1d4ed8; font-weight:bold;")
+            pt_ratio_lay.addWidget(hdr)
+
+            # 三值行：一次侧 V  :  二次侧 V  =  变比
+            rw = QtWidgets.QWidget()
+            rw.setStyleSheet("background:#ffffff;")
+            rh = QtWidgets.QHBoxLayout(rw)
+            rh.setContentsMargins(0, 0, 0, 0)
+            rh.setSpacing(4)
+
+            pri_spin = QtWidgets.QSpinBox()
+            pri_spin.setRange(100, 100000)
+            pri_spin.setValue(pri_default)
+            pri_spin.setSuffix(" V")
+            pri_spin.setFixedWidth(90)
+            pri_spin.setStyleSheet("font-size:11px;")
+
+            colon_lbl = QtWidgets.QLabel(":")
+            colon_lbl.setStyleSheet("font-size:12px; color:#64748b; background:#ffffff;")
+
+            sec_spin = QtWidgets.QSpinBox()
+            sec_spin.setRange(1, 10000)
+            sec_spin.setValue(sec_default)
+            sec_spin.setSuffix(" V")
+            sec_spin.setFixedWidth(78)
+            sec_spin.setStyleSheet("font-size:11px;")
+
+            eq_lbl = QtWidgets.QLabel("=")
+            eq_lbl.setStyleSheet("font-size:12px; color:#64748b; background:#ffffff;")
+
+            ratio_lbl = QtWidgets.QLabel(f"{pri_default / sec_default:.2f}")
+            ratio_lbl.setFixedWidth(52)
+            ratio_lbl.setStyleSheet(
+                "font-size:11px; color:#0f172a; font-weight:bold; background:#f1f5f9;"
+                " border:1px solid #e2e8f0; border-radius:3px; padding:1px 4px;")
+            ratio_lbl.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+
+            def _update_ratio(_val=None, _p=pri_spin, _s=sec_spin, _l=ratio_lbl, _a=ratio_attr):
+                pri = _p.value()
+                sec = max(1, _s.value())
+                ratio = pri / sec
+                _l.setText(f"{ratio:.2f}")
+                setattr(self.ctrl.sim_state, _a, ratio)
+
+            pri_spin.valueChanged.connect(_update_ratio)
+            sec_spin.valueChanged.connect(_update_ratio)
+
+            rh.addWidget(pri_spin)
+            rh.addWidget(colon_lbl)
+            rh.addWidget(sec_spin)
+            rh.addWidget(eq_lbl)
+            rh.addWidget(ratio_lbl)
+            pt_ratio_lay.addWidget(rw)
+            self._tp_s2_ratio_rows[ratio_attr] = (pri_spin, sec_spin, ratio_lbl)
+
+        lay.addWidget(pt_ratio_grp)
 
         # 中性点接地（第二步需恢复小电阻接地）
         gnd2_lbl = QtWidgets.QLabel("中性点接地（应恢复为小电阻接地）:")
@@ -1292,6 +1364,16 @@ class TestPanelMixin:
             else:
                 lbl.setText(f"{key}: 未记录")
                 lbl.setStyleSheet("font-size:11px; color:#94a3b8;")
+
+        # 同步 PT 变比三值行（发电机运行时锁定输入）
+        any_running = sim.gen1.running or sim.gen2.running
+        for attr, (pri_spin, sec_spin, ratio_lbl) in \
+                getattr(self, '_tp_s2_ratio_rows', {}).items():
+            pri_spin.setEnabled(not any_running)
+            sec_spin.setEnabled(not any_running)
+            # 更新比例显示（spinbox 值本身由用户控制，不回写）
+            p, s = pri_spin.value(), max(1, sec_spin.value())
+            ratio_lbl.setText(f"{p / s:.2f}")
 
         # 同步 Gen fap 滑块/输入框
         for gid, entry_map in getattr(self, '_tp_s2_fap', {}).items():

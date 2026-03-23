@@ -24,10 +24,12 @@ PRIMARY_VOLTAGE_KV = 10.5        # 一次侧额定线电压 (10.5 kV)
 PT_GEN_RATIO  = 11000.0 / 193.0  # 机组侧 PT 变比 (PT1/PT3): 11000V:193V ≈ 56.99
 PT_BUS_RATIO  = 100.0            # 母排侧 PT 变比 (PT2): 100:1 → 10000V:100V
 
-# 计算相电压幅值 (V_peak = (V_line / sqrt(3)) * sqrt(2))
-PRIMARY_AMP = (PRIMARY_VOLTAGE_KV * 1000 / math.sqrt(3)) * math.sqrt(2)
+# 用户可见量：额定线电压 RMS (V)
+GRID_AMP = PRIMARY_VOLTAGE_KV * 1000   # 10500V — gen.amp 及所有 UI 控件使用此单位
 
-GRID_AMP = PRIMARY_AMP           # 主电网额定幅值升级为高压 (约 8573.2V)
+# 物理波形内部转换系数：线电压 RMS → 峰值相电压
+# V_peak_phase = V_line_rms * sqrt(2/3)
+PRIMARY_AMP = GRID_AMP * math.sqrt(2.0 / 3.0)   # ≈ 8573.2V，仅供波形生成内部使用
 GRID_FREQ = 50.0
 XS = 1.0                         # 线路等效阻抗
 TRIP_CURRENT = 300.0             # 高压系统继电保护跳闸阈值放大为 300A

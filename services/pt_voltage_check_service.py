@@ -66,12 +66,14 @@ class PtVoltageCheckService:
         steps = [
             ("1. 前提：第一步回路连通性测试已完成", loop_done),
             ("2. 恢复中性点小电阻接地", gnd_ok),
-            ("3. 确认 Gen1 在工作位并入母排（提供 PT1/PT2 参考电压）", gen1_on_bus),
-            ("4. 启动 Gen2，保持断路器断开（提供 PT3 参考电压）", gen2_running_open),
-            ("5. 开启万用表，在母排拓扑页测量同一 PT 的两相端子", sim.multimeter_mode),
-            ("6. 记录 PT1 三相线电压（AB/BC/CA）", pt1_done),
-            ("7. 记录 PT2 三相线电压（AB/BC/CA）", pt2_done),
-            ("8. 记录 PT3 三相线电压（AB/BC/CA）", pt3_done),
+            ("3. 参数核对：在停机状态下，确认控制器内已正确设置各 PT 变比（绝不可在运行中修改）",
+             sim.pt_gen_ratio > 1.0 and sim.pt_bus_ratio > 1.0),
+            ("4. 启动 Gen1，确认其建压并直接合闸并入无压母排（提供 PT1/PT2 参考电压）", gen1_on_bus),
+            ("5. 启动 Gen2，控制器自动进入同期追赶模式，保持断路器断开（提供 PT3 参考电压）", gen2_running_open),
+            ("6. 开启万用表，在母排拓扑页测量同一 PT 的两相端子", sim.multimeter_mode),
+            ("7. 记录 PT1 三相线电压（AB/BC/CA）", pt1_done),
+            ("8. 记录 PT2 三相线电压（AB/BC/CA）", pt2_done),
+            ("9. 记录 PT3 三相线电压（AB/BC/CA）", pt3_done),
         ]
         if state.completed:
             return [(text, True) for text, _ in steps]
@@ -137,9 +139,8 @@ class PtVoltageCheckService:
             return
 
         # 换算回一次侧线电压（教学中关心的实际电压量）
-        from domain.constants import PT_GEN_RATIO as _PT_GEN_RATIO, PT_BUS_RATIO as _PT_BUS_RATIO
         _pt_name = (sim.probe1_node or '').split('_')[0]
-        _pt_ratio = _PT_GEN_RATIO if _pt_name in ('PT1', 'PT3') else _PT_BUS_RATIO
+        _pt_ratio = sim.pt_gen_ratio if _pt_name in ('PT1', 'PT3') else sim.pt_bus_ratio
         primary_v = meter_v_sec * _pt_ratio          # ≈ 10500 V（无论哪侧PT均还原一次侧）
 
         state.records[key] = {

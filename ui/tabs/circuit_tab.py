@@ -369,8 +369,9 @@ class CircuitTabMixin:
                        boxstyle='round,pad=0.25', alpha=0.90)
         self.txt_pt1_v = ax.text(PT1_CX, PT_V_LBL_Y,  "PT1: -- V", fontsize=7,
                                   ha='center', color='#0066cc', bbox=bbox_pt)
-        self.txt_pt2_v = ax.text(PT2_CX, PT2_V_LBL_Y, "PT2: -- V", fontsize=7,
-                                  ha='center', color='#0066cc', bbox=bbox_pt)
+        self.txt_pt2_v = ax.text(PT2_CX + PT_SIZE * 2.8, PT2_CY, "PT2: -- V",
+                                  fontsize=7, ha='left', va='center',
+                                  color='#0066cc', bbox=bbox_pt)
         self.txt_pt3_v = ax.text(PT3_CX, PT_V_LBL_Y,  "PT3: -- V", fontsize=7,
                                   ha='center', color='#0066cc', bbox=bbox_pt)
 
@@ -383,7 +384,8 @@ class CircuitTabMixin:
                                 color='#aa00aa', ha='left', fontsize=7)
 
         self.txt_grounding = ax.text(
-            0.50, 0.97, "N线: 未接地", color='gray', ha='center', fontsize=8,
+            0.50, 1.01, "N线: 未接地", color='gray', ha='center', fontsize=8,
+            clip_on=False,
             bbox=dict(facecolor='#f5f5f5', edgecolor='gray', boxstyle='round,pad=0.3', alpha=0.9))
 
         self.txt_i2  = ax.text(CT_X_RIGHT, CT_Y_TOP,         "Gen2  CT: 0.00 A",
