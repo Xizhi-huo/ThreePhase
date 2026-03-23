@@ -488,13 +488,19 @@ class CircuitTabMixin:
         self.tbl_s4_left_title.set_visible(False)
         self.tbl_s4_right_title.set_visible(False)
 
-        # ── 步骤5：同步测试轮次记录（居中）────────────────────────────────
-        _b_s5 = [["第一轮", "---"], ["第二轮", "---"]]
-        self.tbl_s5 = _mk(_b_s5, [0.35, 0.782, 0.30, 0.080], _h5)
-        self.tbl_s5_title = ax.text(0.50, 0.874, "同步测试记录",
-                                     fontsize=7, ha='center', weight='bold',
-                                     color='#9a3412', clip_on=False)
-        self.tbl_s5_title.set_visible(False)
+        # ── 步骤5：同步测试轮次记录（Gen1上方左，Gen2上方右）─────────────
+        _b_s5_l = [["第一轮", "---"]]
+        _b_s5_r = [["第二轮", "---"]]
+        self.tbl_s5_left  = _mk(_b_s5_l, [0.08, 0.782, 0.22, 0.060], _h5)
+        self.tbl_s5_right = _mk(_b_s5_r, [0.67, 0.782, 0.20, 0.060], _h5)
+        self.tbl_s5_left_title  = ax.text(0.19, 0.854, "Gen1 同步记录",
+                                           fontsize=7, ha='center', weight='bold',
+                                           color='#9a3412', clip_on=False)
+        self.tbl_s5_right_title = ax.text(0.77, 0.854, "Gen2 同步记录",
+                                           fontsize=7, ha='center', weight='bold',
+                                           color='#9a3412', clip_on=False)
+        self.tbl_s5_left_title.set_visible(False)
+        self.tbl_s5_right_title.set_visible(False)
 
     def rebuild_circuit_diagram(self):
         """PT 黑盒模式切换时重绘拓扑图（由 ctrl 调用）。"""
@@ -812,31 +818,13 @@ class CircuitTabMixin:
 
     # ── 测试步骤记录表渲染（拓扑图内，各步骤共用）──────────────────────
     def _render_pt_record_tables(self, p):
-        # 确定当前步骤（取最高已激活的步骤）
+        # 直接复用 test_panel 的步骤函数，与测试面板（含管理员强制步骤）保持完全一致
         step = 0
         if getattr(self, '_test_mode_active', False):
-            step = 1
             try:
-                if getattr(self.ctrl.pt_voltage_check_state, 'started', False):
-                    step = 2
+                step = self._current_test_step()
             except AttributeError:
-                pass
-            try:
-                if getattr(self.ctrl.pt_phase_check_state, 'started', False):
-                    step = 3
-            except AttributeError:
-                pass
-            try:
-                if (getattr(self.ctrl.pt_exam_states[1], 'started', False) or
-                        getattr(self.ctrl.pt_exam_states[2], 'started', False)):
-                    step = 4
-            except (AttributeError, KeyError):
-                pass
-            try:
-                if getattr(self.ctrl.sync_test_state, 'started', False):
-                    step = 5
-            except AttributeError:
-                pass
+                step = 1
 
         # 各步骤表格可见性
         for obj in (self.tbl_s1, self.tbl_s1_title):
@@ -850,7 +838,8 @@ class CircuitTabMixin:
         for obj in (self.tbl_s4_left, self.tbl_s4_right,
                     self.tbl_s4_left_title, self.tbl_s4_right_title):
             obj.set_visible(step == 4)
-        for obj in (self.tbl_s5, self.tbl_s5_title):
+        for obj in (self.tbl_s5_left, self.tbl_s5_right,
+                    self.tbl_s5_left_title, self.tbl_s5_right_title):
             obj.set_visible(step == 5)
 
         if step == 0:
@@ -864,7 +853,9 @@ class CircuitTabMixin:
                 self.tbl_s1[(row_idx, 0)].get_text().set_text(ph)
                 if rec is not None:
                     ok = rec.get('status') == 'ok'
-                    self.tbl_s1[(row_idx, 1)].get_text().set_text("导通" if ok else "断路")
+                    val = "≈0Ω" if ok else "∞Ω"
+                    self.tbl_s1[(row_idx, 1)].get_text().set_text(
+                        f"{'导通' if ok else '断路'}  {val}")
                     bg = '#dcfce7' if ok else '#fee2e2'
                 else:
                     self.tbl_s1[(row_idx, 1)].get_text().set_text("---")
@@ -923,19 +914,18 @@ class CircuitTabMixin:
                 for c in range(2):
                     tbl[(1, c)].set_facecolor(bg)
 
-        # ── 步骤4：PT 考核压差（PT1/PT3 二次侧 − PT2 二次侧）────────────
+        # ── 步骤4：PT 考核压差（用户实测时记录，PT1/PT3 二次侧 − PT2 二次侧）──
         elif step == 4:
-            records_2 = getattr(
-                getattr(self.ctrl, 'pt_voltage_check_state', None), 'records', {})
+            exam_states = getattr(self.ctrl, 'pt_exam_states', {})
             _ph_to_pair = {'A': 'AB', 'B': 'BC', 'C': 'CA'}
-            for tbl, pt_name in [(self.tbl_s4_left, 'PT1'), (self.tbl_s4_right, 'PT3')]:
+            for tbl, gid in [(self.tbl_s4_left, 1), (self.tbl_s4_right, 2)]:
+                records = getattr(exam_states.get(gid), 'records', {})
                 for row_idx, ph in enumerate(['A', 'B', 'C'], start=1):
                     pair = _ph_to_pair[ph]
-                    pt_rec  = records_2.get(f"{pt_name}_{pair}")
-                    pt2_rec = records_2.get(f"PT2_{pair}")
+                    rec = records.get(ph)
                     tbl[(row_idx, 0)].get_text().set_text(pair)
-                    if pt_rec is not None and pt2_rec is not None:
-                        diff = pt_rec.get('voltage_sec', 0.0) - pt2_rec.get('voltage_sec', 0.0)
+                    if rec is not None:
+                        diff = rec.get('voltage_sec', 0.0)
                         tbl[(row_idx, 1)].get_text().set_text(f"{diff:.1f}")
                         bg = '#e0f2fe'
                     else:
@@ -949,11 +939,14 @@ class CircuitTabMixin:
             state = getattr(self.ctrl, 'sync_test_state', None)
             r1 = getattr(state, 'round1_done', False) if state else False
             r2 = getattr(state, 'round2_done', False) if state else False
-            for row_idx, (label, done) in enumerate([("第一轮", r1), ("第二轮", r2)], start=1):
-                self.tbl_s5[(row_idx, 0)].get_text().set_text(label)
-                self.tbl_s5[(row_idx, 1)].get_text().set_text("已记录" if done else "---")
+            for tbl, label, done in [
+                (self.tbl_s5_left,  "第一轮", r1),
+                (self.tbl_s5_right, "第二轮", r2),
+            ]:
+                tbl[(1, 0)].get_text().set_text(label)
+                tbl[(1, 1)].get_text().set_text("已记录" if done else "---")
                 bg = '#dcfce7' if done else '#f1f5f9'
                 for c in range(2):
-                    self.tbl_s5[(row_idx, c)].set_facecolor(bg)
+                    tbl[(1, c)].set_facecolor(bg)
 
 

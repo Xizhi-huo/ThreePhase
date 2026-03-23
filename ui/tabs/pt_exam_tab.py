@@ -233,7 +233,7 @@ class PtExamTabMixin:
             for phase, lbl in self.pt_exam_record_labels.items():
                 rec = records[phase]
                 if rec is not None:
-                    lbl.setText(f"二次 {rec['voltage_sec']:.2f} V → 一次≈{rec['voltage']:.0f} V  ✓")
+                    lbl.setText(f"二次侧压差 {rec['voltage_sec']:.2f} V  ✓")
                     lbl.setStyleSheet("font-size:15px; color:#006400;")
             return
         
@@ -297,5 +297,5 @@ class PtExamTabMixin:
                 lbl.setText("未记录")
                 lbl.setStyleSheet("font-size:15px; color:#999999;")
             else:
-                lbl.setText(f"{record['voltage']:.0f} V  [可合闸]")
+                lbl.setText(f"压差 {record['voltage_sec']:.2f} V  [已记录]")
                 lbl.setStyleSheet("font-size:15px; color:#006400;")

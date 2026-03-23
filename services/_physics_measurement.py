@@ -154,12 +154,15 @@ class MeasurementMixin:
                         _freq = sim_ref.gen2.freq
                     else:
                         _freq = self.bus_freq or 50.0
-                    raw_rms = self._whole_cycle_rms_raw(wave_diff, _freq)
-                    primary_rms = self._ema_update('intra_diff', raw_rms)
-                    # 按所属 PT 使用对应变比：机组侧≈57.02，母排侧=100
+                    # 直接读预计算的 PT 二次侧电压，与拓扑图 PT 标签完全一致，避免波形缓冲区抖动
                     _sim_r = self.ctrl.sim_state
                     _pt_ratio = _sim_r.pt_gen_ratio if _pt_name in ('PT1', 'PT3') else _sim_r.pt_bus_ratio
-                    meter_v = primary_rms / _pt_ratio
+                    if _pt_name == 'PT1':
+                        meter_v = self.pt1_v
+                    elif _pt_name == 'PT3':
+                        meter_v = self.pt3_v
+                    else:
+                        meter_v = self.pt2_v
                     self.meter_voltage = meter_v
                     self.meter_nodes = (n1, n2)
                     # ±15% 容差：均以一次侧 [8925V, 12075V] 为基准折算到各 PT 二次侧
@@ -201,17 +204,12 @@ class MeasurementMixin:
                     _f2 = (_sim2.gen1.freq if key2.startswith('g1')
                            else _sim2.gen2.freq if key2.startswith('g2')
                            else self.bus_freq or 50.0)
-                    rms1 = self._ema_update('cross_rms1',
-                               self._whole_cycle_rms_raw(self.plot_data[key1], _f1))
-                    rms2 = self._ema_update('cross_rms2',
-                               self._whole_cycle_rms_raw(self.plot_data[key2], _f2))
-                    primary_rms_diff = abs(rms1 - rms2)
-                    # 各侧用自己变比折算二次侧电压（用于显示）
+                    # 直接用预计算的 PT 二次侧电压，稳定且与拓扑图显示一致
                     _sim_r2 = self.ctrl.sim_state
-                    gen_sec  = rms1 / _sim_r2.pt_gen_ratio   # 机组侧 PT 二次侧相电压
-                    bus_sec  = rms2 / _sim_r2.pt_bus_ratio   # 母排侧 PT 二次侧相电压
-                    # meter_voltage 以机组侧变比折算，供 pt_exam_service 逆算一次侧
-                    meter_v = primary_rms_diff / _sim_r2.pt_gen_ratio
+                    gen_sec = self.pt1_v if key1.startswith('g1') else self.pt3_v
+                    bus_sec = self.pt2_v
+                    # meter_voltage = PT1/PT3 二次侧 − PT2 二次侧
+                    meter_v = gen_sec - bus_sec
                     self.meter_voltage = meter_v
                     self.meter_nodes = (n1, n2)
                     if phases_match:
@@ -227,11 +225,10 @@ class MeasurementMixin:
                             f"相序✗ (端子标{labeled1}/实际{actual_ph1}相"
                             f" ≠ 端子标{labeled2}/实际{actual_ph2}相)"
                         )
-                    sec_diff = meter_v   # 二次侧压差（V），即万用表直接读数
                     self.meter_reading = (
                         f"PT端子: {info1[4]}{ann1} ↔ {info2[4]}{ann2}"
                         f" | {seq_status}"
-                        f" | 二次侧压差={sec_diff:.2f} V → 一次侧压差≈{primary_rms_diff:.0f} V"
+                        f" | 机组侧={gen_sec:.2f} V  母排侧={bus_sec:.2f} V  压差={meter_v:.2f} V"
                     )
                 else:
                     self.meter_status = "invalid"

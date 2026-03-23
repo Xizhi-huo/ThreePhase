@@ -1356,7 +1356,8 @@ class TestPanelMixin:
             f"color:{state.feedback_color}; font-size:12px;")
 
     def _refresh_tp_step5(self, sim):
-        in_mode = self.ctrl.sync_test_state.started
+        state   = self.ctrl.sync_test_state
+        in_mode = state.started
         steps = self.ctrl.get_sync_test_steps()
         for lbl, (text, done) in zip(self.tp_s5_step_lbls, steps):
             marker = "✓" if done else "□"

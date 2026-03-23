@@ -155,37 +155,22 @@ class PtExamService:
             self._set_pt_exam_feedback(gen_id, "当前测量结果无效，请确认表笔接在 PT 二次端子排对应端子上。", "red")
             return
 
-        from domain.constants import PT_GEN_RATIO as _PT_GEN_RATIO
-        primary_diff = meter_v_sec * _PT_GEN_RATIO   # 换算回一次侧压差（V）
-
         if meter_status != 'ok':
             self._set_pt_exam_feedback(
                 gen_id,
-                f"{phase} 相二次侧压差 {meter_v_sec:.2f} V（一次侧≈{primary_diff:.0f} V），"
-                "相序不匹配，请检查接线。", "red")
+                f"{phase} 相序不匹配，请检查接线。", "red")
             return
 
-        # 压差阈值：机组侧 PT 二次侧 < 5 V，即一次侧 < 285 V（5 × PT_GEN_RATIO≈56.99）
-        _THRESHOLD_PRIMARY = 5.0 * _PT_GEN_RATIO   # ≈ 285 V
-        if primary_diff >= _THRESHOLD_PRIMARY:
-            self._set_pt_exam_feedback(
-                gen_id,
-                f"{phase} 相二次侧压差 {meter_v_sec:.2f} V（一次侧≈{primary_diff:.0f} V）"
-                f"超出允许范围（二次侧需 < 5.00 V），"
-                "请先调节发电机频率与电压使两侧接近后再记录。", "red")
-            return
-
+        # 存储 PT1/PT3 二次侧 − PT2 二次侧的差值（由 meter_voltage 直接提供）
         self._ctrl.pt_exam_states[gen_id].records[phase] = {
-            'voltage': primary_diff,        # 存一次侧值（V）
-            'voltage_sec': meter_v_sec,     # 保留二次侧供参考
+            'voltage_sec': meter_v_sec,
             'reading': self._ctrl.physics.meter_reading,
         }
         all_rec = all(self._ctrl.pt_exam_states[gen_id].records[ph] is not None for ph in ('A', 'B', 'C'))
         if all_rec:
             msg = f"Gen {gen_id} 三相 PT 压差已全部记录完成。"
         else:
-            msg = (f"Gen {gen_id} {phase} 相记录完成："
-                   f"二次侧 {meter_v_sec:.2f} V → 一次侧≈{primary_diff:.0f} V。")
+            msg = f"Gen {gen_id} {phase} 相记录完成：二次侧压差 {meter_v_sec:.2f} V。"
         self._set_pt_exam_feedback(gen_id, msg, "#006600")
 
     def get_pt_exam_steps(self, gen_id):
