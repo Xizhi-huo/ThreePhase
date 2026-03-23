@@ -142,7 +142,7 @@ class PtVoltageCheckTabMixin:
         )
         sl_lay = QtWidgets.QVBoxLayout(steps_grp)
         self.pt_voltage_step_labels = []
-        for _ in range(8):
+        for _ in range(9):
             lbl = QtWidgets.QLabel("")
             lbl.setStyleSheet("font-size:14px; color:#666666;")
             sl_lay.addWidget(lbl)

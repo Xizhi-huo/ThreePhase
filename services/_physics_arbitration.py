@@ -34,6 +34,8 @@ class ArbitrationMixin:
 
     def auto_adjust_phase(self, generator, sim, target_phase_deg):
         phase_error = generator.phase_deg - target_phase_deg
+        # 圆周最短角：将误差折叠到 (-180, 180]
+        phase_error = (phase_error + 180.0) % 360.0 - 180.0
         step_p = 0.5 * sim.sync_gain * self._control_speed_factor(sim)
         if abs(phase_error) > step_p:
             generator.phase_deg = round(generator.phase_deg - np.sign(phase_error) * step_p, 1)
@@ -207,7 +209,7 @@ class ArbitrationMixin:
         # ── 第二步特殊追踪：Gen2 追 Gen1，Gen1 小幅抖动 ──────────────────────
         _FREQ_LO, _FREQ_HI = 49.85, 50.15    # Gen1 频率范围 Hz
         _AMP_LO,  _AMP_HI  = 10395.0, 10605.0  # Gen1 幅值范围 V
-        # Gen2 慢速追踪步长（秒级响应，约 0.015 Hz/s、15 V/s、0.6°/s）
+        # Gen2 慢速追踪步长（秒级响应，约 0.3 Hz/s、15 V/s、0.6°/s）
         _TRK_F  = 0.01     # Hz/帧
         _TRK_A  = 0.5      # V/帧
         _TRK_P  = 0.02     # °/帧
@@ -237,6 +239,9 @@ class ArbitrationMixin:
                 ):
                     _cur = getattr(_gen, _attr)
                     _err = _target - _cur
+                    # 相位属性需圆周最短角折叠
+                    if _attr == 'phase_deg':
+                        _err = (_err + 180.0) % 360.0 - 180.0
                     if abs(_err) <= _step:
                         setattr(_gen, _attr, round(_target, 3))
                     else:

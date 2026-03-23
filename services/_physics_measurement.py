@@ -116,7 +116,7 @@ class MeasurementMixin:
                         self.meter_status = "invalid"
                         self.meter_color = "red"
                         self.meter_reading = "通断测试前请先断开中性点接地（防止通过中性点形成寄生回路）"
-                    elif not (sim.gen1.breaker_closed and sim.gen2.breaker_closed):
+                    elif not (sim.gen1.breaker_closed and sim.gen2.breaker_closed) and not loop_done:
                         self.meter_status = "invalid"
                         self.meter_color = "red"
                         self.meter_reading = "通断测试前请先闭合 Gen1 和 Gen2 断路器（使被测回路形成完整通路）"
@@ -142,18 +142,7 @@ class MeasurementMixin:
                             )
                 elif intra_pt_pair:
                     # 同一 PT 内两相线电压测量（第二步 PT 单体线电压检查）
-                    key1 = self.ctrl.resolve_pt_node_plot_key(n1)
-                    key2 = self.ctrl.resolve_pt_node_plot_key(n2)
-                    wave_diff = self.plot_data[key1] - self.plot_data[key2]
-                    # 根据所属 PT 取对应实时频率，做整周期截断 + EMA
                     _pt_name = _pt1   # 两探针同 PT
-                    sim_ref = self.ctrl.sim_state
-                    if _pt_name == 'PT1':
-                        _freq = sim_ref.gen1.freq
-                    elif _pt_name == 'PT3':
-                        _freq = sim_ref.gen2.freq
-                    else:
-                        _freq = self.bus_freq or 50.0
                     # 直接读预计算的 PT 二次侧电压，与拓扑图 PT 标签完全一致，避免波形缓冲区抖动
                     _sim_r = self.ctrl.sim_state
                     _pt_ratio = _sim_r.pt_gen_ratio if _pt_name in ('PT1', 'PT3') else _sim_r.pt_bus_ratio
@@ -196,16 +185,7 @@ class MeasurementMixin:
                     self.meter_phase_match = phases_match
                     ann1 = f"[实际{actual_ph1}相]" if actual_ph1 != labeled1 else ""
                     ann2 = f"[实际{actual_ph2}相]" if actual_ph2 != labeled2 else ""
-                    # 整周期截断 + EMA（分别对两路做平滑，差值也就稳定）
-                    _sim2 = self.ctrl.sim_state
-                    _f1 = (_sim2.gen1.freq if key1.startswith('g1')
-                           else _sim2.gen2.freq if key1.startswith('g2')
-                           else self.bus_freq or 50.0)
-                    _f2 = (_sim2.gen1.freq if key2.startswith('g1')
-                           else _sim2.gen2.freq if key2.startswith('g2')
-                           else self.bus_freq or 50.0)
                     # 直接用预计算的 PT 二次侧电压，稳定且与拓扑图显示一致
-                    _sim_r2 = self.ctrl.sim_state
                     gen_sec = self.pt1_v if key1.startswith('g1') else self.pt3_v
                     bus_sec = self.pt2_v
                     # meter_voltage = PT1/PT3 二次侧 − PT2 二次侧
