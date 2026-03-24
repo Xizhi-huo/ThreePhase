@@ -91,13 +91,6 @@ class LoopTestService:
             self._set_loop_test_feedback("请先开启万用表。", "red")
             return
 
-        phase_order = ('A', 'B', 'C')
-        for prev in phase_order[:phase_order.index(phase)]:
-            if self._ctrl.loop_test_state.records[prev] is None:
-                self._set_loop_test_feedback(
-                    f"请先完成 {prev} 相的测量记录，再记录 {phase} 相。", "red")
-                return
-
         current_phase = self._get_current_loop_phase_match()
         if current_phase != phase:
             if current_phase is None:
