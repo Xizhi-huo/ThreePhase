@@ -90,8 +90,8 @@ class MeasurementMixin:
                 info1, info2 = _UI_NODES[n1], _UI_NODES[n2]
                 loop_pair = info1[2].startswith('Loop') and info2[2].startswith('Loop')
                 valid_pairs = {
-                    frozenset({'PT1_A', 'PT2_A'}), frozenset({'PT1_B', 'PT2_B'}), frozenset({'PT1_C', 'PT2_C'}),
-                    frozenset({'PT3_A', 'PT2_A'}), frozenset({'PT3_B', 'PT2_B'}), frozenset({'PT3_C', 'PT2_C'}),
+                    frozenset({f'PT{gn}_{gp}', f'PT2_{bp}'})
+                    for gn in (1, 3) for gp in 'ABC' for bp in 'ABC'
                 }
                 # 检查是否为同一 PT 内的线电压测量（如 PT1_A ↔ PT1_B）
                 _pt1 = n1.rsplit('_', 1)[0] if '_' in n1 else ''
@@ -175,40 +175,38 @@ class MeasurementMixin:
                            "  [异常]" if self.meter_status == "danger" else "  [无电压]")
                     )
                 elif frozenset({n1, n2}) in valid_pairs:
-                    key1 = self.ctrl.resolve_pt_node_plot_key(n1)
-                    key2 = self.ctrl.resolve_pt_node_plot_key(n2)
-                    actual_ph1 = key1[-1].upper()
-                    actual_ph2 = key2[-1].upper()
-                    labeled1 = n1.split('_')[1]
-                    labeled2 = n2.split('_')[1]
-                    phases_match = (actual_ph1 == actual_ph2)
-                    self.meter_phase_match = phases_match
-                    ann1 = f"[实际{actual_ph1}相]" if actual_ph1 != labeled1 else ""
-                    ann2 = f"[实际{actual_ph2}相]" if actual_ph2 != labeled2 else ""
-                    # 直接用预计算的 PT 二次侧电压，稳定且与拓扑图显示一致
-                    gen_sec = self.pt1_v if key1.startswith('g1') else self.pt3_v
-                    bus_sec = self.pt2_v
-                    # meter_voltage = PT1/PT3 二次侧 − PT2 二次侧
-                    meter_v = gen_sec - bus_sec
+                    # 确定机组节点（PT1/PT3）和母排节点（PT2）
+                    gen_node    = n1 if not n1.startswith('PT2_') else n2
+                    bus_node    = n2 if not n1.startswith('PT2_') else n1
+                    gen_pt_name = gen_node.split('_')[0]   # 'PT1' 或 'PT3'
+                    gen_phase   = gen_node.split('_')[1]   # 'A'/'B'/'C'
+                    bus_phase   = bus_node.split('_')[1]   # 'A'/'B'/'C'
+                    # PT 二次侧线电压 → 相电压（÷√3）
+                    _SQRT3 = np.sqrt(3)
+                    gen_line = self.pt1_v if gen_pt_name == 'PT1' else self.pt3_v
+                    bus_line = self.pt2_v
+                    gen_ph = gen_line / _SQRT3   # 机组侧相电压
+                    bus_ph = bus_line / _SQRT3   # 母排侧相电压
+                    # 同相：绝对差值（幅值差）
+                    # 异相：三相系统内相间角固定 120°，cos(120°)=-0.5
+                    #       |V1∠α − V2∠β|² = V1² + V2² − 2V1V2·cos(±120°)
+                    #                       = V1² + V2² + V1·V2
+                    if gen_phase == bus_phase:
+                        meter_v = abs(gen_ph - bus_ph)
+                    else:
+                        meter_v = np.sqrt(max(0.0,
+                            gen_ph**2 + bus_ph**2 + gen_ph * bus_ph
+                        ))
+                    self.meter_phase_match = (gen_phase == bus_phase)
                     self.meter_voltage = meter_v
-                    self.meter_nodes = (n1, n2)
-                    if phases_match:
-                        self.meter_color = "green"
-                        self.meter_status = "ok"
-                    else:
-                        self.meter_color = "red"
-                        self.meter_status = "danger"
-                    if phases_match:
-                        seq_status = f"相序✓ ({actual_ph1}相匹配)"
-                    else:
-                        seq_status = (
-                            f"相序✗ (端子标{labeled1}/实际{actual_ph1}相"
-                            f" ≠ 端子标{labeled2}/实际{actual_ph2}相)"
-                        )
+                    self.meter_nodes   = (n1, n2)
+                    self.meter_color   = "green"
+                    self.meter_status  = "ok"
+                    same_tag = "同相" if gen_phase == bus_phase else "跨相"
                     self.meter_reading = (
-                        f"PT端子: {info1[4]}{ann1} ↔ {info2[4]}{ann2}"
-                        f" | {seq_status}"
-                        f" | 机组侧={gen_sec:.2f} V  母排侧={bus_sec:.2f} V  压差={meter_v:.2f} V"
+                        f"{gen_pt_name}_{gen_phase} ↔ PT2_{bus_phase} | {same_tag}"
+                        f" | 机组相电压={gen_ph:.2f} V  母排相电压={bus_ph:.2f} V"
+                        f"  压差={meter_v:.2f} V"
                     )
                 else:
                     self.meter_status = "invalid"

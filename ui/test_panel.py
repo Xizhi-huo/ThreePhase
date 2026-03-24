@@ -592,7 +592,7 @@ class TestPanelMixin:
         lay = QtWidgets.QVBoxLayout(grp)
         lay.setSpacing(4)
 
-        self.tp_s4_step_lbls = self._make_step_list(lay, 7)
+        self.tp_s4_step_lbls = self._make_step_list(lay, 5)
 
         self._make_gen_block(lay, 's4', 1, show_engine=True)
         self._make_gen_block(lay, 's4', 2, show_engine=True)
@@ -623,13 +623,11 @@ class TestPanelMixin:
         rrow.setStyleSheet(f"background:{_SECTION_BG};")
         rh = QtWidgets.QHBoxLayout(rrow)
         rh.setContentsMargins(0, 0, 0, 0)
-        rh.setSpacing(4)
-        for ph in ('A', 'B', 'C'):
-            btn = self._make_btn(f"记录 {ph} 相", "#16a34a")
-            btn.clicked.connect(
-                lambda _, p=ph: self.ctrl.record_pt_measurement(
-                    p, max(1, self._tp_s4_bg.checkedId())))
-            rh.addWidget(btn)
+        btn_rec = self._make_btn("记录当前表笔位置", "#16a34a")
+        btn_rec.clicked.connect(
+            lambda: self.ctrl.record_current_pt_measurement(
+                max(1, self._tp_s4_bg.checkedId())))
+        rh.addWidget(btn_rec)
         lay.addWidget(rrow)
 
         self.tp_s4_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")

@@ -38,9 +38,11 @@ class ArbitrationMixin:
         phase_error = (phase_error + 180.0) % 360.0 - 180.0
         step_p = 0.5 * sim.sync_gain * self._control_speed_factor(sim)
         if abs(phase_error) > step_p:
-            generator.phase_deg = round(generator.phase_deg - np.sign(phase_error) * step_p, 1)
+            new_deg = generator.phase_deg - np.sign(phase_error) * step_p
         else:
-            generator.phase_deg = round(target_phase_deg, 1)
+            new_deg = target_phase_deg
+        # 归一化到 (-180°, 180°]，避免相位值无限漂移
+        generator.phase_deg = round(((new_deg + 180.0) % 360.0) - 180.0, 1)
 
     def _resolve_bus_reference_gen(self, g1_on_bus, g2_on_bus):
         if not g1_on_bus and not g2_on_bus:
@@ -243,7 +245,10 @@ class ArbitrationMixin:
                     if _attr == 'phase_deg':
                         _err = (_err + 180.0) % 360.0 - 180.0
                     if abs(_err) <= _step:
-                        setattr(_gen, _attr, round(_target, 3))
+                        _new = round(_target, 3)
                     else:
-                        setattr(_gen, _attr,
-                                round(_cur + (1 if _err > 0 else -1) * _step, 3))
+                        _new = round(_cur + (1 if _err > 0 else -1) * _step, 3)
+                    # 相位归一化到 (-180°, 180°]
+                    if _attr == 'phase_deg':
+                        _new = round(((_new + 180.0) % 360.0) - 180.0, 3)
+                    setattr(_gen, _attr, _new)

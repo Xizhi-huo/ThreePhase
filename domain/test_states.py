@@ -56,13 +56,13 @@ class PtVoltageCheckState:
 class PtExamState:
     """第四步：PT 二次端子压差考核状态（每台发电机各一份）"""
     records: Dict[str, Optional[dict]] = field(
-        default_factory=lambda: {'A': None, 'B': None, 'C': None}
+        default_factory=lambda: {f'{g}{b}': None for g in 'ABC' for b in 'ABC'}
     )
     completed: bool = False
     started: bool = False
     feedback: str = (
         "请先恢复小电阻接地，并将机组并入母排后，"
-        "在母排拓扑页完成三相 PT 二次端子压差测量。"
+        "在母排拓扑页完成全部 9 组 PT 端子矢量压差测量（AA~CC）。"
     )
     feedback_color: str = '#444444'
 

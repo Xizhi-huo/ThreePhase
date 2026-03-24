@@ -132,8 +132,8 @@ class CircuitTabMixin:
         PT_LBL_Y  = PT_GEN_CY - PT_SIZE - 0.045
         PT2_LBL_Y = PT2_CY    - PT_SIZE - 0.045
 
-        CT_X_LEFT  = -0.03;  CT_X_RIGHT = 0.88
-        CT_Y_TOP   = 0.88;  CT_DY = 0.055
+        CT_X_LEFT  = 0.23;   CT_X_RIGHT = 0.78
+        CT_Y_TOP   = 0.752;  CT_DY = 0.055
 
         # ── 内部绘图辅助函数 ──────────────────────────────────────────────
         def draw_pt_y_symbol(cx, cy, size, color='#9a3412', yn_side='right'):
@@ -162,12 +162,12 @@ class CircuitTabMixin:
             for idx, (tx, ty) in enumerate(terms, 1):
                 ax.plot([tx, tx], [bottom+box_h, ty], color=color, lw=1.5)
                 ax.plot(tx, ty, 'o', color=color, markersize=3)
-                ax.text(tx, ty+0.012, f"T{idx}", fontsize=6, color='#666', ha='center')
+                ax.text(tx, ty+0.022, f"T{idx}", fontsize=6, color='#666', ha='center')
             neutral = (cx, bottom - size*0.65)
             ax.plot([cx, cx], [bottom, neutral[1]], color=color, lw=1.4, ls='--')
             ax.plot(*neutral, 'o', color=color, markersize=3)
             ax.text(cx, cy, "PT", fontsize=8, color=color, ha='center', va='center', weight='bold')
-            ax.text(neutral[0]+0.012, neutral[1], "N", fontsize=6, color='#888', va='center')
+            ax.text(neutral[0]+0.022, neutral[1], "N", fontsize=6, color='#888', va='center')
             return {'terms': terms, 'N': neutral, 'C_xy': (cx, cy)}
 
         def draw_pt_wired(src_x, src_y, arm_tip, h_channel_y, color, ls='-'):
@@ -377,11 +377,11 @@ class CircuitTabMixin:
 
         # ── 5. 文字信息区 ─────────────────────────────────────────────────
         self.txt_i1  = ax.text(CT_X_LEFT, CT_Y_TOP,         "Gen1  CT: 0.00 A",
-                                color='#cc2200', ha='left', weight='bold', fontsize=8, clip_on=False)
-        self.txt_ip1 = ax.text(CT_X_LEFT, CT_Y_TOP-CT_DY,   "  Ip = 0.00 A  (有功)",
-                                color='#0055aa', ha='left', fontsize=7, clip_on=False)
-        self.txt_iq1 = ax.text(CT_X_LEFT, CT_Y_TOP-2*CT_DY, "  Iq = 0.00 A  (无功)",
-                                color='#aa00aa', ha='left', fontsize=7, clip_on=False)
+                                color='#cc2200', ha='right', weight='bold', fontsize=8, clip_on=False)
+        self.txt_ip1 = ax.text(CT_X_LEFT, CT_Y_TOP-CT_DY,   "Ip = 0.00 A  (有功)",
+                                color='#0055aa', ha='right', fontsize=7, clip_on=False)
+        self.txt_iq1 = ax.text(CT_X_LEFT, CT_Y_TOP-2*CT_DY, "Iq = 0.00 A  (无功)",
+                                color='#aa00aa', ha='right', fontsize=7, clip_on=False)
 
         self.txt_grounding = ax.text(
             0.50, 1.01, "N线: 未接地", color='gray', ha='center', fontsize=8,
@@ -390,9 +390,9 @@ class CircuitTabMixin:
 
         self.txt_i2  = ax.text(CT_X_RIGHT, CT_Y_TOP,         "Gen2  CT: 0.00 A",
                                 color='#cc2200', ha='left', weight='bold', fontsize=8, clip_on=False)
-        self.txt_ip2 = ax.text(CT_X_RIGHT, CT_Y_TOP-CT_DY,   "  Ip = 0.00 A  (有功)",
+        self.txt_ip2 = ax.text(CT_X_RIGHT, CT_Y_TOP-CT_DY,   "Ip = 0.00 A  (有功)",
                                 color='#0055aa', ha='left', fontsize=7, clip_on=False)
-        self.txt_iq2 = ax.text(CT_X_RIGHT, CT_Y_TOP-2*CT_DY, "  Iq = 0.00 A  (无功)",
+        self.txt_iq2 = ax.text(CT_X_RIGHT, CT_Y_TOP-2*CT_DY, "Iq = 0.00 A  (无功)",
                                 color='#aa00aa', ha='left', fontsize=7, clip_on=False)
 
 
@@ -417,13 +417,13 @@ class CircuitTabMixin:
         _blank3 = [["AB","---"],["BC","---"],["CA","---"]]
         _hdr    = ["测量项", "二次侧(V)"]
 
-        def _mk(blank, bbox, hdr=None):
+        def _mk(blank, bbox, hdr=None, fontsize=6.5, row_labels=False):
             h = hdr if hdr is not None else _hdr
             nc = len(h)
             t = ax.table(cellText=[list(r) for r in blank], colLabels=h,
                          bbox=bbox, cellLoc='center')
             t.auto_set_font_size(False)
-            t.set_fontsize(6.5)
+            t.set_fontsize(fontsize)
             for c in range(nc):
                 cell = t[(0, c)]
                 cell.set_facecolor('#334155')
@@ -433,17 +433,30 @@ class CircuitTabMixin:
                 for c in range(nc):
                     t[(r, c)].set_facecolor('#f1f5f9')
                     t[(r, c)].set_edgecolor('#cbd5e1')
+                if row_labels:
+                    cell = t[(r, 0)]
+                    cell.set_facecolor('#334155')
+                    cell.get_text().set_color('white')
+                    cell.get_text().set_fontweight('bold')
             t.set_visible(False)
             return t
 
-        self.tbl_left  = _mk(_blank6, [0.08, 0.782, 0.22, 0.138])   # PT1+PT2
-        self.tbl_right = _mk(_blank3, [0.67, 0.782, 0.20, 0.138])   # PT3
+        # 布局规则：左表右边缘固定 x=0.30，底边固定 y=0.782，向左向上扩展
+        #           右表左边缘固定 x=0.67，底边固定 y=0.782，向右向上扩展
+        # 左表 bbox: [0.00, 0.782, 0.30, H]   右表 bbox: [0.67, 0.782, 0.31, H]
+        _LX, _LW = 0.00, 0.30   # 左表 x_left, width
+        _RX, _RW = 0.67, 0.31   # 右表 x_left, width
+        _BY      = 0.782         # 所有表格共用底边 y
+        _LC      = _LX + _LW / 2          # 左表标题 x 中心 = 0.15
+        _RC      = _RX + _RW / 2          # 右表标题 x 中心 = 0.825
 
-        _ty = 0.932   # title text y（data coords，表顶稍上方）
-        self.tbl_left_title  = ax.text(0.19, _ty, "PT1 / PT2 电压记录",
+        # Step 2: PT 单体线电压（左 6 行，右 3 行）
+        self.tbl_left  = _mk(_blank6, [_LX, _BY, _LW, 0.175])   # PT1+PT2
+        self.tbl_right = _mk(_blank3, [_RX, _BY, _RW, 0.115])   # PT3
+        self.tbl_left_title  = ax.text(_LC, _BY+0.175+0.022, "PT1 / PT2 电压记录",
                                         fontsize=7, ha='center', weight='bold',
                                         color='#9a3412', clip_on=False)
-        self.tbl_right_title = ax.text(0.77, _ty, "PT3 电压记录",
+        self.tbl_right_title = ax.text(_RC, _BY+0.115+0.022, "PT3 电压记录",
                                         fontsize=7, ha='center', weight='bold',
                                         color='#9a3412', clip_on=False)
         self.tbl_left_title.set_visible(False)
@@ -454,49 +467,64 @@ class CircuitTabMixin:
         _h4 = ["相位", "压差(V)"]
         _h5 = ["轮次", "状态"]
 
-        # ── 步骤1：三相回路导通记录（Gen1 上方左侧）──────────────────────
+        # ── 步骤1：三相回路导通记录（左表）──────────────────────────────
         _b_s1 = [["A", "---"], ["B", "---"], ["C", "---"]]
-        self.tbl_s1 = _mk(_b_s1, [0.08, 0.782, 0.22, 0.100], _h2)
-        self.tbl_s1_title = ax.text(0.19, 0.894, "三相回路导通记录",
+        self.tbl_s1 = _mk(_b_s1, [_LX, _BY, _LW, 0.115], _h2)
+        self.tbl_s1_title = ax.text(_LC, _BY+0.115+0.022, "三相回路导通记录",
                                      fontsize=7, ha='center', weight='bold',
                                      color='#9a3412', clip_on=False)
         self.tbl_s1_title.set_visible(False)
 
-        # ── 步骤3：PT相序检查记录（左: PT1，右: PT3）──────────────────────
+        # ── 步骤3：PT相序检查记录（左: PT1，右: PT3）────────────────────
         _b_s3 = [["---", "---"]]
-        self.tbl_s3_left  = _mk(_b_s3, [0.08, 0.782, 0.22, 0.060], _h3)
-        self.tbl_s3_right = _mk(_b_s3, [0.67, 0.782, 0.20, 0.060], _h3)
-        self.tbl_s3_left_title  = ax.text(0.19, 0.854, "PT1 相序记录",
+        self.tbl_s3_left  = _mk(_b_s3, [_LX, _BY, _LW, 0.070], _h3)
+        self.tbl_s3_right = _mk(_b_s3, [_RX, _BY, _RW, 0.070], _h3)
+        self.tbl_s3_left_title  = ax.text(_LC, _BY+0.070+0.022, "PT1 相序记录",
                                            fontsize=7, ha='center', weight='bold',
                                            color='#9a3412', clip_on=False)
-        self.tbl_s3_right_title = ax.text(0.77, 0.854, "PT3 相序记录",
+        self.tbl_s3_right_title = ax.text(_RC, _BY+0.070+0.022, "PT3 相序记录",
                                            fontsize=7, ha='center', weight='bold',
                                            color='#9a3412', clip_on=False)
         self.tbl_s3_left_title.set_visible(False)
         self.tbl_s3_right_title.set_visible(False)
 
-        # ── 步骤4：PT考核压差记录（左: Gen1，右: Gen2）────────────────────
-        _b_s4 = [["A", "---"], ["B", "---"], ["C", "---"]]
-        self.tbl_s4_left  = _mk(_b_s4, [0.08, 0.782, 0.22, 0.100], _h4)
-        self.tbl_s4_right = _mk([list(r) for r in _b_s4], [0.67, 0.782, 0.20, 0.100], _h4)
-        self.tbl_s4_left_title  = ax.text(0.19, 0.894, "Gen1 压差记录",
+        # ── 步骤4：PT考核压差记录（左: Gen1，右: Gen2，4×4矩阵）────────
+        # 行标：机组侧相 A/B/C；列标：母排侧相 A/B/C
+        # Gen1 表向左额外延伸：x=-0.08，宽=0.38（右边缘固定 0.30）
+        # Gen2 表向右额外延伸：x=0.67，宽=0.39（右边缘 1.06）
+        _h4_mat   = ["机\\母排", "A", "B", "C"]
+        _b_s4_mat = [["A","---","---","---"],
+                     ["B","---","---","---"],
+                     ["C","---","---","---"]]
+        _S4_LX, _S4_LW = -0.08, 0.38
+        _S4_RX, _S4_RW =  0.67, 0.39
+        _S4_H = 0.110
+        _S4_LC = _S4_LX + _S4_LW / 2   # 0.11
+        _S4_RC = _S4_RX + _S4_RW / 2   # 0.865
+        self.tbl_s4_left  = _mk(_b_s4_mat,
+                                 [_S4_LX, _BY, _S4_LW, _S4_H],
+                                 _h4_mat, fontsize=6.5, row_labels=True)
+        self.tbl_s4_right = _mk([list(r) for r in _b_s4_mat],
+                                 [_S4_RX, _BY, _S4_RW, _S4_H],
+                                 _h4_mat, fontsize=6.5, row_labels=True)
+        self.tbl_s4_left_title  = ax.text(_S4_LC, _BY+_S4_H+0.022, "Gen1 压差记录",
                                            fontsize=7, ha='center', weight='bold',
                                            color='#9a3412', clip_on=False)
-        self.tbl_s4_right_title = ax.text(0.77, 0.894, "Gen2 压差记录",
+        self.tbl_s4_right_title = ax.text(_S4_RC, _BY+_S4_H+0.022, "Gen2 压差记录",
                                            fontsize=7, ha='center', weight='bold',
                                            color='#9a3412', clip_on=False)
         self.tbl_s4_left_title.set_visible(False)
         self.tbl_s4_right_title.set_visible(False)
 
-        # ── 步骤5：同步测试轮次记录（Gen1上方左，Gen2上方右）─────────────
+        # ── 步骤5：同步测试轮次记录（左: Gen1，右: Gen2）────────────────
         _b_s5_l = [["第一轮", "---"]]
         _b_s5_r = [["第二轮", "---"]]
-        self.tbl_s5_left  = _mk(_b_s5_l, [0.08, 0.782, 0.22, 0.060], _h5)
-        self.tbl_s5_right = _mk(_b_s5_r, [0.67, 0.782, 0.20, 0.060], _h5)
-        self.tbl_s5_left_title  = ax.text(0.19, 0.854, "Gen1 同步记录",
+        self.tbl_s5_left  = _mk(_b_s5_l, [_LX, _BY, _LW, 0.070], _h5)
+        self.tbl_s5_right = _mk(_b_s5_r, [_RX, _BY, _RW, 0.070], _h5)
+        self.tbl_s5_left_title  = ax.text(_LC, _BY+0.070+0.022, "Gen1 同步记录",
                                            fontsize=7, ha='center', weight='bold',
                                            color='#9a3412', clip_on=False)
-        self.tbl_s5_right_title = ax.text(0.77, 0.854, "Gen2 同步记录",
+        self.tbl_s5_right_title = ax.text(_RC, _BY+0.070+0.022, "Gen2 同步记录",
                                            fontsize=7, ha='center', weight='bold',
                                            color='#9a3412', clip_on=False)
         self.tbl_s5_left_title.set_visible(False)
@@ -914,25 +942,23 @@ class CircuitTabMixin:
                 for c in range(2):
                     tbl[(1, c)].set_facecolor(bg)
 
-        # ── 步骤4：PT 考核压差（用户实测时记录，PT1/PT3 二次侧 − PT2 二次侧）──
+        # ── 步骤4：PT 考核矢量压差（4×4 矩阵，行=机组相，列=母排相）──────
         elif step == 4:
             exam_states = getattr(self.ctrl, 'pt_exam_states', {})
-            _ph_to_pair = {'A': 'AB', 'B': 'BC', 'C': 'CA'}
+            _phases = ('A', 'B', 'C')
             for tbl, gid in [(self.tbl_s4_left, 1), (self.tbl_s4_right, 2)]:
                 records = getattr(exam_states.get(gid), 'records', {})
-                for row_idx, ph in enumerate(['A', 'B', 'C'], start=1):
-                    pair = _ph_to_pair[ph]
-                    rec = records.get(ph)
-                    tbl[(row_idx, 0)].get_text().set_text(pair)
-                    if rec is not None:
-                        diff = rec.get('voltage_sec', 0.0)
-                        tbl[(row_idx, 1)].get_text().set_text(f"{diff:.1f}")
-                        bg = '#e0f2fe'
-                    else:
-                        tbl[(row_idx, 1)].get_text().set_text("---")
-                        bg = '#f1f5f9'
-                    for c in range(2):
-                        tbl[(row_idx, c)].set_facecolor(bg)
+                for ri, gp in enumerate(_phases, start=1):
+                    for ci, bp in enumerate(_phases, start=1):
+                        key = f"{gp}{bp}"
+                        rec = records.get(key)
+                        if rec is not None:
+                            diff = rec.get('voltage_sec', 0.0)
+                            tbl[(ri, ci)].get_text().set_text(f"{diff:.1f}")
+                            tbl[(ri, ci)].set_facecolor('#e0f2fe')
+                        else:
+                            tbl[(ri, ci)].get_text().set_text("---")
+                            tbl[(ri, ci)].set_facecolor('#f1f5f9')
 
         # ── 步骤5：同步测试轮次 ──────────────────────────────────────
         elif step == 5:

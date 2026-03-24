@@ -152,7 +152,10 @@ class MultimeterWidget(QtWidgets.QWidget):
 
         # ── 主读数（大字）─────────────────────────────────────────────
         main_txt, main_color = self._main_reading()
-        p.setFont(QtGui.QFont('Courier New', 24, QtGui.QFont.Bold))
+        if any(ord(c) > 127 for c in main_txt):
+            p.setFont(QtGui.QFont('', 16, QtGui.QFont.Bold))   # 系统默认字体，支持 CJK
+        else:
+            p.setFont(QtGui.QFont('Courier New', 24, QtGui.QFont.Bold))
         p.setPen(main_color)
         main_r = QtCore.QRect(SX + 4, SY + 22, SW - 12, 50)
         p.drawText(main_r, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter,
@@ -311,6 +314,8 @@ class MultimeterWidget(QtWidgets.QWidget):
         if self._mode == 'resistance':
             if st == 'ok':
                 return ('≈ 0', self._LCD_DIGIT)
+            if st == 'danger':
+                return ('未导通', self._LCD_WARN)
             return ('O.L', self._LCD_WARN)
 
         # voltage_ac

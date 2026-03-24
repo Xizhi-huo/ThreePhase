@@ -271,8 +271,17 @@ class PowerSyncController:
     def reset_pt_exam(self, gen_id=None):
         self._pt_exam_svc.reset_pt_exam(gen_id)
 
-    def record_pt_measurement(self, phase, gen_id):
-        self._pt_exam_svc.record_pt_measurement(phase, gen_id)
+    def record_pt_measurement(self, gen_phase, bus_phase, gen_id):
+        self._pt_exam_svc.record_pt_measurement(gen_phase, bus_phase, gen_id)
+
+    def record_current_pt_measurement(self, gen_id):
+        """记录当前表笔位置对应的 PT 压差（由测试面板"记录当前"按钮调用）。"""
+        matched = self._pt_exam_svc._get_current_pt_phase_match(gen_id)
+        if matched is None:
+            self._pt_exam_svc._set_pt_exam_feedback(
+                gen_id, "表笔未放置在有效 PT 端子上，请在母排拓扑页放置表笔后再记录。", "red")
+            return
+        self._pt_exam_svc.record_pt_measurement(matched[0], matched[1], gen_id)
 
     def get_pt_exam_steps(self, gen_id):
         return self._pt_exam_svc.get_pt_exam_steps(gen_id)

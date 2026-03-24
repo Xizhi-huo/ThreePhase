@@ -149,46 +149,58 @@ class PtExamTabMixin:
         )
         sl_lay = QtWidgets.QVBoxLayout(steps_grp)
         self.pt_exam_step_labels = []
-        for _ in range(7):
+        for _ in range(5):
             lbl = QtWidgets.QLabel("")
             lbl.setStyleSheet("font-size:15px; color:#666666;")
             sl_lay.addWidget(lbl)
             self.pt_exam_step_labels.append(lbl)
         outer.addWidget(steps_grp)
 
-        # ── 三相记录 ──────────────────────────────────────────────────────
-        rec_grp = QtWidgets.QGroupBox("三相记录")
+        # ── 9 组矢量压差记录（AA/AB/…/CC） ───────────────────────────────
+        rec_grp = QtWidgets.QGroupBox("9 组矢量压差记录（机组相 × 母排相，AA~CC）")
         rec_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:15px;}"
+            "QGroupBox{background:white; color:#264653; font-size:13px;}"
             "QGroupBox::title{font-weight:bold;}"
-            "QGroupBox *{font-weight:normal; font-size:12px;}"
+            "QGroupBox *{font-weight:normal; font-size:11px;}"
         )
         rec_lay = QtWidgets.QVBoxLayout(rec_grp)
+        rec_lay.setSpacing(2)
         self.pt_exam_record_labels = {}
-        for phase in ('A', 'B', 'C'):
-            row_w = QtWidgets.QWidget()
-            row_w.setStyleSheet("background:white;")
-            row = QtWidgets.QHBoxLayout(row_w)
-            row.setContentsMargins(0, 0, 0, 0)
+        _BTN_SM = "font-size:11px; padding:2px 6px;"
+        for gp in ('A', 'B', 'C'):
+            for bp in ('A', 'B', 'C'):
+                key = f"{gp}{bp}"
+                row_w = QtWidgets.QWidget()
+                row_w.setStyleSheet("background:white;")
+                row = QtWidgets.QHBoxLayout(row_w)
+                row.setContentsMargins(0, 0, 0, 0)
+                row.setSpacing(4)
 
-            ph_lbl = QtWidgets.QLabel(f"{phase} 相")
-            ph_lbl.setFixedWidth(60)
-            ph_lbl.setStyleSheet("font-weight:bold; font-size:15px;")
+                lbl_key = QtWidgets.QLabel(key)
+                lbl_key.setFixedWidth(28)
+                lbl_key.setStyleSheet("font-weight:bold; font-size:12px;")
 
-            val_lbl = QtWidgets.QLabel("未记录")
-            val_lbl.setFixedWidth(230)
-            val_lbl.setStyleSheet("font-size:15px; color:#999999;")
+                hint = QtWidgets.QLabel(f"机{gp}↔排{bp}")
+                hint.setFixedWidth(60)
+                hint.setStyleSheet("font-size:10px; color:#888;")
 
-            rec_btn = QtWidgets.QPushButton(f"记录 {phase} 相")
-            rec_btn.setStyleSheet(f"background:#d8f3dc; {_BTN}")
-            rec_btn.clicked.connect(
-                lambda _, ph=phase: self.ctrl.record_pt_measurement(ph, self._pt_target_bg.checkedId()))
+                val_lbl = QtWidgets.QLabel("未记录")
+                val_lbl.setStyleSheet("font-size:11px; color:#999999;")
 
-            row.addWidget(ph_lbl)
-            row.addWidget(val_lbl)
-            row.addWidget(rec_btn)
-            rec_lay.addWidget(row_w)
-            self.pt_exam_record_labels[phase] = val_lbl
+                rec_btn = QtWidgets.QPushButton(f"记录 {key}")
+                rec_btn.setFixedWidth(72)
+                rec_btn.setStyleSheet(f"background:#d8f3dc; {_BTN_SM}")
+                rec_btn.clicked.connect(
+                    lambda _, g=gp, b=bp: self.ctrl.record_pt_measurement(
+                        g, b, self._pt_target_bg.checkedId()))
+
+                row.addWidget(lbl_key)
+                row.addWidget(hint)
+                row.addWidget(val_lbl)
+                row.addStretch()
+                row.addWidget(rec_btn)
+                rec_lay.addWidget(row_w)
+                self.pt_exam_record_labels[key] = val_lbl
 
         outer.addWidget(rec_grp)
         outer.addStretch()
@@ -230,11 +242,11 @@ class PtExamTabMixin:
                                       self.ctrl.get_pt_exam_steps(gen_id)):
                 lbl.setText("√ " + text)
                 lbl.setStyleSheet("font-size:15px; color:#006400;")
-            for phase, lbl in self.pt_exam_record_labels.items():
-                rec = records[phase]
+            for key, lbl in self.pt_exam_record_labels.items():
+                rec = records.get(key)
                 if rec is not None:
-                    lbl.setText(f"二次侧压差 {rec['voltage_sec']:.2f} V  ✓")
-                    lbl.setStyleSheet("font-size:15px; color:#006400;")
+                    lbl.setText(f"{rec['voltage_sec']:.2f} V  ✓")
+                    lbl.setStyleSheet("font-size:11px; color:#006400;")
             return
         
 
@@ -253,17 +265,18 @@ class PtExamTabMixin:
         feedback  = state.feedback
         fb_color  = state.feedback_color
         generator = self.ctrl._get_generator_state(gen_id)
-        current_phase = self.ctrl._get_current_pt_phase_match(gen_id)
+        current_combo = self.ctrl._get_current_pt_phase_match(gen_id)
 
+        _all_keys = [f'{g}{b}' for g in 'ABC' for b in 'ABC']
         other_id = 2 if gen_id == 1 else 1
-        other_done = all(self.ctrl.pt_exam_states[other_id].records[ph] is not None
-                         for ph in ('A', 'B', 'C'))
-        this_done  = all(records[ph] is not None for ph in ('A', 'B', 'C'))
+        other_done = all(self.ctrl.pt_exam_states[other_id].records[k] is not None
+                         for k in _all_keys)
+        this_done  = all(records[k] is not None for k in _all_keys)
         if this_done and other_done:
-            summary = "Gen1 和 Gen2 三相压差均已记录，可点击「完成第四步测试」锁定结果。"
+            summary = "Gen1 和 Gen2 全部 9 组矢量压差已记录，可点击「完成第四步测试」锁定结果。"
             sc = '#006600'
         elif this_done:
-            summary = (f"Gen {gen_id} 三相已全部记录，请切换至 Gen {other_id} 完成压差测量。")
+            summary = (f"Gen {gen_id} 全部 9 组已记录，请切换至 Gen {other_id} 完成压差测量。")
             sc = '#cc6600'
         else:
             summary = f"Gen {gen_id} 当前开关柜位置：{generator.breaker_position}。"
@@ -272,8 +285,8 @@ class PtExamTabMixin:
         self.pt_exam_summary_lbl.setStyleSheet(f"font-weight:bold; font-size:15px; color:{sc};")
 
         meter_text = p.meter_reading
-        if current_phase:
-            meter_text = f"当前表笔对准 Gen {gen_id} {current_phase} 相。{meter_text}"
+        if current_combo:
+            meter_text = f"当前表笔：机组{current_combo[0]}相 ↔ 母排{current_combo[1]}相。{meter_text}"
         self.pt_exam_meter_lbl.setText(f"实时测量：{meter_text}")
         self.pt_exam_meter_lbl.setStyleSheet(
             f"font-size:15px; color:{_qs(getattr(p, 'meter_color', 'black'))};")
@@ -291,11 +304,11 @@ class PtExamTabMixin:
                 lbl.setText(("√ " if done else "□ ") + text)
                 lbl.setStyleSheet(f"font-size:15px; color:{'#006400' if done else '#666666'};")
 
-        for phase, lbl in self.pt_exam_record_labels.items():
-            record = records[phase]
+        for key, lbl in self.pt_exam_record_labels.items():
+            record = records.get(key)
             if record is None:
                 lbl.setText("未记录")
-                lbl.setStyleSheet("font-size:15px; color:#999999;")
+                lbl.setStyleSheet("font-size:11px; color:#999999;")
             else:
-                lbl.setText(f"压差 {record['voltage_sec']:.2f} V  [已记录]")
-                lbl.setStyleSheet("font-size:15px; color:#006400;")
+                lbl.setText(f"{record['voltage_sec']:.2f} V  [已记录]")
+                lbl.setStyleSheet("font-size:11px; color:#006400;")
