@@ -165,6 +165,7 @@ class PowerSyncUI(
         self._render_pt_exam(p)
         self._update_generator_buttons()
         self._render_test_panel(p)
+        self._check_fault_detection()
 
         # resize/全屏动画期间跳过 canvas 重绘，防止卡死
         if self._is_resizing:
@@ -175,6 +176,108 @@ class PowerSyncUI(
             self.canvas1.draw_idle()
         elif idx == 1:
             self.canvas2.draw_idle()
+
+    # ── 故障检测轮询（每帧 render_visuals 末尾调用）──────────────────────────
+    def _check_fault_detection(self):
+        """
+        轮询 fault_config.detected 标志。
+
+        策略（方案B — 延迟修复）：
+          · E06 事故：立即弹出事故报告对话框（紧急处置，不能延后）
+          · E01-E05 渐进故障：不弹窗，仅通过横幅提示学员继续测试；
+            修复统一延迟到第五步前，由 _render_test_panel 的关卡逻辑触发。
+        """
+        fc = self.ctrl.sim_state.fault_config
+        if not (fc.active and fc.detected and not fc.repaired):
+            self._fault_dialog_open = False
+            return
+        if getattr(self, '_fault_dialog_open', False):
+            return
+        from domain.fault_scenarios import SCENARIOS
+        info = SCENARIOS.get(fc.scenario_id, {})
+        if info.get('danger_level') == 'accident':
+            # E06 事故：立即弹出
+            self._fault_dialog_open = True
+            self._show_fault_repair_dialog(fc)
+        # 其他故障：横幅已更新，等待步骤五关卡触发修复
+
+    def _show_fault_repair_dialog(self, fc):
+        """显示故障定位确认对话框，学员确认修复后调用 ctrl.repair_fault()。"""
+        from domain.fault_scenarios import SCENARIOS
+        info = SCENARIOS.get(fc.scenario_id, {})
+        is_accident = (info.get('danger_level') == 'accident')
+
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("⚠️ 检测到故障" if not is_accident else "💥 事故模拟")
+        dlg.setModal(True)
+        dlg.resize(520, 380)
+
+        lay = QtWidgets.QVBoxLayout(dlg)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(10)
+
+        # 标题
+        title_color = "#991b1b" if not is_accident else "#7f1d1d"
+        title_lbl = QtWidgets.QLabel(
+            info.get('title', '故障') + (" — 事故报告" if is_accident else " — 故障定位"))
+        title_lbl.setStyleSheet(
+            f"font-size:14px; font-weight:bold; color:{title_color};")
+        lay.addWidget(title_lbl)
+
+        # 内容区（滚动）
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea{border:1px solid #fca5a5; background:white;}")
+        inner = QtWidgets.QWidget()
+        inner_lay = QtWidgets.QVBoxLayout(inner)
+        inner_lay.setContentsMargins(10, 10, 10, 10)
+
+        # E06 事故：加入冲击电流信息
+        prompt = info.get('repair_prompt', '已检测到故障，请检查并修复。')
+        if is_accident and 'surge_current_kA' in fc.params:
+            surge_info = (
+                f"\n\n📊 事故数据：\n"
+                f"  合闸相位差 = {fc.params.get('phase_diff_deg', '?')}°\n"
+                f"  冲击电流峰值 ≈ {fc.params.get('surge_current_kA', '?')} kA（一次侧）\n"
+                f"  （额定持续电流约 0.6A，冲击电流超出数百倍）"
+            )
+            prompt = prompt + surge_info
+
+        body = QtWidgets.QLabel(prompt)
+        body.setWordWrap(True)
+        body.setStyleSheet("font-size:12px; color:#222;")
+        body.setAlignment(QtCore.Qt.AlignTop | QtCore.Qt.AlignLeft)
+        inner_lay.addWidget(body)
+        inner_lay.addStretch()
+        scroll.setWidget(inner)
+        lay.addWidget(scroll, 1)
+
+        # 现象说明
+        symptom_lbl = QtWidgets.QLabel("【学员可见异常现象】\n" + info.get('symptom', ''))
+        symptom_lbl.setWordWrap(True)
+        symptom_lbl.setStyleSheet(
+            "font-size:11px; color:#374151; background:#fef3c7;"
+            " padding:6px; border-radius:4px;")
+        lay.addWidget(symptom_lbl)
+
+        # 按钮
+        btn_row = QtWidgets.QHBoxLayout()
+        if not is_accident:
+            btn_repair = QtWidgets.QPushButton("✅ 确认修复，继续测试")
+            btn_repair.setStyleSheet(
+                "background:#16a34a; color:white; font-weight:bold; padding:6px 14px;")
+            btn_repair.clicked.connect(lambda: (self.ctrl.repair_fault(), dlg.accept()))
+            btn_row.addWidget(btn_repair)
+        else:
+            btn_ok = QtWidgets.QPushButton("确认（事故已记录）")
+            btn_ok.setStyleSheet(
+                "background:#dc2626; color:white; font-weight:bold; padding:6px 14px;")
+            btn_ok.clicked.connect(lambda: (self.ctrl.repair_fault(), dlg.accept()))
+            btn_row.addWidget(btn_ok)
+        lay.addLayout(btn_row)
+
+        dlg.exec_()
+        self._fault_dialog_open = False
 
     # ── 对外接口（ctrl 调用）────────────────────────────────────────────────
     def show_warning(self, title: str, message: str):

@@ -121,6 +121,16 @@ class TestPanelMixin:
         cl.setContentsMargins(8, 6, 8, 6)
         cl.setSpacing(6)
 
+        # 故障训练场景横幅（有故障时显示）
+        self._tp_fault_banner = QtWidgets.QLabel("")
+        self._tp_fault_banner.setStyleSheet(
+            "background:#fef2f2; color:#991b1b; font-weight:bold; font-size:11px;"
+            " padding:4px 8px; border-radius:4px; border:1px solid #fca5a5;")
+        self._tp_fault_banner.setAlignment(QtCore.Qt.AlignCenter)
+        self._tp_fault_banner.setWordWrap(True)
+        self._tp_fault_banner.setVisible(False)
+        cl.addWidget(self._tp_fault_banner)
+
         # 全步骤共用：母排状态 + 万用表
         self.tp_bus_lbl = QtWidgets.QLabel("母排: --")
         self.tp_bus_lbl.setStyleSheet(
@@ -735,6 +745,17 @@ class TestPanelMixin:
         self.tp_s5_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
         lay.addWidget(self.tp_s5_fb_lbl)
 
+        # E06 危险操作：非同期强行合闸按钮（故障场景时可见）
+        self._tp_s5_force_close_btn = QtWidgets.QPushButton(
+            "⚠ 非同期合闸（危险操作演示）")
+        self._tp_s5_force_close_btn.setStyleSheet(
+            "background:#7f1d1d; color:#fef2f2; font-weight:bold;"
+            " font-size:12px; padding:4px; border-radius:3px;")
+        self._tp_s5_force_close_btn.setVisible(False)
+        self._tp_s5_force_close_btn.clicked.connect(
+            lambda: self.ctrl.force_close_gen2_e06())
+        lay.addWidget(self._tp_s5_force_close_btn)
+
         cl.addWidget(grp)
         return grp
 
@@ -742,7 +763,17 @@ class TestPanelMixin:
     # Test mode enter / exit
     # ════════════════════════════════════════════════════════════════════
     def enter_test_mode(self):
+        # 读取控制面板预设场景并注入（_pre_test_scenario_id 定义在 control_panel.py）
+        scenario_id = getattr(self, '_pre_test_scenario_id', '')
+        if scenario_id:
+            # 有故障：完整重置（停机 + 清空所有测试状态 + 注入故障）
+            self.ctrl.reset_for_scenario(scenario_id)
+        else:
+            # 无故障：仅清除可能残留的故障注入
+            self.ctrl.inject_fault('')
+
         self._test_mode_active = True
+        self._pre_step5_repair_triggered = False   # 重置第五步前修复关卡
         self.ctrl_container.setVisible(False)
         self.test_panel.setVisible(True)
         self.tab_widget.setCurrentIndex(1)
@@ -972,6 +1003,31 @@ class TestPanelMixin:
             except AttributeError:
                 pass
 
+    def _update_fault_banner(self):
+        """根据当前故障注入状态更新横幅显示。不向学员透露具体场景信息。"""
+        fc = self.ctrl.sim_state.fault_config
+        if fc.active and fc.scenario_id:
+            if fc.repaired:
+                text = "✅ 故障已修复，请继续按正常流程完成剩余步骤"
+                self._tp_fault_banner.setStyleSheet(
+                    "background:#f0fdf4; color:#15803d; font-weight:bold; font-size:11px;"
+                    " padding:4px 8px; border-radius:4px; border:1px solid #86efac;")
+            elif fc.detected:
+                text = ("🔍 已发现异常证据 | 请继续完成所有测试步骤，"
+                        "记录全部数据后将在第五步前统一进行检修")
+                self._tp_fault_banner.setStyleSheet(
+                    "background:#fffbeb; color:#92400e; font-weight:bold; font-size:11px;"
+                    " padding:4px 8px; border-radius:4px; border:1px solid #fcd34d;")
+            else:
+                text = "⚠ 故障训练模式已启用 | 请按正常流程测试，通过测量数据发现并定位异常"
+                self._tp_fault_banner.setStyleSheet(
+                    "background:#fef2f2; color:#991b1b; font-weight:bold; font-size:11px;"
+                    " padding:4px 8px; border-radius:4px; border:1px solid #fca5a5;")
+            self._tp_fault_banner.setText(text)
+            self._tp_fault_banner.setVisible(True)
+        else:
+            self._tp_fault_banner.setVisible(False)
+
     def _on_tp_step_btn_clicked(self, step_num: int):
         """管理员点击步骤按钮 → 强制跳转到该步骤面板。"""
         if not self._tp_admin_mode:
@@ -1130,6 +1186,24 @@ class TestPanelMixin:
                 "background:#fef3c7; color:#92400e; font-weight:bold;"
                 " font-size:12px; padding:4px; border-radius:4px;"
                 " border:1px solid #fcd34d;")
+
+        # ── Fault banner update ───────────────────────────────────────
+        self._update_fault_banner()
+
+        # ── 第五步前统一修复关卡（方案B）────────────────────────────────
+        # 当学员完成步骤1-4自然进入步骤5时，若存在未修复的渐进故障（非E06事故），
+        # 先弹出检修对话框，完成修复后方可继续同步测试。
+        fc = sim.fault_config
+        if (step == 5
+                and fc.active and fc.detected and not fc.repaired
+                and fc.scenario_id != 'E06'
+                and not getattr(self, '_pre_step5_repair_triggered', False)):
+            self._pre_step5_repair_triggered = True
+            self._show_fault_repair_dialog(fc)
+
+        # ── E06 force-close button: visible only on step 5 with E06 active
+        _e06 = (fc.active and not fc.repaired and fc.scenario_id == 'E06')
+        self._tp_s5_force_close_btn.setVisible(_e06 and step == 5)
 
         # ── Multimeter (hidden on step 3 which uses phase seq meter) ──
         mm_visible = (step != 3)

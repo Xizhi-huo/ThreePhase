@@ -1,7 +1,20 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from domain.enums import BreakerPosition, SystemMode
+
+
+@dataclass
+class FaultConfig:
+    """
+    当前注入的故障场景配置。
+    scenario_id = '' 表示无故障（正常模式）。
+    """
+    scenario_id: str = ""
+    active: bool = False
+    detected: bool = False      # 物理引擎检测到学员触碰了故障证据，UI 轮询此标志弹窗
+    repaired: bool = False      # 学员完成虚拟修复后置 True
+    params: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -42,3 +55,4 @@ class SimulationState:
     loop_test_mode: bool = False        # 第一步回路检查模式：允许不起机合闸，跳过失压联锁
     pt_gen_ratio: float = 11000.0 / 193.0   # PT1/PT3 机组侧变比（可由用户在第二步修改）
     pt_bus_ratio: float = 100.0             # PT2 母排侧变比（可由用户在第二步修改）
+    fault_config: FaultConfig = field(default_factory=FaultConfig)

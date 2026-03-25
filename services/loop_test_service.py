@@ -150,7 +150,10 @@ class LoopTestService:
         records = self._ctrl.loop_test_state.records
         fault_phases = [ph for ph in ('A', 'B', 'C')
                         if records[ph] and records[ph]['status'] != 'ok']
-        if fault_phases:
+        fc = self._ctrl.sim_state.fault_config
+        fault_training = fc.active and fc.detected and not fc.repaired
+        if fault_phases and not fault_training:
+            # 非故障训练模式：拦截，要求学员纠正后重测
             fault_str = '、'.join(fault_phases)
             self._set_loop_test_feedback(
                 f"回路测试发现故障：{fault_str} 相断路 [∞Ω]，说明对应相接线错误。"
@@ -159,9 +162,17 @@ class LoopTestService:
             return
         self._ctrl.exit_loop_test_mode()   # 退出回路检查模式，恢复断路器联锁
         self._ctrl.loop_test_state.completed = True
-        self._set_loop_test_feedback(
-            "第一步【回路连通性测试】已确认完成：三相回路全部导通 [≈0Ω]，接线正确。",
-            "#006600")
+        if fault_phases:
+            # 故障训练模式：带异常完成，提示继续后续步骤
+            fault_str = '、'.join(fault_phases)
+            self._set_loop_test_feedback(
+                f"第一步完成（发现异常）：{fault_str} 相断路 [∞Ω]，"
+                f"已记录故障证据，请继续后续步骤收集更多数据，将在第五步前统一检修。",
+                "#92400e")
+        else:
+            self._set_loop_test_feedback(
+                "第一步【回路连通性测试】已确认完成：三相回路全部导通 [≈0Ω]，接线正确。",
+                "#006600")
 
     def get_loop_test_blockers(self):
         return [text for text, done in self.get_loop_test_steps() if not done]

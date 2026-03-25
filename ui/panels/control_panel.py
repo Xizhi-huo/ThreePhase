@@ -12,10 +12,13 @@ QVBoxLayout (ctrl_layout on ctrl_inner)
        └─ Page 1 — 参数设置 (仿真速度 / 增益 / 下垂 / PT黑盒 / 故障 / 相量 / 继电)
 """
 
+import random as _random
+
 from PyQt5 import QtWidgets, QtCore
 
 from domain.constants import TRIP_CURRENT, AVAILABLE_MODES
 from domain.enums import BreakerPosition, SystemMode
+from domain.fault_scenarios import SCENARIOS
 from domain.node_map import NODES
 
 
@@ -113,7 +116,59 @@ class WidgetBuilderMixin:
             mode_lay.addWidget(rb)
         lay.addWidget(mode_grp)
 
-        # 合闸前测试入口
+        # ── 故障训练场景预设（教师在进入测试前设置，学员不可见）──────────────
+        self._pre_test_scenario_id = ''   # 默认无故障
+        fault_grp = QtWidgets.QGroupBox("故障训练场景（教师预设）")
+        fault_grp.setStyleSheet(
+            "QGroupBox{background:#fffbeb; color:#92400e; font-size:11px;"
+            " font-weight:bold; border:1px solid #fcd34d; border-radius:5px;"
+            " margin-top:6px; padding-top:6px;}"
+            "QGroupBox::title{subcontrol-origin:margin; left:8px;"
+            " background:#fffbeb; color:#92400e;}"
+            "QGroupBox *{font-size:11px; color:#374151; font-weight:normal;}")
+        fg_lay = QtWidgets.QVBoxLayout(fault_grp)
+        fg_lay.setContentsMargins(6, 4, 6, 6)
+        fg_lay.setSpacing(4)
+
+        # 第一行：三个模式按钮
+        btn_row = QtWidgets.QWidget()
+        btn_row.setStyleSheet("background:transparent;")
+        br_lay = QtWidgets.QHBoxLayout(btn_row)
+        br_lay.setContentsMargins(0, 0, 0, 0)
+        br_lay.setSpacing(4)
+
+        _btn_ss_active   = ("background:#1d4ed8; color:white; font-size:11px;"
+                            " font-weight:bold; padding:3px 6px; border-radius:3px;")
+        _btn_ss_inactive = ("background:#e2e8f0; color:#475569; font-size:11px;"
+                            " padding:3px 6px; border-radius:3px;")
+
+        self._fp_btn_normal = QtWidgets.QPushButton("正常模式")
+        self._fp_btn_random = QtWidgets.QPushButton("随机故障")
+        self._fp_btn_choose = QtWidgets.QPushButton("指定场景...")
+
+        self._fp_btn_normal.setStyleSheet(_btn_ss_active)
+        self._fp_btn_random.setStyleSheet(_btn_ss_inactive)
+        self._fp_btn_choose.setStyleSheet(_btn_ss_inactive)
+
+        self._fp_btn_normal.clicked.connect(lambda: self._on_fp_set(''))
+        self._fp_btn_random.clicked.connect(self._on_fp_random)
+        self._fp_btn_choose.clicked.connect(self._on_fp_choose)
+
+        br_lay.addWidget(self._fp_btn_normal, 1)
+        br_lay.addWidget(self._fp_btn_random, 1)
+        br_lay.addWidget(self._fp_btn_choose, 1)
+        fg_lay.addWidget(btn_row)
+
+        # 第二行：已选场景状态标签
+        self._fp_status_lbl = QtWidgets.QLabel("已选: 正常模式（无故障注入）")
+        self._fp_status_lbl.setStyleSheet(
+            "color:#92400e; font-size:11px; padding:2px 0;")
+        self._fp_status_lbl.setWordWrap(True)
+        fg_lay.addWidget(self._fp_status_lbl)
+
+        lay.addWidget(fault_grp)
+
+        # ── 合闸前测试入口 ────────────────────────────────────────────────
         self.btn_enter_test_mode = QtWidgets.QPushButton(
             "🔬 开始合闸前测试（进入测试模式）")
         self.btn_enter_test_mode.setStyleSheet(
@@ -450,6 +505,105 @@ class WidgetBuilderMixin:
         lay.addWidget(slider, 1)
         lay.addWidget(label)
         return w
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 故障预设槽函数
+    # ════════════════════════════════════════════════════════════════════════
+    def _on_fp_set(self, scenario_id: str):
+        """设置预选故障场景，更新按钮样式和状态标签。"""
+        _active   = ("background:#1d4ed8; color:white; font-size:11px;"
+                     " font-weight:bold; padding:3px 6px; border-radius:3px;")
+        _inactive = ("background:#e2e8f0; color:#475569; font-size:11px;"
+                     " padding:3px 6px; border-radius:3px;")
+        _fault    = ("background:#b45309; color:white; font-size:11px;"
+                     " font-weight:bold; padding:3px 6px; border-radius:3px;")
+        self._pre_test_scenario_id = scenario_id
+        # 更新按钮高亮
+        self._fp_btn_normal.setStyleSheet(_active if not scenario_id else _inactive)
+        self._fp_btn_random.setStyleSheet(_inactive)
+        self._fp_btn_choose.setStyleSheet(_fault if scenario_id else _inactive)
+        # 更新状态标签
+        if not scenario_id:
+            self._fp_status_lbl.setText("已选: 正常模式（无故障注入）")
+            self._fp_status_lbl.setStyleSheet("color:#92400e; font-size:11px; padding:2px 0;")
+        else:
+            info = SCENARIOS.get(scenario_id, {})
+            cat_label = info.get('label', '')
+            self._fp_status_lbl.setText(
+                f"已选: {scenario_id} — {cat_label}\n{info.get('title', '')}")
+            self._fp_status_lbl.setStyleSheet(
+                "color:#dc2626; font-size:11px; padding:2px 0; font-weight:bold;")
+
+    def _on_fp_random(self):
+        """随机选取一个故障场景（E01-E06），不对外显示具体场景。"""
+        fault_ids = [k for k in SCENARIOS if k]   # 排除空键
+        sid = _random.choice(fault_ids)
+        _active = ("background:#dc2626; color:white; font-size:11px;"
+                   " font-weight:bold; padding:3px 6px; border-radius:3px;")
+        _inactive = ("background:#e2e8f0; color:#475569; font-size:11px;"
+                     " padding:3px 6px; border-radius:3px;")
+        self._pre_test_scenario_id = sid
+        self._fp_btn_normal.setStyleSheet(_inactive)
+        self._fp_btn_random.setStyleSheet(_active)
+        self._fp_btn_choose.setStyleSheet(_inactive)
+        self._fp_status_lbl.setText("已选: 随机故障（进入测试后自动注入，内容对学员保密）")
+        self._fp_status_lbl.setStyleSheet(
+            "color:#dc2626; font-size:11px; padding:2px 0; font-weight:bold;")
+
+    def _on_fp_choose(self):
+        """弹出故障场景选择对话框（手动指定）。"""
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("指定故障场景")
+        dlg.setModal(True)
+        dlg.resize(460, 340)
+
+        lay = QtWidgets.QVBoxLayout(dlg)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(6)
+
+        hdr = QtWidgets.QLabel(
+            "选择要注入的故障场景\n（进入测试模式后学员不可见具体场景信息）")
+        hdr.setStyleSheet("color:#1d4ed8; font-size:12px; font-weight:bold; padding:2px;")
+        hdr.setWordWrap(True)
+        lay.addWidget(hdr)
+
+        current_id = self._pre_test_scenario_id
+        btn_grp = QtWidgets.QButtonGroup(dlg)
+        _COLORS = {None: '#64748b', 'I': '#dc2626', 'II': '#d97706',
+                   'III': '#2563eb', 'IV': '#7c3aed'}
+        for sid, info in SCENARIOS.items():
+            cat = info.get('category')
+            color = _COLORS.get(cat, '#64748b')
+            cat_tag = f"[{info['label']}]  " if cat else ""
+            rb = QtWidgets.QRadioButton(f"{cat_tag}{info['title']}")
+            rb.setProperty('scenario_id', sid)
+            rb.setStyleSheet(f"color:{color}; font-size:12px; padding:2px 0;")
+            if sid == current_id:
+                rb.setChecked(True)
+            btn_grp.addButton(rb)
+            lay.addWidget(rb)
+
+        lay.addStretch()
+
+        brow = QtWidgets.QHBoxLayout()
+        btn_cancel = QtWidgets.QPushButton("取消")
+        btn_ok = QtWidgets.QPushButton("确认")
+        btn_ok.setStyleSheet(
+            "background:#1d4ed8; color:white; font-weight:bold; padding:5px 14px;")
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_ok.clicked.connect(dlg.accept)
+        brow.addStretch()
+        brow.addWidget(btn_cancel)
+        brow.addWidget(btn_ok)
+        lay.addLayout(brow)
+
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            selected_id = ''
+            for btn in btn_grp.buttons():
+                if btn.isChecked():
+                    selected_id = btn.property('scenario_id')
+                    break
+            self._on_fp_set(selected_id)
 
     # ════════════════════════════════════════════════════════════════════════
     # 槽函数 / 事件处理器

@@ -27,7 +27,8 @@ from PyQt5 import QtWidgets, QtCore
 
 from domain.constants import GRID_FREQ, GRID_AMP
 from domain.enums import BreakerPosition, SystemMode
-from domain.models import GeneratorState, SimulationState
+from domain.models import GeneratorState, SimulationState, FaultConfig
+from domain.fault_scenarios import SCENARIOS
 from services.physics_engine import PhysicsEngine
 from services.loop_test_service import LoopTestService
 from services.pt_voltage_check_service import PtVoltageCheckService
@@ -140,10 +141,18 @@ class PowerSyncController:
         Returns: 'ABC' | 'ACB'
         """
         phase_map = {}
+        _rbc = self.sim_state.fault_reverse_bc
         for ph in ('A', 'B', 'C'):
             node = f"{pt_name}_{ph}"
             key = self.resolve_pt_node_plot_key(node)
-            phase_map[ph] = key[-1]   # 'a', 'b', or 'c'
+            actual = key[-1]   # 'a', 'b', or 'c'（基于 pt_phase_orders 的 key 名）
+            # fault_reverse_bc 物理上对调 Gen2 B/C 绕组：
+            # key 'g2b' 实际承载 C 相波形，'g2c' 实际承载 B 相波形
+            if _rbc and key == 'g2b':
+                actual = 'c'
+            elif _rbc and key == 'g2c':
+                actual = 'b'
+            phase_map[ph] = actual
 
         order = (phase_map['A'], phase_map['B'], phase_map['C'])
         # 合法性校验：三端子必须对应三个不同物理相，否则为缺相/短接故障
@@ -155,6 +164,12 @@ class PowerSyncController:
 
     def resolve_loop_node_phase(self, node_name):
         _, gen_name, terminal = node_name.split('_', 2)
+        fc = self.sim_state.fault_config
+        if fc.active and not fc.repaired:
+            if fc.scenario_id == 'E01' and gen_name == 'G1':
+                return {'A': 'B', 'B': 'A', 'C': 'C'}[terminal]
+            if fc.scenario_id == 'E02' and gen_name == 'G2':
+                return {'A': 'A', 'B': 'C', 'C': 'B'}[terminal]
         if gen_name == 'G2' and self.sim_state.fault_reverse_bc:
             return {'A': 'A', 'B': 'C', 'C': 'B'}[terminal]
         return terminal
@@ -495,6 +510,128 @@ class PowerSyncController:
 
     def rebuild_circuit_view(self):
         self.ui.rebuild_circuit_diagram()
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 故障训练模式（FaultConfig 管理）
+    # ════════════════════════════════════════════════════════════════════════
+    def inject_fault(self, scenario_id: str):
+        """注入故障场景（由管理员在训练前设置）。scenario_id='' 清除故障。"""
+        fc = self.sim_state.fault_config
+        fc.scenario_id = scenario_id
+        fc.active = bool(scenario_id)
+        fc.detected = False
+        fc.repaired = False
+        scenario = SCENARIOS.get(scenario_id, {})
+        fc.params = dict(scenario.get('params', {}))
+
+        # 重置已有的 fault_reverse_bc（E02 激活时重新设置）
+        self.sim_state.fault_reverse_bc = False
+
+        # 场景专属注入
+        if scenario_id == 'E01':
+            # PT1 端子相序改为 B/A/C（A 端子连 B 相绕组，B 端子连 A 相绕组）
+            self.pt_phase_orders['PT1'] = ['B', 'A', 'C']
+        elif scenario_id == 'E02':
+            # E02: Gen2 B/C 相绕组接线对调
+            # 只设 fault_reverse_bc（物理层对调波形内容），不修改 pt_phase_orders，
+            # 这样 get_pt_phase_sequence 结合 fault_reverse_bc 修正后可正确返回 'ACB'
+            self.sim_state.fault_reverse_bc = True
+        elif scenario_id == 'E05':
+            gen2_amp = fc.params.get('gen2_amp', 13000.0)
+            self.sim_state.gen2.amp = gen2_amp
+            self.sim_state.gen2.actual_amp = gen2_amp
+
+    def repair_fault(self):
+        """学员完成虚拟修复后调用，消除故障效果并重置检测标志。"""
+        fc = self.sim_state.fault_config
+        sid = fc.scenario_id
+        fc.repaired = True
+        fc.detected = False
+
+        # 恢复场景专属注入的效果
+        if sid == 'E01':
+            self.pt_phase_orders['PT1'] = ['A', 'B', 'C']
+        elif sid == 'E02':
+            self.sim_state.fault_reverse_bc = False
+        elif sid == 'E05':
+            # Fix 2: 立即将 Gen2 幅值恢复到额定值，无需等待 auto_adjust_local 慢速收敛
+            self.sim_state.gen2.amp = GRID_AMP
+            self.sim_state.gen2.actual_amp = GRID_AMP
+        # E04 修复后 pt3_v 由 _update_pt_measurements 自动使用正确变比
+        # E04 修复后 pt3_v 由 _update_pt_measurements 自动使用正确变比
+
+    def reset_for_scenario(self, scenario_id: str):
+        """
+        完整重置：停机 → 清空所有测试状态 → 注入新故障。
+        管理员选定场景后调用，学员在全新状态下开始训练。
+        """
+        sim = self.sim_state
+        # 1. 停止发电机，断路器复位
+        sim.gen1.running = False
+        sim.gen2.running = False
+        sim.gen1.breaker_closed = False
+        sim.gen2.breaker_closed = False
+        sim.gen1.cmd_close = False
+        sim.gen2.cmd_close = False
+        sim.loop_test_mode = False
+
+        # 2. 重置所有步骤状态
+        self.loop_test_state        = self._loop_svc.create_loop_test_state()
+        self.pt_voltage_check_state = self._pt_voltage_svc.create_pt_voltage_check_state()
+        self.pt_phase_check_state   = self._pt_phase_svc.create_pt_phase_check_state()
+        self.pt_exam_states = {
+            1: self._pt_exam_svc.create_pt_exam_state(),
+            2: self._pt_exam_svc.create_pt_exam_state(),
+        }
+        self.sync_test_state = self._sync_svc.create_sync_test_state()
+
+        # 3. 恢复 PT 相序（inject_fault 会再按场景设置）
+        self.pt_phase_orders = {
+            'PT1': ['A', 'B', 'C'],
+            'PT2': ['A', 'B', 'C'],
+            'PT3': ['A', 'B', 'C'],
+        }
+        self.sim_state.fault_reverse_bc = False
+
+        # 4. 注入新故障
+        self.inject_fault(scenario_id)
+
+        # 5. 刷新电路图
+        try:
+            self.rebuild_circuit_view()
+        except Exception:
+            pass
+
+    def get_current_scenario(self) -> dict:
+        """返回当前注入场景的元数据字典。"""
+        return SCENARIOS.get(self.sim_state.fault_config.scenario_id, SCENARIOS[''])
+
+    # ════════════════════════════════════════════════════════════════════════
+    # E06 专项：非同期强行合闸（危险操作事故模拟）
+    # ════════════════════════════════════════════════════════════════════════
+    def force_close_gen2_e06(self):
+        """
+        E06 专用：绕过同期检查强行闭合 Gen2 断路器。
+        计算冲击电流，设置 detected 标志触发事故报告弹窗。
+        """
+        fc = self.sim_state.fault_config
+        if not (fc.active and fc.scenario_id == 'E06'):
+            return
+        sim = self.sim_state
+        # 计算相位差（弧度）
+        import math
+        bus_phase_deg = math.degrees(self.physics.bus_phase) if self.physics.bus_live else 0.0
+        phase_diff_deg = sim.gen2.phase_deg - bus_phase_deg
+        phase_diff_deg = (phase_diff_deg + 180.0) % 360.0 - 180.0
+        # 记录冲击电流估算（峰值，一次侧 A）
+        from domain.constants import XS, GRID_AMP
+        peak_phase_v = GRID_AMP * math.sqrt(2.0 / 3.0)
+        i_surge = abs(2.0 * peak_phase_v * math.sin(math.radians(phase_diff_deg / 2.0)) / XS)
+        fc.params['surge_current_kA'] = round(i_surge / 1000.0, 1)
+        fc.params['phase_diff_deg']   = round(abs(phase_diff_deg), 1)
+        # 强行合闸 → 触发保护
+        sim.gen2.breaker_closed = True
+        fc.detected = True   # 触发事故报告弹窗
 
     # ════════════════════════════════════════════════════════════════════════
     # 主循环（QTimer 每 33ms 触发）

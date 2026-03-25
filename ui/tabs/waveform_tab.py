@@ -99,6 +99,7 @@ class WaveformTabMixin:
         self.line_gen1_a, = self.ax_a.plot([], [], color='#d4aa00', ls='--', lw=1.5, alpha=0.7, label='Gen1')
         self.line_gen2_a, = self.ax_a.plot([], [], color='#d4aa00', ls='-.', lw=1.5, alpha=0.7, label='Gen2')
 
+
         self.line_gb,     = self.ax_b.plot([], [], color='#1a9c3c', lw=2,   label='Busbar')
         self.line_gen1_b, = self.ax_b.plot([], [], color='#1a9c3c', ls='--', lw=1.5, alpha=0.7, label='Gen1')
         self.line_gen2_b, = self.ax_b.plot([], [], color='#1a9c3c', ls='-.', lw=1.5, alpha=0.7, label='Gen2')
@@ -139,7 +140,7 @@ class WaveformTabMixin:
         self.line_all_a.set_data(deg, d['ga'])
         self.line_all_b.set_data(deg, d['gb'])
         self.line_all_c.set_data(deg, d['gc'])
-
+    
     def _render_phasors(self, d, bus_a_display):
         self.p_ga.set_data([0, d['ang_grid']], [0, bus_a_display])
         self.p_g1a.set_data([0, d['ang_g1']], [0, d['a1']])

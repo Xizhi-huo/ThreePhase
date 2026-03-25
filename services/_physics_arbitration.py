@@ -17,6 +17,12 @@ class ArbitrationMixin:
     def auto_adjust_local(self, generator, sim, target_freq, target_amp):
         if generator.breaker_closed:
             return
+        # E05: Gen2 电压调节器故障 → 幅值锁定，不允许自动调整幅值
+        fc = sim.fault_config
+        _lock_amp = (fc.active and not fc.repaired
+                     and fc.scenario_id == 'E05'
+                     and generator is sim.gen2)
+
         speed_factor = self._control_speed_factor(sim)
         err_f = target_freq - generator.freq
         step_f = 0.005 * sim.sync_gain * speed_factor
@@ -25,12 +31,13 @@ class ArbitrationMixin:
         else:
             generator.freq = target_freq
 
-        err_a = target_amp - generator.amp
-        step_a = 6.0 * sim.sync_gain * speed_factor
-        if abs(err_a) > step_a:
-            generator.amp = round(generator.amp + np.sign(err_a) * step_a, 1)
-        else:
-            generator.amp = target_amp
+        if not _lock_amp:
+            err_a = target_amp - generator.amp
+            step_a = 6.0 * sim.sync_gain * speed_factor
+            if abs(err_a) > step_a:
+                generator.amp = round(generator.amp + np.sign(err_a) * step_a, 1)
+            else:
+                generator.amp = target_amp
 
     def auto_adjust_phase(self, generator, sim, target_phase_deg):
         phase_error = generator.phase_deg - target_phase_deg
@@ -146,6 +153,10 @@ class ArbitrationMixin:
                 self.arb_msg, self.arb_color = f"⏳ 仲裁: Gen 2 达标, 准备投入死母线, 延时 {max(0, int(remaining + 1))}s", "#ffcc00"
 
     def _handle_live_bus_sync(self, sim, mode1, mode2):
+        fc = sim.fault_config
+        # E06: Gen2 相位追踪模块故障，无法自动同期
+        _e06 = (fc.active and not fc.repaired and fc.scenario_id == 'E06')
+
         all_synced = True
         target_phase_deg = np.degrees(self.bus_phase)
         if not sim.gen1.breaker_closed and mode1 == "auto" and sim.gen1.running:
@@ -153,9 +164,19 @@ class ArbitrationMixin:
             self.arb_msg, self.arb_color = "⚙️ 仲裁: 母线带电，Gen 1 正在捕获相角打同期...", "#ffcc00"
             all_synced = False
         if not sim.gen2.breaker_closed and mode2 == "auto" and sim.gen2.running:
-            self.auto_adjust_phase(sim.gen2, sim, target_phase_deg)
-            if all_synced:
-                self.arb_msg, self.arb_color = "⚙️ 仲裁: 母线带电，Gen 2 正在捕获相角打同期...", "#ffcc00"
+            if not _e06:
+                self.auto_adjust_phase(sim.gen2, sim, target_phase_deg)
+                if all_synced:
+                    self.arb_msg, self.arb_color = "⚙️ 仲裁: 母线带电，Gen 2 正在捕获相角打同期...", "#ffcc00"
+            else:
+                # E06 故障：相位追踪停止，相角差无法收敛（AUTO 模式）
+                self.arb_msg, self.arb_color = (
+                    "⚠️ 故障: Gen2 相角追踪模块失效，无法自动同期！请停机检修！", "#ff4444")
+            all_synced = False
+        # Fix 4: E06 手动模式也需要显示警告（mode2=="manual" 时上面的块被跳过）
+        if _e06 and not sim.gen2.breaker_closed and sim.gen2.running and mode2 != "auto":
+            self.arb_msg, self.arb_color = (
+                "⚠️ 故障: Gen2 相角追踪模块失效，无法自动同期！请停机检修！", "#ff4444")
             all_synced = False
         if all_synced and (sim.gen1.breaker_closed or mode1 != "auto") and (sim.gen2.breaker_closed or mode2 != "auto"):
             self.arb_msg, self.arb_color = "✅ 仲裁器: 全部机组并联运行", "#00ff00"
@@ -252,3 +273,10 @@ class ArbitrationMixin:
                     if _attr == 'phase_deg':
                         _new = round(((_new + 180.0) % 360.0) - 180.0, 3)
                     setattr(_gen, _attr, _new)
+
+        # ── Fix 3: E05 强制幅值锁定（AUTO 与 MANUAL 均适用）─────────────
+        # auto_adjust_local 的 _lock_amp 仅在 AUTO 模式下生效；
+        # 此处在每帧末尾无条件将 gen2.amp 钳回故障值，防止 MANUAL 模式绕过。
+        fc = sim.fault_config
+        if fc.active and not fc.repaired and fc.scenario_id == 'E05':
+            sim.gen2.amp = fc.params.get('gen2_amp', 13000.0)
