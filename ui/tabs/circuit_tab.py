@@ -9,7 +9,7 @@ from matplotlib.figure import Figure
 import matplotlib.patheffects as pe
 from matplotlib.patches import Circle, FancyBboxPatch
 
-from domain.constants import CT_RATIO, TRIP_CURRENT
+from domain.constants import CT_RATIO
 from domain.node_map import NODES
 from ui.tabs.waveform_tab import MplCanvas
 from ui.widgets.phase_seq_meter import PhaseSeqMeterWidget
@@ -20,14 +20,6 @@ _LOOP_CB_BOT  = 0.24
 _LOOP_CB_TOP  = 0.31
 _LOOP_PROBE_Y = 0.405
 _LOOP_BUS_Y   = {'A': 0.115, 'B': 0.090, 'C': 0.065}
-
-# 热力颜色工具
-def rms_to_heat_color(rms: float) -> str:
-    ratio = min(rms / TRIP_CURRENT, 1.0)
-    r = int(255 * ratio)
-    g = int(200 * (1 - ratio))
-    return f'#{r:02x}{g:02x}00'
-
 
 # ── matplotlib 颜色名 → Qt stylesheet hex ────────────────────────────────────
 def _qs(color: str) -> str:

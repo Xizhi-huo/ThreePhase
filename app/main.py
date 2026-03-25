@@ -280,9 +280,6 @@ class PowerSyncController:
     # ════════════════════════════════════════════════════════════════════════
     # 第四步：PT 二次端子压差考核 — 委托给 PtExamService
     # ════════════════════════════════════════════════════════════════════════
-    def _is_pt_exam_setup_ready(self, gen_id):
-        return self._pt_exam_svc._is_pt_exam_setup_ready(gen_id)
-
     def reset_pt_exam(self, gen_id=None):
         self._pt_exam_svc.reset_pt_exam(gen_id)
 
@@ -301,17 +298,8 @@ class PowerSyncController:
     def get_pt_exam_steps(self, gen_id):
         return self._pt_exam_svc.get_pt_exam_steps(gen_id)
 
-    def get_pt_exam_close_blockers(self, gen_id):
-        return self._pt_exam_svc.get_pt_exam_close_blockers(gen_id)
-
     def is_pt_exam_recorded(self, gen_id):
         return self._pt_exam_svc.is_pt_exam_recorded(gen_id)
-
-    def is_pt_exam_ready(self, gen_id):
-        return self._pt_exam_svc.is_pt_exam_ready(gen_id)
-
-    def finalize_pt_exam(self, gen_id):
-        self._pt_exam_svc.finalize_pt_exam(gen_id)
 
     def finalize_all_pt_exams(self):
         self._pt_exam_svc.finalize_all_pt_exams()
@@ -471,9 +459,6 @@ class PowerSyncController:
                 return
         generator.cmd_close = True
 
-    def toggle_feeder(self):
-        self.sim_state.feeder_closed = not self.sim_state.feeder_closed
-
     def toggle_pause(self):
         self.sim_state.paused = not self.sim_state.paused
         self.ui.pause_btn.setText(
@@ -602,10 +587,6 @@ class PowerSyncController:
         except Exception:
             pass
 
-    def get_current_scenario(self) -> dict:
-        """返回当前注入场景的元数据字典。"""
-        return SCENARIOS.get(self.sim_state.fault_config.scenario_id, SCENARIOS[''])
-
     # ════════════════════════════════════════════════════════════════════════
     # E06 专项：非同期强行合闸（危险操作事故模拟）
     # ════════════════════════════════════════════════════════════════════════
@@ -641,8 +622,9 @@ class PowerSyncController:
             self.physics.update_physics()
             rs = self.physics.build_render_state()
             self.ui.render_visuals(rs)
-        except Exception as e:
-            print(f"[Runtime Warning] {e}")
+        except Exception:
+            import traceback
+            traceback.print_exc()
 
 
 # ════════════════════════════════════════════════════════════════════════════
