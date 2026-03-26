@@ -1,6 +1,6 @@
 # ThreePhase 项目上下文文档
 
-> 供新对话快速理解项目全貌，可直接作为 Claude 对话开头的参考材料。
+> 供新对话快速理解项目全貌，可直接作为 Claude 对话开头的参考材料。详细的用户文档见 README.md。
 
 ---
 
@@ -57,7 +57,8 @@ ThreePhase/
 │       └── phase_seq_meter.py   # 相序计 UI
 ├── adapters/
 │   └── render_state.py      # RenderState 数据类（UI渲染快照）
-└── context.md               # 本文件
+├── README.md                # GitHub 项目文档
+└── context.md               # Claude 对话上下文摘要
 ```
 
 ---
