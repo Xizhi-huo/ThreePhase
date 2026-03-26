@@ -642,6 +642,16 @@ class TestPanelMixin:
         rh.addWidget(btn_rec)
         lay.addWidget(rrow)
 
+        # 管理员快捷记录按钮（仅管理员模式可见）
+        self._tp_s4_quick_btn = self._make_btn("⚡ 快捷记录全部18组", "#7c3aed")
+        self._tp_s4_quick_btn.setToolTip(
+            "管理员专用：跳过逐组表笔测量，直接从物理引擎计算 Gen1+Gen2 全部 18 组压差并写入。"
+        )
+        self._tp_s4_quick_btn.clicked.connect(
+            lambda: self.ctrl.record_all_pt_measurements_quick())
+        self._tp_s4_quick_btn.setVisible(False)
+        lay.addWidget(self._tp_s4_quick_btn)
+
         self.tp_s4_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
         self.tp_s4_fb_lbl.setWordWrap(True)
         self.tp_s4_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
@@ -1006,6 +1016,9 @@ class TestPanelMixin:
                 self.tab_widget.setTabVisible(i, checked)
             except AttributeError:
                 pass
+        # 管理员快捷按钮随模式切换显隐
+        if hasattr(self, '_tp_s4_quick_btn'):
+            self._tp_s4_quick_btn.setVisible(checked)
 
     def _update_fault_banner(self):
         """根据当前故障注入状态更新横幅显示。不向学员透露具体场景信息。"""
@@ -1197,11 +1210,11 @@ class TestPanelMixin:
         # ── 第五步前统一修复关卡（方案B）────────────────────────────────
         # 当学员完成步骤1-4自然进入步骤5时，若存在未修复的渐进故障（非E06/E01），
         # 先弹出检修对话框，完成修复后方可继续同步测试。
-        # E01 特殊处理：不在此处拦截，而是在 Gen2 实际合闸时触发致命事故弹窗。
+        # E01/E02 特殊处理：不在此处拦截，而是在 Gen2 实际合闸时触发致命事故弹窗。
         fc = sim.fault_config
         if (step == 5
                 and fc.active and fc.detected and not fc.repaired
-                and fc.scenario_id not in ('E06', 'E01')
+                and fc.scenario_id not in ('E06', 'E01', 'E02')
                 and not getattr(self, '_pre_step5_repair_triggered', False)):
             self._pre_step5_repair_triggered = True
             self._show_fault_repair_dialog(fc)
@@ -1377,9 +1390,10 @@ class TestPanelMixin:
             gen = sim.gen1 if gid == 1 else sim.gen2
             for attr, (sl, entry) in entry_map.items():
                 scale = 10 if attr in ('freq', 'phase_deg') else 1
-                sl.blockSignals(True)
-                sl.setValue(int(getattr(gen, attr) * scale))
-                sl.blockSignals(False)
+                if not sl.isSliderDown():
+                    sl.blockSignals(True)
+                    sl.setValue(int(getattr(gen, attr) * scale))
+                    sl.blockSignals(False)
                 if not entry.hasFocus():
                     entry.setText(f"{getattr(gen, attr):.1f}")
 

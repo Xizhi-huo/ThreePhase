@@ -303,6 +303,9 @@ class PowerSyncController:
     def finalize_all_pt_exams(self):
         self._pt_exam_svc.finalize_all_pt_exams()
 
+    def record_all_pt_measurements_quick(self):
+        self._pt_exam_svc.record_all_pt_measurements_quick()
+
     def start_pt_exam(self, gen_id):
         self._pt_exam_svc.start_pt_exam(gen_id)
 
@@ -442,14 +445,18 @@ class PowerSyncController:
                 "第四步 PT 测试当前锁定在 Gen 1。\n请先完成 Gen 1 的测试，再合闸 Gen 2。"
             )
             return
-        # ── 拦截：E01 故障未修复时 Gen2 工作位合闸（仅第五步同步测试中）→ 非同期并网事故 ──
+        # ── 拦截：E01/E02 故障未修复时 Gen2 工作位合闸（仅第五步同步测试中）→ 并网事故 ──
         fc = self.sim_state.fault_config
         if (gen_id == 2
                 and generator.breaker_position == BreakerPosition.WORKING
-                and fc.active and fc.scenario_id == 'E01' and not fc.repaired
+                and fc.active and not fc.repaired
                 and self.is_sync_test_active()):
-            self.ui.show_e01_accident_dialog()
-            return
+            if fc.scenario_id == 'E01':
+                self.ui.show_e01_accident_dialog()
+                return
+            elif fc.scenario_id == 'E02':
+                self.ui.show_e02_accident_dialog()
+                return
         # ── 拦截：工作位合闸前置流程检查 ──────────────────────────────────
         if (generator.breaker_position == BreakerPosition.WORKING
                 and self._should_enforce_pt_exam_before_close()):

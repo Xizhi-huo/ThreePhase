@@ -262,6 +262,75 @@ class PtExamService:
                 '后续操作将不再影响该步骤状态。',
                 '#006600')
 
+    def record_all_pt_measurements_quick(self):
+        """
+        快捷记录：跳过表笔放置检查，直接从物理引擎当前 PT 二次电压
+        计算 Gen1 和 Gen2 全部 18 组压差并一次性写入记录。
+        """
+        import numpy as np
+
+        if not (self._ctrl.pt_exam_states[1].started and
+                self._ctrl.pt_exam_states[2].started):
+            self._set_pt_exam_feedback(
+                1, '请先点击"开始第四步测试"。', 'red')
+            return
+        if not self._ctrl.is_loop_test_complete():
+            self._set_pt_exam_feedback(
+                1, '请先完成第一步【回路连通性测试】。', 'red')
+            return
+        if not self._ctrl.is_pt_voltage_check_complete():
+            self._set_pt_exam_feedback(
+                1, '请先完成第二步【PT 单体线电压检查】。', 'red')
+            return
+        if not self._ctrl.is_pt_phase_check_complete():
+            self._set_pt_exam_feedback(
+                1, '请先完成第三步【PT 相序检查】。', 'red')
+            return
+
+        _SQRT3 = np.sqrt(3)
+        p  = self._ctrl.physics
+        fc = self._ctrl.sim_state.fault_config
+
+        for gen_id in (1, 2):
+            pt_name  = 'PT1' if gen_id == 1 else 'PT3'
+            gen_line = p.pt1_v if gen_id == 1 else p.pt3_v
+            bus_line = p.pt2_v
+            gen_ph   = gen_line / _SQRT3
+            bus_ph   = bus_line / _SQRT3
+
+            for gen_term in ('A', 'B', 'C'):
+                for bus_phase in ('A', 'B', 'C'):
+                    key = f"{gen_term}{bus_phase}"
+
+                    gen_phase_actual = p._resolve_terminal_actual_phase(pt_name, gen_term)
+                    is_same_phase    = (gen_phase_actual == bus_phase)
+
+                    _e03 = (fc.active and not fc.repaired
+                            and fc.scenario_id == 'E03'
+                            and gen_id == 2 and gen_term == 'A')
+
+                    if _e03:
+                        if is_same_phase:
+                            meter_v = 2.0 * gen_ph
+                        else:
+                            meter_v = np.sqrt(max(0.0,
+                                gen_ph**2 + bus_ph**2 - gen_ph * bus_ph))
+                    elif is_same_phase:
+                        meter_v = abs(gen_ph - bus_ph)
+                    else:
+                        meter_v = np.sqrt(max(0.0,
+                            gen_ph**2 + bus_ph**2 + gen_ph * bus_ph))
+
+                    self._ctrl.pt_exam_states[gen_id].records[key] = {
+                        'voltage_sec': round(meter_v, 4),
+                        'reading': f"快捷记录 {pt_name}_{gen_term}↔PT2_{bus_phase}: {meter_v:.2f} V",
+                    }
+
+            self._set_pt_exam_feedback(
+                gen_id,
+                f"✅ Gen{gen_id} 快捷记录完成，全部 9 组压差已写入。",
+                "#006600")
+
     def _should_enforce_pt_exam_before_close(self):
         return self._ctrl.sim_state.grounding_mode != "断开"
 

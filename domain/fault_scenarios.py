@@ -42,7 +42,7 @@ SCENARIOS: dict = {
             '第三步：PT1 相序仪显示 ACB（逆序）。\n'
             '第四步：PT1_A↔PT2_B 压差 ≈ 0V，PT1_A↔PT2_A 压差 ≈ 146V。'
         ),
-        'affected_steps': [1, 3, 4],
+        'affected_steps': [1, 3, 4, 5],
         'detection_step': 1,
         'danger_level': 'recoverable',
         'params': {
@@ -69,7 +69,7 @@ SCENARIOS: dict = {
             '第三步：PT3 相序仪显示 ACB（逆序）。\n'
             '第四步：PT3_B↔PT2_C 压差 ≈ 0V，PT3_B↔PT2_B 压差 ≈ 146V。'
         ),
-        'affected_steps': [1, 3, 4],
+        'affected_steps': [1, 3, 4, 5],
         'detection_step': 1,
         'danger_level': 'recoverable',
         'params': {
