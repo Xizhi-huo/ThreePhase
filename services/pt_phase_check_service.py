@@ -153,8 +153,13 @@ class PtPhaseCheckService:
         """流程门禁：只有用户点击"完成第三步测试"后才返回 True。"""
         return self._ctrl.pt_phase_check_state.completed
 
+    def _are_all_records_filled(self):
+        """六相是否已全部测量（无论通过与否）。"""
+        records = self._ctrl.pt_phase_check_state.records
+        return all(records.get(k) is not None for k in _ALL_KEYS)
+
     def _are_phase_check_records_complete(self):
-        """内部辅助：六相记录是否齐全且全部通过（用于 finalize 前置校验）。"""
+        """六相记录是否齐全且全部通过（正常模式 finalize 校验用）。"""
         records = self._ctrl.pt_phase_check_state.records
         return all(
             records.get(k) is not None and records[k]['phase_match']
@@ -163,15 +168,39 @@ class PtPhaseCheckService:
 
     def finalize_pt_phase_check(self):
         state = self._ctrl.pt_phase_check_state
-        if not self._are_phase_check_records_complete():
+        fc = self._ctrl.sim_state.fault_config
+        fault_training = fc.active and fc.detected and not fc.repaired
+
+        if fault_training:
+            # 故障训练模式：六相全部测量完即可完成，无需全部通过
+            if not self._are_all_records_filled():
+                self._set_feedback(
+                    '请先完成 PT1/PT3 全部六相相序测量，再点击"完成第三步测试"。', "red")
+                return
+            state.completed = True
+            fail_keys = [k for k in _ALL_KEYS
+                         if state.records.get(k) and not state.records[k]['phase_match']]
+            if fail_keys:
+                fail_str = '、'.join(fail_keys)
+                self._set_feedback(
+                    f"第三步完成（发现异常）：{fail_str} 相序错误，"
+                    f"已记录故障证据，请继续后续步骤收集更多数据，将在第五步前统一检修。",
+                    "#92400e")
+            else:
+                self._set_feedback(
+                    "第三步【PT 相序检查】已确认完成，后续操作将不再影响该步骤状态。",
+                    "#006600")
+        else:
+            # 正常模式：要求六相全部通过
+            if not self._are_phase_check_records_complete():
+                self._set_feedback(
+                    '请先完成 PT1/PT3 全部六相相序测量（且全部通过），再点击"完成第三步测试"。',
+                    "red")
+                return
+            state.completed = True
             self._set_feedback(
-                '请先完成 PT1/PT3 全部六相相序测量（且全部通过），再点击\u201c完成第三步测试\u201d。',
-                "red")
-            return
-        state.completed = True
-        self._set_feedback(
-            "第三步【PT 相序检查】已确认完成，后续操作将不再影响该步骤状态。",
-            "#006600")
+                "第三步【PT 相序检查】已确认完成，后续操作将不再影响该步骤状态。",
+                "#006600")
 
     def get_pt_phase_check_blockers(self):
         return [text for text, done in self.get_pt_phase_check_steps() if not done]

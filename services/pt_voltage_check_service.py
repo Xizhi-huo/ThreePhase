@@ -190,31 +190,64 @@ class PtVoltageCheckService:
             for k in _ALL_KEYS
         )
 
+    def _are_all_records_filled(self):
+        """九项是否已全部测量（无论是否在合格范围内）。"""
+        records = self._ctrl.pt_voltage_check_state.records
+        return all(records[k] is not None for k in _ALL_KEYS)
+
     def finalize_pt_voltage_check(self):
         state = self._ctrl.pt_voltage_check_state
-        if not self._are_records_complete():
-            # 找出哪些项目未记录或偏离 100V
-            records = state.records
-            missing = [k for k in _ALL_KEYS if records[k] is None]
-            bad = [k for k in _ALL_KEYS
-                   if records[k] is not None
-                   and not (8925.0 <= records[k]['voltage'] <= 12075.0)]
-            if missing:
+        fc = self._ctrl.sim_state.fault_config
+        fault_training = fc.active and fc.detected and not fc.repaired
+
+        if fault_training:
+            # 故障训练模式：九项全部测量完即可完成，无需全部在合格范围内
+            if not self._are_all_records_filled():
+                records = state.records
+                missing = [k for k in _ALL_KEYS if records[k] is None]
                 self._set_feedback(
                     f'以下项目尚未完成记录：{", ".join(missing)}。请补充测量后再点击「完成第二步测试」。',
                     "red")
-            else:
+                return
+            state.completed = True
+            records = state.records
+            bad = [k for k in _ALL_KEYS
+                   if not (8925.0 <= records[k]['voltage'] <= 12075.0)]
+            if bad:
                 bad_str = "、".join(
                     f"{k}={records[k]['voltage']/1000:.2f} kV" for k in bad)
                 self._set_feedback(
-                    f'以下线电压偏离目标 10.5 kV（需在 8.925～12.075 kV 内）：{bad_str}。'
-                    '请调整发电机输出电压，使各 PT 一次侧线电压均约为 10.5 kV，再点击「完成第二步测试」。',
-                    "red")
-            return
-        state.completed = True
-        self._set_feedback(
-            "第二步【PT 单体线电压检查】已确认完成，后续操作将不再影响该步骤状态。",
-            "#006600")
+                    f"第二步完成（发现异常）：{bad_str} 电压偏离额定范围，"
+                    f"已记录故障证据，请继续后续步骤收集更多数据，将在第五步前统一检修。",
+                    "#92400e")
+            else:
+                self._set_feedback(
+                    "第二步【PT 单体线电压检查】已确认完成，后续操作将不再影响该步骤状态。",
+                    "#006600")
+        else:
+            # 正常模式：九项全部记录且均在合格范围内才能完成
+            if not self._are_records_complete():
+                records = state.records
+                missing = [k for k in _ALL_KEYS if records[k] is None]
+                bad = [k for k in _ALL_KEYS
+                       if records[k] is not None
+                       and not (8925.0 <= records[k]['voltage'] <= 12075.0)]
+                if missing:
+                    self._set_feedback(
+                        f'以下项目尚未完成记录：{", ".join(missing)}。请补充测量后再点击「完成第二步测试」。',
+                        "red")
+                else:
+                    bad_str = "、".join(
+                        f"{k}={records[k]['voltage']/1000:.2f} kV" for k in bad)
+                    self._set_feedback(
+                        f'以下线电压偏离目标 10.5 kV（需在 8.925～12.075 kV 内）：{bad_str}。'
+                        '请调整发电机输出电压，使各 PT 一次侧线电压均约为 10.5 kV，再点击「完成第二步测试」。',
+                        "red")
+                return
+            state.completed = True
+            self._set_feedback(
+                "第二步【PT 单体线电压检查】已确认完成，后续操作将不再影响该步骤状态。",
+                "#006600")
 
     def get_pt_voltage_check_blockers(self):
         return [text for text, done in self.get_pt_voltage_check_steps() if not done]
