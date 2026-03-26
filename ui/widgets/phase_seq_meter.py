@@ -14,6 +14,7 @@ import math
 from PyQt5 import QtWidgets, QtCore, QtGui
 
 _N       = 12          # 圆点数量
+_ABC_FWD = {'ABC', 'BCA', 'CAB'}   # 所有正序循环排列
 _TAIL    = 5           # 亮尾长度（含头部）
 _FPS     = 25          # 动画帧率
 _ROT_HZ  = 1.5         # 转速（圈/秒），与 50Hz 频率基准对应
@@ -55,8 +56,9 @@ class PhaseSeqMeterWidget(QtWidgets.QWidget):
     def connect_pt(self, pt_name: str, sequence: str):
         self._connected_pt = pt_name
         self._sequence     = sequence
-        self._direction    = (1 if sequence == 'ABC' else
-                              -1 if sequence == 'ACB' else 0)
+        is_valid = (len(sequence) == 3 and sequence not in ('unknown', 'FAULT'))
+        self._direction    = (1 if sequence in _ABC_FWD else
+                              -1 if is_valid else 0)
 
     def disconnect(self):
         self._connected_pt = None
@@ -89,8 +91,8 @@ class PhaseSeqMeterWidget(QtWidgets.QWidget):
         ring_r   = min(W, H) // 2 - 22
         dot_r    = 7
 
-        bright_color = (self._ABC_BRIGHT if self._sequence == 'ABC' else
-                        self._ACB_BRIGHT if self._sequence == 'ACB' else
+        bright_color = (self._ABC_BRIGHT if self._sequence in _ABC_FWD else
+                        self._ACB_BRIGHT if self._direction == -1 else
                         self._UNK_BRIGHT)
 
         for i in range(_N):
@@ -126,10 +128,10 @@ class PhaseSeqMeterWidget(QtWidgets.QWidget):
         # ── 中心文字 ─────────────────────────────────────────────────────
         if self._connected_pt:
             line1 = self._connected_pt
-            if self._sequence == 'ABC':
-                line2, c2 = "正序 ↻", '#2ecc71'
-            elif self._sequence == 'ACB':
-                line2, c2 = "逆序 ↺", '#e74c3c'
+            if self._sequence in _ABC_FWD:
+                line2, c2 = f"{self._sequence} ↻", '#2ecc71'
+            elif self._direction == -1:
+                line2, c2 = f"{self._sequence} ↺", '#e74c3c'
             else:
                 line2, c2 = "未知", '#aaa'
         else:
@@ -150,8 +152,8 @@ class PhaseSeqMeterWidget(QtWidgets.QWidget):
         lamp_ax = W // 3
         lamp_bx = W * 2 // 3
 
-        glow_a = bool(self._connected_pt and self._sequence == 'ABC')
-        glow_b = bool(self._connected_pt and self._sequence == 'ACB')
+        glow_a = bool(self._connected_pt and self._sequence in _ABC_FWD)
+        glow_b = bool(self._connected_pt and self._direction == -1)
         self._draw_lamp(p, lamp_ax, lamp_y, lamp_r,
                         self._LAMP_A_ON if glow_a else self._LAMP_A_OFF, glow_a)
         self._draw_lamp(p, lamp_bx, lamp_y, lamp_r,

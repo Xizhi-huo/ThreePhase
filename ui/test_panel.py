@@ -128,6 +128,7 @@ class TestPanelMixin:
             " padding:4px 8px; border-radius:4px; border:1px solid #fca5a5;")
         self._tp_fault_banner.setAlignment(QtCore.Qt.AlignCenter)
         self._tp_fault_banner.setWordWrap(True)
+        self._tp_fault_banner.setMinimumHeight(40)
         self._tp_fault_banner.setVisible(False)
         cl.addWidget(self._tp_fault_banner)
 
@@ -155,6 +156,7 @@ class TestPanelMixin:
             "color:#94a3b8; font-size:12px; padding:2px;")
         self.tp_meter_lbl.setWordWrap(True)
         self.tp_meter_lbl.setMaximumWidth(320)
+        self.tp_meter_lbl.setMinimumHeight(36)
         cl.addWidget(self.tp_meter_lbl)
 
         # ── 各步骤专属区 ─────────────────────────────────────────────
@@ -742,6 +744,7 @@ class TestPanelMixin:
 
         self.tp_s5_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
         self.tp_s5_fb_lbl.setWordWrap(True)
+        self.tp_s5_fb_lbl.setMinimumHeight(48)
         self.tp_s5_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
         lay.addWidget(self.tp_s5_fb_lbl)
 
@@ -969,14 +972,15 @@ class TestPanelMixin:
                 state.feedback = "测量 PT3 相序时，Gen2 断路器应保持断开状态。"
                 state.feedback_color = "red"
                 return
-        phase_match = (seq == 'ABC')
+        _abc_fwd = {'ABC', 'BCA', 'CAB'}
+        phase_match = (seq in _abc_fwd)
         for ph in ('A', 'B', 'C'):
             key = f"{pt_name}_{ph}"
             state.records[key] = {
                 'phase_match': phase_match,
                 'reading': f"相序仪检测: {pt_name} → {seq}",
             }
-        result_txt = "正序（ABC）✓" if phase_match else "逆序（ACB）✗"
+        result_txt = f"正序（{seq}）✓" if phase_match else f"逆序（{seq}）✗"
         color = "#15803d" if phase_match else "#dc2626"
         # 写入 state.feedback，避免下次 refresh 刷新回旧文字
         state.feedback = f"{pt_name} 相序已记录：{result_txt}"
@@ -1191,12 +1195,13 @@ class TestPanelMixin:
         self._update_fault_banner()
 
         # ── 第五步前统一修复关卡（方案B）────────────────────────────────
-        # 当学员完成步骤1-4自然进入步骤5时，若存在未修复的渐进故障（非E06事故），
+        # 当学员完成步骤1-4自然进入步骤5时，若存在未修复的渐进故障（非E06/E01），
         # 先弹出检修对话框，完成修复后方可继续同步测试。
+        # E01 特殊处理：不在此处拦截，而是在 Gen2 实际合闸时触发致命事故弹窗。
         fc = sim.fault_config
         if (step == 5
                 and fc.active and fc.detected and not fc.repaired
-                and fc.scenario_id != 'E06'
+                and fc.scenario_id not in ('E06', 'E01')
                 and not getattr(self, '_pre_step5_repair_triggered', False)):
             self._pre_step5_repair_triggered = True
             self._show_fault_repair_dialog(fc)

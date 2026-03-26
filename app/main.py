@@ -158,9 +158,8 @@ class PowerSyncController:
         # 合法性校验：三端子必须对应三个不同物理相，否则为缺相/短接故障
         if len(set(order)) < 3:
             return 'FAULT'
-        # 顺序组合为 ABC（任意循环位移均视为正序）
-        abc_orders = {('a', 'b', 'c'), ('b', 'c', 'a'), ('c', 'a', 'b')}
-        return 'ABC' if order in abc_orders else 'ACB'
+        # 返回实际三字母相序（如 ABC、BAC、ACB 等），保留原始端子读取顺序
+        return order[0].upper() + order[1].upper() + order[2].upper()
 
     def resolve_loop_node_phase(self, node_name):
         _, gen_name, terminal = node_name.split('_', 2)
@@ -443,6 +442,14 @@ class PowerSyncController:
                 "第四步 PT 测试当前锁定在 Gen 1。\n请先完成 Gen 1 的测试，再合闸 Gen 2。"
             )
             return
+        # ── 拦截：E01 故障未修复时 Gen2 工作位合闸（仅第五步同步测试中）→ 非同期并网事故 ──
+        fc = self.sim_state.fault_config
+        if (gen_id == 2
+                and generator.breaker_position == BreakerPosition.WORKING
+                and fc.active and fc.scenario_id == 'E01' and not fc.repaired
+                and self.is_sync_test_active()):
+            self.ui.show_e01_accident_dialog()
+            return
         # ── 拦截：工作位合闸前置流程检查 ──────────────────────────────────
         if (generator.breaker_position == BreakerPosition.WORKING
                 and self._should_enforce_pt_exam_before_close()):
@@ -519,7 +526,7 @@ class PowerSyncController:
         elif scenario_id == 'E02':
             # E02: Gen2 B/C 相绕组接线对调
             # 只设 fault_reverse_bc（物理层对调波形内容），不修改 pt_phase_orders，
-            # 这样 get_pt_phase_sequence 结合 fault_reverse_bc 修正后可正确返回 'ACB'
+            # 这样 get_pt_phase_sequence 结合 fault_reverse_bc 修正后可正确返回 'CBA'（逆序）
             self.sim_state.fault_reverse_bc = True
         elif scenario_id == 'E05':
             gen2_amp = fc.params.get('gen2_amp', 13000.0)

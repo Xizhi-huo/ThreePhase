@@ -330,6 +330,7 @@ class WidgetBuilderMixin:
             "color:#1d4ed8; font-size:12px; padding:3px;")
         self.relay_lbl.setAlignment(QtCore.Qt.AlignCenter)
         self.relay_lbl.setWordWrap(True)
+        self.relay_lbl.setMinimumHeight(40)
         lay.addWidget(self.relay_lbl)
 
         # 紧急合闸

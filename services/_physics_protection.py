@@ -169,7 +169,15 @@ class ProtectionMixin:
                         and abs(ref_amp - a_value) <= 185.0
                         and abs(diff_deg) <= 1.5
                         and not generator.breaker_closed):
-                    generator.breaker_closed = True
+                    # E01 故障：Gen2 工作位自动合闸时触发非同期并网事故弹窗
+                    fc = self.ctrl.sim_state.fault_config
+                    if (gen_id == 2
+                            and generator.breaker_position == BreakerPosition.WORKING
+                            and fc.active and fc.scenario_id == 'E01'
+                            and not fc.repaired):
+                        self.ctrl.ui.show_e01_accident_dialog()
+                    else:
+                        generator.breaker_closed = True
             generator.cmd_close = False
         elif generator.mode == "manual" and generator.cmd_close:
             generator.cmd_close = False
