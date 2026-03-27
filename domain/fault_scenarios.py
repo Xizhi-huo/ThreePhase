@@ -89,17 +89,21 @@ SCENARIOS: dict = {
         'label': '运行条件错误',
         'description': (
             'PT3 A 相二次端子极性反接（K/k 端子对调）：A 端子实际输出 −VA。'
-            '第四步 PT3_A 行所有压差均异常：AA 组显示约 212V，AB/AC 组显示约 106V。'
+            '第四步 PT3_A 行所有压差均异常：AA 组显示约 166V，AB/AC 组显示约 92V。'
         ),
         'symptom': (
-            '第二步：PT3 单体线电压正常（RMS 不受极性影响）。\n'
-            '第四步：PT3_A↔PT2_A ≈ 212V（应≈0V）；\n'
-            '         PT3_A↔PT2_B ≈ 106V（应≈146V）；\n'
-            '         PT3_A↔PT2_C ≈ 106V（应≈146V）。\n'
+            '第二步：PT3_AB ≈ 106V（应≈184V，显示红色【异常】）；\n'
+            '         PT3_CA ≈ 106V（应≈184V，显示红色【异常】）；\n'
+            '         PT3_BC 正常（约 184V，不含 A 端子，不受极性影响）。\n'
+            '第三步：PT3_A ↔ PT2_A 相位不匹配（极性反接 = 180° 反相，等同于接线错误）；\n'
+            '         PT3_B / PT3_C 正常。\n'
+            '第四步：PT3_A↔PT2_A ≈ 166V（应≈0V）；\n'
+            '         PT3_A↔PT2_B ≈ 92V（应≈146V）；\n'
+            '         PT3_A↔PT2_C ≈ 92V（应≈146V）。\n'
             'PT3_B/C 行数据正常。'
         ),
-        'affected_steps': [4],
-        'detection_step': 4,
+        'affected_steps': [2, 3, 4],
+        'detection_step': 2,
         'danger_level': 'recoverable',
         'params': {
             'pt3_a_reversed': True,   # PT3 A 相二次侧极性反接

@@ -575,10 +575,13 @@ class CircuitTabMixin:
         self.phase_seq_meter.raise_()
 
         # 结果标签紧贴仪器下方
-        color = '#2ecc71' if seq == 'ABC' else '#e74c3c'
-        self._psm_result_lbl.setText(
-            f"{pt_name} → {seq}  "
-            f"{'✓ 正序' if seq == 'ABC' else '✗ 逆序'}")
+        if seq == 'ABC':
+            color, label = '#2ecc71', '✓ 正序'
+        elif seq == 'FAULT':
+            color, label = '#f39c12', '⚠ 不平衡/故障'
+        else:
+            color, label = '#e74c3c', '✗ 逆序'
+        self._psm_result_lbl.setText(f"{pt_name} → {seq}  {label}")
         self._psm_result_lbl.setStyleSheet(
             f"color:{color}; font-size:10px;"
             " background:rgba(30,39,46,200);"
@@ -925,9 +928,19 @@ class CircuitTabMixin:
                 all_recs = [records.get(f"{pt_name}_{ph}") for ph in ('A', 'B', 'C')]
                 tbl[(1, 0)].get_text().set_text(pt_name)
                 if all(r is not None for r in all_recs):
-                    ok = all_recs[0].get('phase_match', False)
-                    tbl[(1, 1)].get_text().set_text("正序ABC" if ok else "逆序ACB")
-                    bg = '#dcfce7' if ok else '#fee2e2'
+                    ok = all(r.get('phase_match', False) for r in all_recs)
+                    # E03：PT3 A 相极性反接 → 不平衡/故障，不是逆序
+                    fc = self.ctrl.sim_state.fault_config
+                    is_e03_pt3 = (fc.active and not fc.repaired
+                                  and fc.scenario_id == 'E03'
+                                  and pt_name == 'PT3')
+                    if ok:
+                        label, bg = "正序ABC", '#dcfce7'
+                    elif is_e03_pt3:
+                        label, bg = "故障/不平衡", '#fff3cd'
+                    else:
+                        label, bg = "逆序ACB", '#fee2e2'
+                    tbl[(1, 1)].get_text().set_text(label)
                 else:
                     tbl[(1, 1)].get_text().set_text("---")
                     bg = '#f1f5f9'

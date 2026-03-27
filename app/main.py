@@ -138,8 +138,14 @@ class PowerSyncController:
         原理：通过 resolve_pt_node_plot_key 获取三个端子对应的实际物理波形
         （'a'/'b'/'c'），判断 A-B-C 端子标注是否构成 ABC（正序）或 ACB（逆序）。
 
-        Returns: 'ABC' | 'ACB'
+        Returns: 'ABC' | 'ACB' | 'FAULT'
         """
+        fc = self.sim_state.fault_config
+        # E03：PT3 A 相极性反接 → VAB≈VCA≈相电压，VBC≈线电压，三相严重不平衡
+        # 相序仪无法判定正/逆序，返回 FAULT（Widget 显示静止暗淡 + "未知"）
+        if (fc.active and not fc.repaired
+                and fc.scenario_id == 'E03' and pt_name == 'PT3'):
+            return 'FAULT'
         phase_map = {}
         _rbc = self.sim_state.fault_reverse_bc
         for ph in ('A', 'B', 'C'):

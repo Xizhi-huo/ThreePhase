@@ -141,7 +141,7 @@ Domain Models
 |------|----------|----------|------------|----------|
 | E01 | Gen1 A/B相接线互换 | 步骤1（回路断路）+ 步骤3（相序异常）+ 步骤4（压差矩阵异常） | Gen2合闸时触发**致命事故弹窗** | recoverable |
 | E02 | Gen2 B/C相接线互换 | 步骤1（回路断路）+ 步骤3（相序异常）+ 步骤4（压差矩阵异常） | Gen2合闸时触发**致命事故弹窗** | recoverable |
-| E03 | PT3 A相极性反接 | 步骤4（压差矩阵异常） | 无影响（修复对话框在步骤4前弹出） | recoverable |
+| E03 | PT3 A相极性反接 | 步骤2（PT3_AB/CA偏低标红）+ 步骤3（PT3_A相位不匹配，PT3图表显示"故障/不平衡"）+ 步骤4（A行压差矩阵异常） | 无影响（修复对话框在步骤4前弹出）；步骤5尚未开始测试 | recoverable |
 | E04 | PT3变比参数错误（75 vs 标称57） | 步骤2（PT3电压偏低，标红） | 无影响 | recoverable |
 | E05 | Gen2过电压（13000V，AVR故障） | 步骤2（PT3电压超容差） | 无影响 | recoverable |
 | E06 | Gen2相角追踪禁用（强制非同期合闸） | 步骤5（Δθ不收敛） | 持续警告，强行合闸触发事故 | accident |
@@ -217,9 +217,18 @@ gen2.phase_deg += K_sync * error_phase
 # E02故障: fault_reverse_bc=True → PT3端子B→C相、C→B相
 actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 
+# 【第二步 intra-PT 线电压】通用相量差公式（_compute_intra_pt_voltage）：
+# gen_ph = pt_line_v / √3
+# angle1 = _PHASE_ANGLES[phase1]，E03 PT3 A端子: angle += π（极性反接）
+# meter_v = |gen_ph·e^(jθ1) − gen_ph·e^(jθ2)|
+# 正常/E01/E02: 两相角差120° → √3·gen_ph = pt_line_v（不变）
+# E03 PT3_AB/CA: 角差60° → gen_ph = pt_line_v/√3 ≈ 106V（偏低标红）
+# E03 PT3_BC: 不含A端子，角差120° → 正常
+
+# 【第四步 cross-PT 压差】
 # 同相压差: abs(gen_ph - bus_ph)
 # 异相压差: sqrt(gen_ph² + bus_ph² + gen_ph·bus_ph)  [cos120°=-0.5]
-# E03极性反接AA: 2·gen_ph;  E03极性反接AB/AC: sqrt(V1²+V2²-V1·V2)
+# E03极性反接AA: gen_ph+bus_ph（≈166V）;  E03极性反接AB/AC: sqrt(V1²+V2²-V1·V2)（≈92V）
 ```
 
 ---
@@ -282,7 +291,7 @@ def record_all_pt_measurements_quick(self):
   - 第二步手动模式下可自由调整发电机参数（滑块 `isSliderDown()` 保护）
   - 第四步管理员快捷记录全部18组压差
 - **待验证**：
-  - E03：步骤4压差矩阵A行异常（AA≈212V，AB/AC≈106V）
+  - E03：步骤2~4逻辑已实现（步骤3图表显示"故障/不平衡"；步骤4 AA≈166V，AB/AC≈92V），**步骤5尚未开始测试**
   - E04：步骤2 PT3电压偏低标红
   - E05：步骤2 PT3电压超容差
   - E06：步骤5相角不收敛，强行合闸触发事故

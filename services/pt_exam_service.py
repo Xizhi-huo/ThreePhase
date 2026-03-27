@@ -311,7 +311,7 @@ class PtExamService:
 
                     if _e03:
                         if is_same_phase:
-                            meter_v = 2.0 * gen_ph
+                            meter_v = gen_ph + bus_ph
                         else:
                             meter_v = np.sqrt(max(0.0,
                                 gen_ph**2 + bus_ph**2 - gen_ph * bus_ph))

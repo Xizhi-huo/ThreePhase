@@ -9,9 +9,45 @@ from domain.constants import NEUTRAL_RESISTOR_OHMS
 from domain.enums import BreakerPosition
 from domain.node_map import NODES
 
+# 三相标准相位角：A=0°, B=-120°, C=+120°
+_PHASE_ANGLES: dict = {'A': 0.0, 'B': -2 * np.pi / 3, 'C': 2 * np.pi / 3}
+
 
 class MeasurementMixin:
     """中性点接地状态、PT 二次电压计算与万用表交互仿真。"""
+
+    def _compute_intra_pt_voltage(self, pt_name: str, term1: str, term2: str,
+                                  pt_line_v: float, sim) -> float:
+        """
+        计算同一 PT 内两端子间的实际线电压。
+
+        通用相量差公式：V_ph = pt_line_v / √3，对每个端子：
+          1. 通过 _resolve_terminal_actual_phase 得到实际物理相
+          2. 查表得相位角（A=0°, B=-120°, C=+120°）
+          3. 若该端子极性反接（E03: PT3 A 端子），相位角 +180°
+          4. 返回 |V_ph·e^(jθ₁) − V_ph·e^(jθ₂)|
+
+        正常三相不同相对间：√3·V_ph = pt_line_v（与原逻辑一致）。
+        E03 PT3_AB/CA（含 A 端子）：V_ph = pt_line_v / √3（约低 42%）。
+        """
+        _SQRT3 = np.sqrt(3)
+        gen_ph = pt_line_v / _SQRT3
+        phase1 = self._resolve_terminal_actual_phase(pt_name, term1)
+        phase2 = self._resolve_terminal_actual_phase(pt_name, term2)
+        angle1 = _PHASE_ANGLES[phase1]
+        angle2 = _PHASE_ANGLES[phase2]
+        # 极性反接：E03 PT3 A 端子输出 −V，相位偏移 180°
+        fc = sim.fault_config
+        if (fc.active and not fc.repaired
+                and fc.scenario_id == 'E03' and pt_name == 'PT3'
+                and fc.params.get('pt3_a_reversed')):
+            if term1 == 'A':
+                angle1 += np.pi
+            if term2 == 'A':
+                angle2 += np.pi
+        vx = gen_ph * np.cos(angle1) - gen_ph * np.cos(angle2)
+        vy = gen_ph * np.sin(angle1) - gen_ph * np.sin(angle2)
+        return float(np.sqrt(vx ** 2 + vy ** 2))
 
     def _whole_cycle_rms_raw(self, wave: np.ndarray, freq_hz: float,
                              n_cycles: int = 3) -> float:
@@ -166,15 +202,16 @@ class MeasurementMixin:
                 elif intra_pt_pair:
                     # 同一 PT 内两相线电压测量（第二步 PT 单体线电压检查）
                     _pt_name = _pt1   # 两探针同 PT
-                    # 直接读预计算的 PT 二次侧电压，与拓扑图 PT 标签完全一致，避免波形缓冲区抖动
                     _sim_r = self.ctrl.sim_state
                     _pt_ratio = _sim_r.pt_gen_ratio if _pt_name in ('PT1', 'PT3') else _sim_r.pt_bus_ratio
                     if _pt_name == 'PT1':
-                        meter_v = self.pt1_v
+                        _pt_line_v = self.pt1_v
                     elif _pt_name == 'PT3':
-                        meter_v = self.pt3_v
+                        _pt_line_v = self.pt3_v
                     else:
-                        meter_v = self.pt2_v
+                        _pt_line_v = self.pt2_v
+                    # 通用相量差计算：支持相序调换（E01/E02）和极性反接（E03）
+                    meter_v = self._compute_intra_pt_voltage(_pt_name, _ph1, _ph2, _pt_line_v, sim)
                     self.meter_voltage = meter_v
                     self.meter_nodes = (n1, n2)
                     # ±15% 容差：均以一次侧 [8925V, 12075V] 为基准折算到各 PT 二次侧
@@ -190,16 +227,21 @@ class MeasurementMixin:
                         self.meter_status = "danger"
                         self.meter_color = "red"
                     primary_display = meter_v * _pt_ratio   # 换算回一次侧
-                    # E04/E05 故障检测：PT3 intra-PT 测量显示异常时触发
+                    # E03/E04/E05 故障检测：PT3 intra-PT 测量显示异常时触发
+                    # E03: PT3_AB/CA（含 A 端子）线电压降至相电压，偏低约 42%
+                    # E04: PT3 变比铭牌错误，所有三对均偏低
+                    # E05: PT3 电压过高，所有三对均偏高
                     fc = sim.fault_config
                     if (fc.active and not fc.detected and not fc.repaired
-                            and fc.scenario_id in ('E04', 'E05')
                             and _pt_name == 'PT3'
                             and self.meter_status == 'danger'):
-                        fc.detected = True
+                        if fc.scenario_id in ('E04', 'E05'):
+                            fc.detected = True
+                        elif fc.scenario_id == 'E03' and 'A' in (_ph1, _ph2):
+                            fc.detected = True
                     _warn_icon = (" ⚠️" if self.meter_status == 'danger'
                                   and fc.active and not fc.repaired
-                                  and fc.scenario_id in ('E04', 'E05')
+                                  and fc.scenario_id in ('E03', 'E04', 'E05')
                                   and _pt_name == 'PT3' else "")
                     self.meter_reading = (
                         f"线电压: {info1[4]} ↔ {info2[4]} | "
@@ -240,8 +282,10 @@ class MeasurementMixin:
                                    and gen_pt_name == 'PT3' and gen_term == 'A')
                     if _e03_active:
                         if bus_phase_actual == gen_phase_actual:   # AA
-                            meter_v = 2.0 * gen_ph
+                            # (-gen_ph∠0°) - (bus_ph∠0°) = -(gen_ph + bus_ph)
+                            meter_v = gen_ph + bus_ph
                         else:                                       # AB or AC
+                            # reversed_A(180°) 与 B/C(240°/120°) 夹角 60°
                             meter_v = np.sqrt(max(0.0,
                                 gen_ph**2 + bus_ph**2 - gen_ph * bus_ph))
                     elif is_same_phase:
@@ -269,7 +313,8 @@ class MeasurementMixin:
                             # E04 在 step4 同相压差异常时辅助检测（主要检测在 step2 intra-PT）
                             fc.detected = True
 
-                    self.meter_phase_match = is_same_phase
+                    # E03：PT3 A 端子极性反接 = 180° 反相，等同于相位不匹配
+                    self.meter_phase_match = False if _e03_active else is_same_phase
                     self.meter_voltage = meter_v
                     self.meter_nodes   = (n1, n2)
                     self.meter_color   = "green"

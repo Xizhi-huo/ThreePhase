@@ -146,7 +146,7 @@ PhysicsEngine  (4 个 Mixin 组合)
 |------|----------|----------|------------|----------|
 | E01 | Gen1 A/B 相接线互换 | 步骤 1（回路断路）/ 步骤 3（相序逆序）/ 步骤 4（压差矩阵异常） | Gen2 合闸触发**致命事故弹窗** | recoverable |
 | E02 | Gen2 B/C 相接线互换 | 步骤 1（回路断路）/ 步骤 3（相序逆序）/ 步骤 4（压差矩阵异常） | Gen2 合闸触发**致命事故弹窗** | recoverable |
-| E03 | PT3 A 相极性反接 | 步骤 4（A 行压差矩阵异常，AA ≈ 212 V） | 无（步骤 4 前已弹修复对话框） | recoverable |
+| E03 | PT3 A 相极性反接 | 步骤 2（PT3\_AB/CA ≈ 106 V 标红）/ 步骤 3（PT3\_A 相位不匹配，PT3 图表显示"故障/不平衡"）/ 步骤 4（A 行压差矩阵异常，AA ≈ 166 V，AB/AC ≈ 92 V） | 无（步骤 4 前已弹修复对话框）；步骤 5 尚未测试 | recoverable |
 | E04 | PT3 变比参数错误（75 vs 标称 57） | 步骤 2（PT3 电压偏低，标红） | 无 | recoverable |
 | E05 | Gen2 过电压 13 kV（AVR 故障） | 步骤 2（PT3 电压超容差） | 无 | recoverable |
 | E06 | Gen2 相角追踪禁用（强制非同期合闸） | 步骤 5（Δθ 不收敛） | 持续警告，强行合闸触发事故 | accident |
@@ -228,10 +228,17 @@ gen2.phase_deg += K_sync * error_phase
 # E02 故障: fault_reverse_bc=True → PT3 端子 B→C 相、C→B 相
 actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 
+# 【第二步 intra-PT 线电压】_compute_intra_pt_voltage() 通用相量差：
+# gen_ph = pt_line_v / √3；E03 PT3 A 端子极性反接 → angle += π
+# 正常/E01/E02: 角差 120° → √3·gen_ph（不变）
+# E03 PT3_AB/CA: 角差 60°  → gen_ph ≈ 106 V（偏低标红）
+# E03 PT3_BC:   不含 A，角差 120° → 正常
+
+# 【第四步 cross-PT 压差】
 # 同相压差:  abs(gen_ph - bus_ph)
 # 异相压差:  sqrt(gen_ph² + bus_ph² + gen_ph·bus_ph)   [cos120° = −0.5]
-# E03 极性反接 AA:    2·gen_ph
-# E03 极性反接 AB/AC: sqrt(V1² + V2² − V1·V2)
+# E03 极性反接 AA:    gen_ph + bus_ph  ≈ 166 V
+# E03 极性反接 AB/AC: sqrt(V1² + V2² − V1·V2)  ≈ 92 V
 ```
 
 ---
@@ -279,4 +286,4 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 ## 当前状态
 
 - **已完成**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
-- **待验证**：E03（步骤 4 压差矩阵异常）/ E04（步骤 2 PT3 偏低）/ E05（步骤 2 PT3 超容差）/ E06（步骤 5 相角不收敛）
+- **待验证**：E03（步骤 2~4 逻辑已实现，**步骤 5 尚未测试**）/ E04（步骤 2 PT3 偏低）/ E05（步骤 2 PT3 超容差）/ E06（步骤 5 相角不收敛）
