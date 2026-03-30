@@ -156,6 +156,8 @@ class ArbitrationMixin:
         fc = sim.fault_config
         # E06: Gen2 相位追踪模块故障，无法自动同期
         _e06 = (fc.active and not fc.repaired and fc.scenario_id == 'E06')
+        # E03: PT3 A 相极性反接，同期装置以反相位置为目标，自动收敛至 180° 错误相位
+        _e03 = (fc.active and not fc.repaired and fc.scenario_id == 'E03')
 
         all_synced = True
         target_phase_deg = np.degrees(self.bus_phase)
@@ -165,9 +167,17 @@ class ArbitrationMixin:
             all_synced = False
         if not sim.gen2.breaker_closed and mode2 == "auto" and sim.gen2.running:
             if not _e06:
-                self.auto_adjust_phase(sim.gen2, sim, target_phase_deg)
-                if all_synced:
-                    self.arb_msg, self.arb_color = "⚙️ 仲裁: 母线带电，Gen 2 正在捕获相角打同期...", "#ffcc00"
+                if _e03:
+                    # E03 故障：PT3 A 相极性反接导致参考相角反相 180°，
+                    # 同期装置将 Gen2 驱向错误的 180° 目标相位
+                    self.auto_adjust_phase(sim.gen2, sim, target_phase_deg + 180.0)
+                    if all_synced:
+                        self.arb_msg, self.arb_color = (
+                            "⚠️ 故障: PT3 A相极性反接，同期相角偏差180°，无法完成自动同期！", "#ff4444")
+                else:
+                    self.auto_adjust_phase(sim.gen2, sim, target_phase_deg)
+                    if all_synced:
+                        self.arb_msg, self.arb_color = "⚙️ 仲裁: 母线带电，Gen 2 正在捕获相角打同期...", "#ffcc00"
             else:
                 # E06 故障：相位追踪停止，相角差无法收敛（AUTO 模式）
                 self.arb_msg, self.arb_color = (
@@ -177,6 +187,11 @@ class ArbitrationMixin:
         if _e06 and not sim.gen2.breaker_closed and sim.gen2.running and mode2 != "auto":
             self.arb_msg, self.arb_color = (
                 "⚠️ 故障: Gen2 相角追踪模块失效，无法自动同期！请停机检修！", "#ff4444")
+            all_synced = False
+        # E03 手动模式同样需要显示警告
+        if _e03 and not sim.gen2.breaker_closed and sim.gen2.running and mode2 != "auto":
+            self.arb_msg, self.arb_color = (
+                "⚠️ 故障: PT3 A相极性反接，同期相角偏差180°，无法完成自动同期！", "#ff4444")
             all_synced = False
         if all_synced and (sim.gen1.breaker_closed or mode1 != "auto") and (sim.gen2.breaker_closed or mode2 != "auto"):
             self.arb_msg, self.arb_color = "✅ 仲裁器: 全部机组并联运行", "#00ff00"

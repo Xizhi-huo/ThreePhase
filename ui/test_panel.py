@@ -1210,11 +1210,11 @@ class TestPanelMixin:
         # ── 第五步前统一修复关卡（方案B）────────────────────────────────
         # 当学员完成步骤1-4自然进入步骤5时，若存在未修复的渐进故障（非E06/E01），
         # 先弹出检修对话框，完成修复后方可继续同步测试。
-        # E01/E02 特殊处理：不在此处拦截，而是在 Gen2 实际合闸时触发致命事故弹窗。
+        # E01/E02/E03 特殊处理：不在此处拦截，而是在 Gen2 实际合闸时触发致命事故弹窗。
         fc = sim.fault_config
         if (step == 5
                 and fc.active and fc.detected and not fc.repaired
-                and fc.scenario_id not in ('E06', 'E01', 'E02')
+                and fc.scenario_id not in ('E06', 'E01', 'E02', 'E03')
                 and not getattr(self, '_pre_step5_repair_triggered', False)):
             self._pre_step5_repair_triggered = True
             self._show_fault_repair_dialog(fc)

@@ -141,43 +141,55 @@ Domain Models
 |------|----------|----------|------------|----------|
 | E01 | Gen1 A/B相接线互换 | 步骤1（回路断路）+ 步骤3（相序异常）+ 步骤4（压差矩阵异常） | Gen2合闸时触发**致命事故弹窗** | recoverable |
 | E02 | Gen2 B/C相接线互换 | 步骤1（回路断路）+ 步骤3（相序异常）+ 步骤4（压差矩阵异常） | Gen2合闸时触发**致命事故弹窗** | recoverable |
-| E03 | PT3 A相极性反接 | 步骤2（PT3_AB/CA偏低标红）+ 步骤3（PT3_A相位不匹配，PT3图表显示"故障/不平衡"）+ 步骤4（A行压差矩阵异常） | 无影响（修复对话框在步骤4前弹出）；步骤5尚未开始测试 | recoverable |
+| E03 | PT3 A相极性反接 | 步骤2（PT3_AB/CA偏低标红）+ 步骤3（PT3_A相位不匹配，PT3图表显示"故障/不平衡"）+ 步骤4（A行压差矩阵异常） | Gen2自动追踪收敛至180°错误相位；同步仪显示~180°相位差；强行合闸触发**致命事故弹窗** | accident |
 | E04 | PT3变比参数错误（75 vs 标称57） | 步骤2（PT3电压偏低，标红） | 无影响 | recoverable |
 | E05 | Gen2过电压（13000V，AVR故障） | 步骤2（PT3电压超容差） | 无影响 | recoverable |
 | E06 | Gen2相角追踪禁用（强制非同期合闸） | 步骤5（Δθ不收敛） | 持续警告，强行合闸触发事故 | accident |
 
-### E01 / E02 事故触发机制（关键设计）
+### E01 / E02 / E03 事故触发机制（关键设计）
 
-E01 和 E02 均属于**接线相序错误**，在步骤1/3/4可被检出，但**不在进入步骤5时弹修复对话框**。事故在 Gen2 断路器实际合闸瞬间触发，有**两层拦截**：
+E01/E02/E03 均在步骤1~4可被检出，但**不在进入步骤5时弹修复对话框**。事故在 Gen2 断路器合闸瞬间触发，有**两层拦截**：
 
 **第一层（UI层，app/main.py `toggle_breaker()`）**：
 ```python
 # 仅当 is_sync_test_active()（步骤5同期测试进行中）才拦截手动合闸
 if fc.scenario_id == 'E01': show_e01_accident_dialog(); return
 if fc.scenario_id == 'E02': show_e02_accident_dialog(); return
+if fc.scenario_id == 'E03': show_e03_accident_dialog(); return
 # → cmd_close 不被设置，合闸请求被完全阻断
 ```
 
 **第二层（物理层，_physics_protection.py `_update_breaker_state()`）**：
 ```python
-# 兜底：覆盖 auto 自动同期合闸 + 步骤5同期未启动时的手动合闸
-# 条件：bus_live=True 且 not loop_test_mode（第一步不触发）
+# 兜底：sync_ok=True 分支（E01/E02/E03 auto 合闸拦截）
 if fc.scenario_id == 'E01': show_e01_accident_dialog()
 elif fc.scenario_id == 'E02': show_e02_accident_dialog()
-# → breaker_closed 保持 False（合闸被拦截）
+elif fc.scenario_id == 'E03': show_e03_accident_dialog()
+# → breaker_closed 保持 False
+
+# 额外：E03 sync_ok=False 分支（180°相位差时 manual 强行合闸）
+if fc.scenario_id == 'E03': show_e03_accident_dialog()
+# → 替代通用"爆炸"消息，改为事故弹窗
 ```
 
-弹窗说明：跨相短路原因、可见异常现象、修复方法。学员选"修复故障"→ `repair_fault()` → 可继续第五步。
+弹窗说明：事故原因、可见异常现象、修复方法。学员选"修复故障"→ `repair_fault()` → 可继续第五步。
 
-**工程原理**：E02 中 Gen2 B/C 端子对调，自动同步以 A 相参考角收敛（Δf/ΔV/Δθ 均满足），同期仪误判条件满足，但合闸瞬间 B/C 两相跨接母线造成 120° 相位差的直接短路。物理引擎单相等效电路无法计算此跨相电流，故在保护层硬编码拦截。
+**E03 步骤 2~4 弹窗屏蔽**：
+- `_check_fault_detection()`（main_window.py）：`danger_level == 'accident'` 且 `scenario_id == 'E03'` 时直接 return，不弹窗（异常数据通过横幅提示即可）
+- `test_panel.py` 第五步前修复关卡：E03 加入排除列表 `('E06','E01','E02','E03')`，不在进入步骤 5 时弹修复对话框
+- 结果：步骤 2~4 学员只看到异常测量值 + 横幅"已发现异常证据"，可直接记录推进；事故仅在步骤 5 合闸触发
+
+**E03 工程原理**：PT3 A 相极性反接使同期装置参考角偏差 180°。`_handle_live_bus_sync` 中 E03 激活时，`auto_adjust_phase` 目标改为 `target_phase_deg + 180°`，Gen2 收敛至反相位置；sync_ok=False，仲裁器显示红色警告。学员若仍强行合闸，触发事故弹窗。
+
+**E01/E02 工程原理**：自动同步以 A 相参考角收敛（Δf/ΔV/Δθ 均满足），同期仪误判条件满足，但 E01 合闸后 A/B 错相 120° 短路，E02 合闸后 B/C 跨相 120° 短路。物理引擎单相等效电路无法计算跨相电流，故在保护层硬编码拦截。
 
 ### 故障注入机制（通用流程）
 1. 教师在右侧控制面板选择故障场景
 2. `FaultConfig` 注入 `SimulationState`（及 `fault_reverse_bc` 等专属标志）
 3. `PhysicsEngine` 读取故障参数扭曲测量值
-4. UI 轮询 `fault_config.detected` 标志，触发警告对话框
+4. UI 轮询 `fault_config.detected` 标志，更新横幅提示（E04/E05 另在步骤4→5过渡时弹修复对话框）
 5. 学员"修复"确认 → `repaired = True`，允许继续测试
-6. E01/E02 例外：修复时机在第五步合闸事故弹窗内，而非步骤4→5过渡时
+6. E01/E02/E03 例外：修复时机在第五步合闸事故弹窗内，步骤2~4仅显示横幅不弹窗
 
 ---
 
@@ -290,8 +302,9 @@ def record_all_pt_measurements_quick(self):
   - E01/E02 双层拦截架构：UI层（`app/main.py` + `is_sync_test_active()`）+ 物理层（`_physics_protection.py` + `bus_live + not loop_test_mode`）
   - 第二步手动模式下可自由调整发电机参数（滑块 `isSliderDown()` 保护）
   - 第四步管理员快捷记录全部18组压差
-- **待验证**：
-  - E03：步骤2~4逻辑已实现（步骤3图表显示"故障/不平衡"；步骤4 AA≈166V，AB/AC≈92V），**步骤5尚未开始测试**
+  - **E03 步骤5方案B**：`_handle_live_bus_sync` 中 E03 激活时 Gen2 追踪目标偏移 +180°；仲裁器显示红色警告；UI层/物理层双拦截；新增 `show_e03_accident_dialog()`；`danger_level` 升级为 `accident`
+- **待验证（需运行测试）**：
+  - E03：步骤5方案B已实现，待实际运行验证
   - E04：步骤2 PT3电压偏低标红
   - E05：步骤2 PT3电压超容差
   - E06：步骤5相角不收敛，强行合闸触发事故
