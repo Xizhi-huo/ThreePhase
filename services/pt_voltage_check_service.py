@@ -140,7 +140,14 @@ class PtVoltageCheckService:
 
         # 换算回一次侧线电压（教学中关心的实际电压量）
         _pt_name = (sim.probe1_node or '').split('_')[0]
-        _pt_ratio = sim.pt_gen_ratio if _pt_name in ('PT1', 'PT3') else sim.pt_bus_ratio
+        _pt_ratio = (sim.pt_gen_ratio if _pt_name == 'PT1'
+                     else sim.pt3_ratio if _pt_name == 'PT3'
+                     else sim.pt_bus_ratio)
+        # E04：一次侧换算使用额定变比，使学员能发现二次侧读数与额定不符
+        _fc = sim.fault_config
+        if (_pt_name == 'PT3' and _fc.active and not _fc.repaired
+                and _fc.scenario_id == 'E04'):
+            _pt_ratio = 11000.0 / 193.0
         primary_v = meter_v_sec * _pt_ratio          # ≈ 10500 V（无论哪侧PT均还原一次侧）
 
         state.records[key] = {
@@ -150,11 +157,13 @@ class PtVoltageCheckService:
         }
 
         all_rec = all(state.records[k] is not None for k in _ALL_KEYS)
+        # 额定二次侧线电压 = 一次侧额定（10500V）/ 变比
+        _nominal_sec = 10500.0 / _pt_ratio
         # 一次侧额定线电压 10500V，±15% 容差由二次侧 status 已判定
         if meter_status != 'ok':
             rec_color = "#cc6600"
             rec_note = (f"（⚠️ 一次侧测量值 {primary_v:.0f} V，"
-                        f"二次侧 {meter_v_sec:.1f} V，偏离额定 100V，请调整后重新测量）")
+                        f"二次侧 {meter_v_sec:.1f} V，偏离额定 {_nominal_sec:.0f} V，请调整后重新测量）")
         else:
             rec_color = "#006600"
             rec_note = f"（一次侧 {primary_v:.0f} V ≈ 10500 V，正常）"

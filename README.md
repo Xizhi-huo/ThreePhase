@@ -67,7 +67,8 @@ ThreePhase/
 │       └── phase_seq_meter.py      # 相序计 UI
 ├── adapters/
 │   └── render_state.py             # RenderState 数据类（UI 渲染快照）
-└── README.md
+├── README.md
+└── context.md                      # Claude 对话上下文摘要
 ```
 
 ---
@@ -114,7 +115,9 @@ PhysicsEngine  (4 个 Mixin 组合)
 | `system_mode` | 当前系统模式（目前仅启用 `ISOLATED_BUS`） |
 | `fault_config` | 当前激活的故障场景配置 |
 | `fault_reverse_bc` | Gen2 B/C 相物理对调标志（E02 专用） |
-| `pt_gen_ratio`, `pt_bus_ratio` | PT 变比（步骤 2 可配置） |
+| `pt_gen_ratio` | PT1（Gen1侧）变比，默认 11000/193 ≈ 56.99 |
+| `pt3_ratio` | PT3（Gen2侧）变比，默认 11000/193 ≈ 56.99；E04注入时改为 11000/93 ≈ 118.28 |
+| `pt_bus_ratio` | PT2（母排侧）变比，默认 10500/105 = 100，二次侧额定 105V |
 | `grounding_mode` | `"小电阻接地"` / `"断开"` |
 | `probe1_node`, `probe2_node` | 万用表表笔位置 |
 | `loop_test_mode` | 第 1 步回路测试专用模式（允许不起机合闸） |
@@ -146,49 +149,54 @@ PhysicsEngine  (4 个 Mixin 组合)
 |------|----------|----------|------------|----------|
 | E01 | Gen1 A/B 相接线互换 | 步骤 1（回路断路）/ 步骤 3（相序逆序）/ 步骤 4（压差矩阵异常） | Gen2 合闸触发**致命事故弹窗** | recoverable |
 | E02 | Gen2 B/C 相接线互换 | 步骤 1（回路断路）/ 步骤 3（相序逆序）/ 步骤 4（压差矩阵异常） | Gen2 合闸触发**致命事故弹窗** | recoverable |
-| E03 | PT3 A 相极性反接 | 步骤 2（PT3\_AB/CA ≈ 106 V 标红）/ 步骤 3（PT3\_A 相位不匹配，PT3 图表显示"故障/不平衡"）/ 步骤 4（A 行压差矩阵异常，AA ≈ 166 V，AB/AC ≈ 92 V） | Gen2 自动同期收敛至 180° 错误相位，同步仪显示 ~180° 相位差；强行手动合闸触发**致命事故弹窗** | accident |
-| E04 | PT3 变比参数错误（75 vs 标称 57） | 步骤 2（PT3 电压偏低，标红） | 无 | recoverable |
-| E05 | Gen2 过电压 13 kV（AVR 故障） | 步骤 2（PT3 电压超容差） | 无 | recoverable |
+| E03 | PT3 A 相极性反接 | 步骤 2（PT3\_AB/CA ≈ 106 V 标红）/ 步骤 3（PT3\_A 相位不匹配）/ 步骤 4（A 行压差矩阵异常） | Gen2 自动同期收敛至 180° 错误相位；强行手动合闸触发**致命事故弹窗** | accident |
+| E04 | PT3 实际变比 11000:93（≈118.28），额定应为 11000:193（≈56.99） | 步骤 2（PT3 二次侧 ≈ 88 V，远低于额定 184 V，标红）/ 步骤 4（PT3 各行压差均偏小） | 无 | recoverable |
+| E05 | Gen2 过电压 13 kV（AVR 故障） | 步骤 2（PT3 电压超容差）/ 步骤 4（PT3 同相压差偏大）/ 步骤 5（幅值同步失败） | 无 | recoverable |
 | E06 | Gen2 相角追踪禁用（强制非同期合闸） | 步骤 5（Δθ 不收敛） | 持续警告，强行合闸触发事故 | accident |
 
-### E01 / E02 / E03 事故触发机制
+### E04 场景说明
 
-E01 / E02 / E03 在步骤 1~4 均可被检出，**不在进入步骤 5 时弹修复对话框**，而是等到 Gen2 断路器实际合闸瞬间触发，设有两层拦截：
+PT3 的**硬件实际变比**为 118.28（11000:93），**额定铭牌**应为 56.99（11000:193）。系统注入 E04 时：
+
+- 控制台同步显示真实变比 11000:93（`sim.pt3_ratio = 118.28`）
+- PT3 二次侧物理测量 ≈ 10500 / 118.28 ≈ **88.8 V**
+- 阈值比较使用**额定变比 56.99**：下限 = 8925 / 56.99 ≈ 156.6 V → 88.8 V 远低于下限 → **红色[异常]**
+- 记录表格中换算一次侧也用额定变比：88.8 × 56.99 ≈ 5060 V，不在 [8925, 12075] V 范围内 → 表格标红
+- 反馈文本显示"偏离额定 184 V"（动态计算，非硬编码）
+
+### E01 / E02 事故触发机制
+
+E01 / E02 属于**接线相序错误**，步骤 1/3/4 可被检出，**不在进入步骤 5 时弹修复对话框**，而是等到 Gen2 断路器实际合闸瞬间触发，设有两层拦截：
 
 **第一层 — UI 层** (`app/main.py` `toggle_breaker()`)
 
 ```python
 # 仅当 is_sync_test_active()（步骤 5 同期测试进行中）拦截手动合闸
 if fc.scenario_id == 'E01':
-    show_e01_accident_dialog(); return
+    show_e01_accident_dialog(); return   # cmd_close 不被设置
 elif fc.scenario_id == 'E02':
     show_e02_accident_dialog(); return
-elif fc.scenario_id == 'E03':
-    show_e03_accident_dialog(); return
 ```
 
 **第二层 — 物理层** (`_physics_protection.py` `_update_breaker_state()`)
 
 ```python
-# 兜底：覆盖 auto 自动同期合闸 + E03 sync_ok=False 时的手动强行合闸
+# 兜底：覆盖 auto 自动同期合闸 + 步骤 5 同期未启动时的手动合闸
 if fc.scenario_id == 'E01':   show_e01_accident_dialog()
 elif fc.scenario_id == 'E02': show_e02_accident_dialog()
-elif fc.scenario_id == 'E03': show_e03_accident_dialog()
 # breaker_closed 保持 False，合闸被完全阻断
 ```
 
 学员选择"修复故障" → `repair_fault()` → 可继续第五步流程。
 
-> **E01/E02 工程原理**：自动同步以 A 相参考角收敛（Δf/ΔV/Δθ 均满足），同期仪误判条件满足，但合闸瞬间发生跨相短路。物理引擎采用单相等效电路无法计算跨相电流，故在保护层硬编码拦截。
->
-> **E03 工程原理**：PT3 A 相极性反接使同期装置参考角偏差 180°，自动同期将 Gen2 驱向反相位置后误判条件满足；步骤 2~4 的异常测量值（106 V、166 V、92 V）仅通过横幅提示，学员可直接记录推进，不弹修复对话框；事故仅在步骤 5 合闸时触发。
+> **工程原理**：E02 中 Gen2 B/C 端子对调，自动同步以 A 相参考角收敛（Δf/ΔV/Δθ 均满足），同期仪误判条件满足，但合闸瞬间 B/C 两相跨接母线造成 120° 相位差的直接短路。物理引擎采用单相等效电路，无法计算跨相短路电流，故在保护层硬编码拦截。
 
 ### 故障注入通用流程
 
 1. 教师在右侧控制面板选择故障场景
 2. `FaultConfig` 注入 `SimulationState`（E02 同时置 `fault_reverse_bc=True`）
 3. `PhysicsEngine` 读取故障参数扭曲测量值
-4. UI 轮询 `fault_config.detected` 标志，更新横幅提示
+4. UI 轮询 `fault_config.detected` 标志，触发警告横幅
 5. 学员"修复"确认 → `repaired = True`，允许继续测试
 6. E01/E02/E03 例外：修复时机在第五步合闸事故弹窗内，而非步骤 4→5 过渡时
 
@@ -238,6 +246,7 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 # 正常/E01/E02: 角差 120° → √3·gen_ph（不变）
 # E03 PT3_AB/CA: 角差 60°  → gen_ph ≈ 106 V（偏低标红）
 # E03 PT3_BC:   不含 A，角差 120° → 正常
+# E04: sim.pt3_ratio=118.28 但阈值用额定 56.99 → 88.8 V 标红
 
 # 【第四步 cross-PT 压差】
 # 同相压差:  abs(gen_ph - bus_ph)
@@ -284,11 +293,12 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - 进入测试模式：右侧控制面板隐藏，测试面板显示
 - 每步控制台由 `_build_step1~5` 构建，`_refresh_tp_step1~5` 每帧刷新
 - **管理员模式**：开启后 Tab 2～6 可见，步骤可手动跳转
+- **第二步 PT 变比控制台**：PT1 / PT3 / PT2 分三行独立显示，`_tp_s2_ratio_rows` 字典挂在 `self.ui`（非 `self.ui.test_panel`）上
 - **第四步管理员快捷按钮** `⚡ 快捷记录全部 18 组`：仅管理员模式显示，调用 `record_all_pt_measurements_quick()`，跳过逐组表笔测量直接写入 Gen1 + Gen2 共 18 组压差
 
 ---
 
 ## 当前状态
 
-- **已完成**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
-- **待验证**：E03（步骤 5 行为已实现）/ E04（步骤 2 PT3 偏低）/ E05（步骤 2 PT3 超容差）/ E06（步骤 5 相角不收敛）
+- **已完成并验证**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
+- **已实现待验证**：E03 步骤 5（Gen2 追踪 +180° 目标，双层拦截，事故弹窗）；E04 步骤 2（PT3 标红、记录表格标红、检测触发）；E05 步骤 2；E06 步骤 5

@@ -110,10 +110,14 @@ Domain Models
 | `system_mode` | 当前系统模式（目前仅启用 ISOLATED_BUS 隔离母排） |
 | `fault_config` | 当前激活的故障场景配置 |
 | `fault_reverse_bc` | Gen2 B/C相物理对调标志（E02专用，影响波形和PT3测量） |
-| `pt_gen_ratio`, `pt_bus_ratio` | PT变比（步骤2中用户可配置） |
+| `pt_gen_ratio` | PT1（Gen1侧）变比，默认 11000/193 ≈ 56.99；步骤2可配置 |
+| `pt3_ratio` | PT3（Gen2侧）变比，默认 11000/193 ≈ 56.99；E04注入时改为 11000/93 ≈ 118.28 |
+| `pt_bus_ratio` | PT2（母排侧）变比，默认 10500/105 = 100；二次侧额定 105V |
 | `grounding_mode` | "小电阻接地" / "断开" |
 | `probe1_node`, `probe2_node` | 万用表表笔位置 |
 | `loop_test_mode` | 第1步回路测试专用模式 |
+
+**PT变比分离设计**：PT1与PT3各用独立字段（`pt_gen_ratio` / `pt3_ratio`），是为了支持E04场景（仅PT3变比错误，PT1保持正确）。步骤2控制台分三行分别显示并可独立修改。
 
 ---
 
@@ -141,10 +145,20 @@ Domain Models
 |------|----------|----------|------------|----------|
 | E01 | Gen1 A/B相接线互换 | 步骤1（回路断路）+ 步骤3（相序异常）+ 步骤4（压差矩阵异常） | Gen2合闸时触发**致命事故弹窗** | recoverable |
 | E02 | Gen2 B/C相接线互换 | 步骤1（回路断路）+ 步骤3（相序异常）+ 步骤4（压差矩阵异常） | Gen2合闸时触发**致命事故弹窗** | recoverable |
-| E03 | PT3 A相极性反接 | 步骤2（PT3_AB/CA偏低标红）+ 步骤3（PT3_A相位不匹配，PT3图表显示"故障/不平衡"）+ 步骤4（A行压差矩阵异常） | Gen2自动追踪收敛至180°错误相位；同步仪显示~180°相位差；强行合闸触发**致命事故弹窗** | accident |
-| E04 | PT3变比参数错误（75 vs 标称57） | 步骤2（PT3电压偏低，标红） | 无影响 | recoverable |
-| E05 | Gen2过电压（13000V，AVR故障） | 步骤2（PT3电压超容差） | 无影响 | recoverable |
+| E03 | PT3 A相极性反接 | 步骤2（PT3_AB/CA≈106V标红）+ 步骤3（PT3_A相位不匹配）+ 步骤4（A行压差矩阵异常） | Gen2自动追踪收敛至180°错误相位；同步仪显示~180°相位差；强行合闸触发**致命事故弹窗** | accident |
+| E04 | PT3实际变比11000:93（≈118.28），额定应为11000:193（≈56.99） | 步骤2（PT3二次侧≈88V，远低于额定184V，标红）+ 步骤4（PT3各行压差均偏小） | 无（recoverable，学员在步骤4~5前修复即可） | recoverable |
+| E05 | Gen2过电压（13000V，AVR故障） | 步骤2（PT3电压超容差）+ 步骤4（PT3同相压差偏大）+ 步骤5（幅值同步失败） | 无 | recoverable |
 | E06 | Gen2相角追踪禁用（强制非同期合闸） | 步骤5（Δθ不收敛） | 持续警告，强行合闸触发事故 | accident |
+
+### E04 场景详解（关键设计）
+
+E04 的核心：PT3 **硬件实际变比** 为 118.28，但**额定铭牌**应为 56.99。系统注入E04时：
+- `sim.pt3_ratio` 设为 118.28（控制台同步显示 11000:93，让学员看到真实变比）
+- 物理测量也用 118.28，二次侧输出 ≈ 10500/118.28 ≈ **88.8V**
+- **阈值比较使用额定变比 56.99**（在 `_physics_measurement.py` 和 `pt_voltage_check_service.py` 中均做特殊处理）：阈值范围 8925/56.99 ≈ 156.6V ~ 211.9V，88.8V 远低于下限 → **红色[异常]**
+- 检测触发：`meter_status == 'danger'` 时置 `fc.detected = True`
+- 记录表格：`primary_v = meter_v_sec × 56.99 ≈ 5060V`，不在 [8925, 12075]V → 表格也标红
+- 反馈文本中"偏离额定"显示动态计算的额定二次侧值（PT3为184V，PT2为105V），不再硬编码
 
 ### E01 / E02 / E03 事故触发机制（关键设计）
 
@@ -236,6 +250,10 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 # 正常/E01/E02: 两相角差120° → √3·gen_ph = pt_line_v（不变）
 # E03 PT3_AB/CA: 角差60° → gen_ph = pt_line_v/√3 ≈ 106V（偏低标红）
 # E03 PT3_BC: 不含A端子，角差120° → 正常
+#
+# E04 阈值特殊处理（_physics_measurement.py 和 pt_voltage_check_service.py）：
+# 即使 sim.pt3_ratio=118.28，阈值计算强制用额定变比56.99
+# → 阈值下限 8925/56.99≈156.6V，测量≈88.8V → 红色[异常]
 
 # 【第四步 cross-PT 压差】
 # 同相压差: abs(gen_ph - bus_ph)
@@ -280,6 +298,7 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - 进入测试模式：`ctrl_container.setVisible(False)`，`test_panel.setVisible(True)`
 - 每步控制台由 `_build_step1~5` 构建，`_refresh_tp_step1~5` 每帧刷新
 - **管理员模式**：开启后 Tab 2~6 可见，步骤点可手动跳转
+- **第二步变比控制台**：PT1/PT3/PT2 分三行独立显示，`_tp_s2_ratio_rows` 字典存储各行控件引用（键为 `'pt_gen_ratio'`/`'pt3_ratio'`/`'pt_bus_ratio'`），**该属性挂在 `self.ui`（PowerSyncUI实例）上，不在 `self.ui.test_panel`（QWidget）上**
 - **第四步管理员快捷按钮** `⚡ 快捷记录全部18组`：仅管理员模式显示，调用 `record_all_pt_measurements_quick()`，跳过逐组表笔测量直接写入 Gen1+Gen2 共18组压差
 
 ### 快捷记录实现（pt_exam_service.py）
@@ -296,16 +315,19 @@ def record_all_pt_measurements_quick(self):
 
 ## 项目当前状态
 
-- **已完成**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
-- **本轮新增功能**：
-  - E02 步骤5合闸事故弹窗（`show_e02_accident_dialog`，与E01机制完全对称）
-  - E01/E02 双层拦截架构：UI层（`app/main.py` + `is_sync_test_active()`）+ 物理层（`_physics_protection.py` + `bus_live + not loop_test_mode`）
-  - 第二步手动模式下可自由调整发电机参数（滑块 `isSliderDown()` 保护）
-  - 第四步管理员快捷记录全部18组压差
-  - **E03 步骤5方案B**：`_handle_live_bus_sync` 中 E03 激活时 Gen2 追踪目标偏移 +180°；仲裁器显示红色警告；UI层/物理层双拦截；新增 `show_e03_accident_dialog()`；`danger_level` 升级为 `accident`
-- **待验证（需运行测试）**：
+- **已完成并验证**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
+- **本轮完成功能**：
+  - E03 步骤5方案B：Gen2追踪目标偏移+180°，双层拦截，事故弹窗
+  - E04 步骤2完整实现：
+    - PT1/PT3变比拆分为独立字段（`pt_gen_ratio` / `pt3_ratio`）
+    - 控制台三行分别显示 PT1/PT3/PT2，PT2额定变比10500:105（二次侧105V）
+    - E04注入时控制台显示真实变比11000:93（sim.pt3_ratio=118.28）
+    - 万用表读数与记录表格均使用额定变比56.99作为阈值基准 → 88.8V标红
+    - 检测机制：`meter_status == 'danger'` 触发 `fc.detected`
+    - 反馈文本动态显示各PT额定二次侧值（不再硬编码100V）
+- **待运行验证**：
   - E03：步骤5方案B已实现，待实际运行验证
-  - E04：步骤2 PT3电压偏低标红
+  - E04：步骤2修复已完成，待端到端运行验证
   - E05：步骤2 PT3电压超容差
   - E06：步骤5相角不收敛，强行合闸触发事故
 

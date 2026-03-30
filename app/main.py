@@ -544,6 +544,13 @@ class PowerSyncController:
             # 只设 fault_reverse_bc（物理层对调波形内容），不修改 pt_phase_orders，
             # 这样 get_pt_phase_sequence 结合 fault_reverse_bc 修正后可正确返回 'CBA'（逆序）
             self.sim_state.fault_reverse_bc = True
+        elif scenario_id == 'E04':
+            # E04：PT3 实际变比为 11000:93（= 118.28），控制台同步显示该值
+            self.sim_state.pt3_ratio = 11000.0 / 93.0
+            _rows = getattr(self.ui, '_tp_s2_ratio_rows', {})
+            if 'pt3_ratio' in _rows:
+                _, sec_spin, _ = _rows['pt3_ratio']
+                sec_spin.setValue(93)
         elif scenario_id == 'E05':
             gen2_amp = fc.params.get('gen2_amp', 13000.0)
             self.sim_state.gen2.amp = gen2_amp
@@ -565,8 +572,13 @@ class PowerSyncController:
             # Fix 2: 立即将 Gen2 幅值恢复到额定值，无需等待 auto_adjust_local 慢速收敛
             self.sim_state.gen2.amp = GRID_AMP
             self.sim_state.gen2.actual_amp = GRID_AMP
-        # E04 修复后 pt3_v 由 _update_pt_measurements 自动使用正确变比
-        # E04 修复后 pt3_v 由 _update_pt_measurements 自动使用正确变比
+        elif sid == 'E04':
+            # 修复后恢复 PT3 正确变比 11000:193
+            self.sim_state.pt3_ratio = 11000.0 / 193.0
+            _rows = getattr(self.ui, '_tp_s2_ratio_rows', {})
+            if 'pt3_ratio' in _rows:
+                _, sec_spin, _ = _rows['pt3_ratio']
+                sec_spin.setValue(193)
 
     def reset_for_scenario(self, scenario_id: str):
         """

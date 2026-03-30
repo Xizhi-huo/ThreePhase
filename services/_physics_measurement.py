@@ -117,9 +117,9 @@ class MeasurementMixin:
         self.pt2_v = bus_a / sim.pt_bus_ratio
         # E04：PT3 使用故障变比（铭牌错误导致二次侧读数偏低/高）
         if fc.active and not fc.repaired and fc.scenario_id == 'E04':
-            self.pt3_v = a2 / fc.params.get('pt3_ratio', sim.pt_gen_ratio)
+            self.pt3_v = a2 / fc.params.get('pt3_ratio', sim.pt3_ratio)
         else:
-            self.pt3_v = a2 / sim.pt_gen_ratio
+            self.pt3_v = a2 / sim.pt3_ratio
 
     def _update_multimeter(self, sim):
         _UI_NODES = NODES
@@ -203,7 +203,9 @@ class MeasurementMixin:
                     # 同一 PT 内两相线电压测量（第二步 PT 单体线电压检查）
                     _pt_name = _pt1   # 两探针同 PT
                     _sim_r = self.ctrl.sim_state
-                    _pt_ratio = _sim_r.pt_gen_ratio if _pt_name in ('PT1', 'PT3') else _sim_r.pt_bus_ratio
+                    _pt_ratio = (_sim_r.pt_gen_ratio if _pt_name == 'PT1'
+                                 else _sim_r.pt3_ratio if _pt_name == 'PT3'
+                                 else _sim_r.pt_bus_ratio)
                     if _pt_name == 'PT1':
                         _pt_line_v = self.pt1_v
                     elif _pt_name == 'PT3':
@@ -214,6 +216,11 @@ class MeasurementMixin:
                     meter_v = self._compute_intra_pt_voltage(_pt_name, _ph1, _ph2, _pt_line_v, sim)
                     self.meter_voltage = meter_v
                     self.meter_nodes = (n1, n2)
+                    # E04：阈值使用额定变比（故障是硬件变比与铭牌不符，铭牌值56.99应为参考基准）
+                    _fc_e04 = _sim_r.fault_config
+                    if (_pt_name == 'PT3' and _fc_e04.active and not _fc_e04.repaired
+                            and _fc_e04.scenario_id == 'E04'):
+                        _pt_ratio = 11000.0 / 193.0
                     # ±15% 容差：均以一次侧 [8925V, 12075V] 为基准折算到各 PT 二次侧
                     _ok_lo = 8925.0 / _pt_ratio
                     _ok_hi = 12075.0 / _pt_ratio

@@ -409,8 +409,9 @@ class TestPanelMixin:
         self._tp_s2_ratio_rows: dict = {}
 
         for row_label, ratio_attr, pri_default, sec_default in [
-            ("PT1/PT3 (机组侧)", "pt_gen_ratio", 11000, 193),
-            ("PT2 (母排侧)",     "pt_bus_ratio",  10000, 100),
+            ("PT1 (Gen1侧)", "pt_gen_ratio", 11000, 193),
+            ("PT3 (Gen2侧)", "pt3_ratio",    11000, 193),
+            ("PT2 (母排侧)", "pt_bus_ratio", 10500, 105),
         ]:
             # 行标题
             hdr = QtWidgets.QLabel(row_label)
