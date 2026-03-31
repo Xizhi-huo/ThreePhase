@@ -175,6 +175,11 @@ class PowerSyncController:
                 return {'A': 'B', 'B': 'A', 'C': 'C'}[terminal]
             if fc.scenario_id == 'E02' and gen_name == 'G2':
                 return {'A': 'A', 'B': 'C', 'C': 'B'}[terminal]
+            # E05–E14: 通用 G1 换相（读取 g1_loop_swap 参数）
+            swap = fc.params.get('g1_loop_swap')
+            if swap and gen_name == 'G1':
+                p1, p2 = swap
+                return {p1: p2, p2: p1}.get(terminal, terminal)
         if gen_name == 'G2' and self.sim_state.fault_reverse_bc:
             return {'A': 'A', 'B': 'C', 'C': 'B'}[terminal]
         return terminal
@@ -551,8 +556,13 @@ class PowerSyncController:
             if 'pt3_ratio' in _rows:
                 _, sec_spin, _ = _rows['pt3_ratio']
                 sec_spin.setValue(93)
-        # E05 暂时禁用
-        # elif scenario_id == 'E05':
+        # E05–E14: Gen1/PT1 接线矩阵场景（通用注入）
+        pt1_order = fc.params.get('pt1_phase_order')
+        if pt1_order:
+            self.pt_phase_orders['PT1'] = list(pt1_order)
+
+        # E15 暂时禁用（原E05）
+        # elif scenario_id == 'E15':
         #     gen2_amp = fc.params.get('gen2_amp', 13000.0)
         #     self.sim_state.gen2.amp = gen2_amp
         #     self.sim_state.gen2.actual_amp = gen2_amp
@@ -569,10 +579,6 @@ class PowerSyncController:
             self.pt_phase_orders['PT1'] = ['A', 'B', 'C']
         elif sid == 'E02':
             self.sim_state.fault_reverse_bc = False
-        # E05 暂时禁用
-        # elif sid == 'E05':
-        #     self.sim_state.gen2.amp = GRID_AMP
-        #     self.sim_state.gen2.actual_amp = GRID_AMP
         elif sid == 'E04':
             # 修复后恢复 PT3 正确变比 11000:193
             self.sim_state.pt3_ratio = 11000.0 / 193.0
@@ -580,6 +586,9 @@ class PowerSyncController:
             if 'pt3_ratio' in _rows:
                 _, sec_spin, _ = _rows['pt3_ratio']
                 sec_spin.setValue(193)
+        # E05–E14: Gen1/PT1 接线矩阵场景（通用恢复）
+        if fc.params.get('pt1_phase_order') is not None:
+            self.pt_phase_orders['PT1'] = ['A', 'B', 'C']
 
     def reset_for_scenario(self, scenario_id: str):
         """

@@ -195,9 +195,12 @@ class MeasurementMixin:
                                 f"断路 [∞Ω / 无蜂鸣] — {info1[4]} ↔ {info2[4]} 不通"
                                 f"（疑似接线错误，请检查 {info2[4].split()[0]} 侧接线）"
                             )
-                            # 故障检测：E01/E02 回路断路时触发
+                            # 故障检测：回路断路时触发
+                            # E01/E02 硬编码；E05–E14 通用：有 g1_loop_swap 参数的场景均触发
                             if (fc.active and not fc.detected and not fc.repaired
-                                    and fc.scenario_id in ('E01', 'E02')):
+                                    and (fc.scenario_id in ('E01', 'E02')
+                                         or fc.params.get('g1_loop_swap')
+                                         or fc.params.get('g2_loop_swap'))):
                                 fc.detected = True
                 elif intra_pt_pair:
                     # 同一 PT 内两相线电压测量（第二步 PT 单体线电压检查）
