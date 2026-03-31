@@ -239,6 +239,17 @@ class WidgetBuilderMixin:
         self.multimeter_cb.toggled.connect(self._on_multimeter_toggled)
         lay.addWidget(self.multimeter_cb)
 
+        # 发电机柜连线可见性（黑盒模式）
+        self.show_gen_wires_cb = QtWidgets.QCheckBox(
+            "显示发电机与母排之间的连线（取消勾选 = 黑盒模式）")
+        self.show_gen_wires_cb.setChecked(c.sim_state.show_gen_wires)
+        self.show_gen_wires_cb.setStyleSheet(
+            "background:#f0f9ff; font-weight:bold; color:#0369a1;"
+            " font-size:12px; padding:5px; border-radius:4px;")
+        self.show_gen_wires_cb.toggled.connect(
+            lambda v: setattr(c.sim_state, 'show_gen_wires', v))
+        lay.addWidget(self.show_gen_wires_cb)
+
         # 发电机面板
         self._build_gen_panel(1, lay)
         self._build_gen_panel(2, lay)

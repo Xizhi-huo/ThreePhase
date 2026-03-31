@@ -154,6 +154,7 @@ class PowerSyncUI(
         self._render_ct_readings(p)
         self._render_bus_status(p)
         self._render_breakers(p)
+        self._render_gen_wire_visibility()
         self._render_grounding_and_pt(p)
         self._render_multimeter(p)
         # _render_circuit_quick_record 已移除（记录功能集中在右侧测试条）

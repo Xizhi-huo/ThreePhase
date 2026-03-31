@@ -56,4 +56,5 @@ class SimulationState:
     pt_gen_ratio: float = 11000.0 / 193.0   # PT1 (Gen1侧) 变比（可由用户在第二步修改）
     pt3_ratio:   float = 11000.0 / 193.0   # PT3 (Gen2侧) 变比（可由用户在第二步修改）
     pt_bus_ratio: float = 10500.0 / 105.0   # PT2 母排侧变比（10500:105 = 100，二次侧额定 105V）
+    show_gen_wires: bool = True              # 是否显示机柜内接线（False = 黑盒模式，隐藏连线）
     fault_config: FaultConfig = field(default_factory=FaultConfig)

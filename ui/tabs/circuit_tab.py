@@ -218,13 +218,16 @@ class CircuitTabMixin:
                 ax.text(x, y-0.017, phase, fontsize=6, ha='center', color=color)
 
         def draw_gen_cabinet(gx_list, ls):
+            artists = []
             for ph_idx, (x, color) in enumerate(zip(gx_list, BUS_COLORS)):
                 bus_y_ph = BUS_YL[ph_idx]
-                ax.plot([x, x], [bus_y_ph, CB_BOT], color=color, lw=2, ls=ls)
-                ax.plot(x, bus_y_ph, 'o', color='k', markersize=5)
-                ax.plot(x, CB_BOT,   'o', color='k', markersize=4)
-                ax.plot(x, CB_TOP,   'o', color='k', markersize=4)
-                ax.plot([x, x], [CB_TOP, GEN_CY-GEN_R], color=color, lw=2, ls=ls)
+                l1, = ax.plot([x, x], [bus_y_ph, CB_BOT], color=color, lw=2, ls=ls)
+                d1, = ax.plot([x], [bus_y_ph], 'o', color='k', markersize=5)
+                d2, = ax.plot([x], [CB_BOT],   'o', color='k', markersize=4)
+                d3, = ax.plot([x], [CB_TOP],   'o', color='k', markersize=4)
+                l2, = ax.plot([x, x], [CB_TOP, GEN_CY-GEN_R], color=color, lw=2, ls=ls)
+                artists.extend([l1, d1, d2, d3, l2])
+            return artists
 
         def draw_generator_neutral_ground(cx):
             fan_xs = [cx-0.030, cx, cx+0.030]
@@ -282,8 +285,8 @@ class CircuitTabMixin:
                       boxstyle='round,pad=0.3', alpha=0.92))
 
         # ── 2. 发电机柜 ───────────────────────────────────────────────────
-        draw_gen_cabinet(G1_X, '--')
-        draw_gen_cabinet(G2_X, '-.')
+        self._g1_wire_artists = draw_gen_cabinet(G1_X, '--')
+        self._g2_wire_artists = draw_gen_cabinet(G2_X, '-.')
 
         self.sw1_pack = [ax.plot([], [], 'k-', lw=4)[0] for _ in range(3)]
         self.sw2_pack = [ax.plot([], [], 'k-', lw=4)[0] for _ in range(3)]
@@ -694,6 +697,13 @@ class CircuitTabMixin:
         ]:
             txt.set_text(f"{label}: {v:.1f}V")
             txt.set_color('#15803d' if v > 90.0 else '#9a3412' if v > 10.0 else '#94a3b8')
+
+    def _render_gen_wire_visibility(self):
+        visible = self.ctrl.sim_state.show_gen_wires
+        for art in self._g1_wire_artists + self._g2_wire_artists:
+            art.set_visible(visible)
+        for line in self.sw1_pack + self.sw2_pack:
+            line.set_visible(visible)
 
     def _mm_canvas_center(self):
         """将电路坐标 (0.50, 0.72) 转换为 canvas2 像素坐标，供万用表定位。"""
