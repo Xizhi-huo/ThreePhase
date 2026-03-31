@@ -234,21 +234,21 @@ class MeasurementMixin:
                         self.meter_status = "danger"
                         self.meter_color = "red"
                     primary_display = meter_v * _pt_ratio   # 换算回一次侧
-                    # E03/E04/E05 故障检测：PT3 intra-PT 测量显示异常时触发
+                    # E03/E04 故障检测：PT3 intra-PT 测量显示异常时触发
                     # E03: PT3_AB/CA（含 A 端子）线电压降至相电压，偏低约 42%
                     # E04: PT3 变比铭牌错误，所有三对均偏低
-                    # E05: PT3 电压过高，所有三对均偏高
+                    # E05 暂时禁用
                     fc = sim.fault_config
                     if (fc.active and not fc.detected and not fc.repaired
                             and _pt_name == 'PT3'
                             and self.meter_status == 'danger'):
-                        if fc.scenario_id in ('E04', 'E05'):
+                        if fc.scenario_id in ('E04',):  # 'E05' disabled
                             fc.detected = True
                         elif fc.scenario_id == 'E03' and 'A' in (_ph1, _ph2):
                             fc.detected = True
                     _warn_icon = (" ⚠️" if self.meter_status == 'danger'
                                   and fc.active and not fc.repaired
-                                  and fc.scenario_id in ('E03', 'E04', 'E05')
+                                  and fc.scenario_id in ('E03', 'E04')  # 'E05' disabled
                                   and _pt_name == 'PT3' else "")
                     self.meter_reading = (
                         f"线电压: {info1[4]} ↔ {info2[4]} | "
@@ -309,13 +309,13 @@ class MeasurementMixin:
                     # E03: PT3_A↔PT2_A 测量时，压差异常偏大 → 检测
                     # E04: PT3 感知到异常（由 _update_pt_measurements 修改 pt3_v，
                     #      Step2 intra-PT 已会触发 danger；Step4 同相压差也会异常）
-                    # E05: PT3 同相压差偏大 → 检测
+                    # E05 暂时禁用
                     if fc.active and not fc.detected and not fc.repaired:
                         if _e03_active:   # PT3_A 测量（任何对端）均触发检测
                             fc.detected = True
-                        elif fc.scenario_id == 'E05' and gen_pt_name == 'PT3' and is_same_phase:
-                            if meter_v > 20.0:   # 正常同相压差 < 5V，超 20V 说明幅值异常
-                                fc.detected = True
+                        # elif fc.scenario_id == 'E05' and gen_pt_name == 'PT3' and is_same_phase:
+                        #     if meter_v > 20.0:   # 正常同相压差 < 5V，超 20V 说明幅值异常
+                        #         fc.detected = True
                         elif fc.scenario_id == 'E04' and gen_pt_name == 'PT3' and is_same_phase:
                             # E04 在 step4 同相压差异常时辅助检测（主要检测在 step2 intra-PT）
                             fc.detected = True
@@ -328,7 +328,7 @@ class MeasurementMixin:
                     self.meter_status  = "ok"
                     # 故障时附加警告图标
                     _warn = (" ⚠️" if fc.active and not fc.repaired
-                             and fc.scenario_id in ('E03', 'E04', 'E05')
+                             and fc.scenario_id in ('E03', 'E04')  # 'E05' disabled
                              and gen_pt_name == 'PT3'
                              and meter_v > (5.0 if is_same_phase else 200.0) else "")
                     same_tag = "同相" if is_same_phase else "跨相"

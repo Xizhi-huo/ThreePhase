@@ -17,11 +17,12 @@ class ArbitrationMixin:
     def auto_adjust_local(self, generator, sim, target_freq, target_amp):
         if generator.breaker_closed:
             return
-        # E05: Gen2 电压调节器故障 → 幅值锁定，不允许自动调整幅值
+        # E05 暂时禁用：幅值锁定逻辑注释掉
         fc = sim.fault_config
-        _lock_amp = (fc.active and not fc.repaired
-                     and fc.scenario_id == 'E05'
-                     and generator is sim.gen2)
+        # _lock_amp = (fc.active and not fc.repaired
+        #              and fc.scenario_id == 'E05'
+        #              and generator is sim.gen2)
+        _lock_amp = False
 
         speed_factor = self._control_speed_factor(sim)
         err_f = target_freq - generator.freq
@@ -154,8 +155,9 @@ class ArbitrationMixin:
 
     def _handle_live_bus_sync(self, sim, mode1, mode2):
         fc = sim.fault_config
-        # E06: Gen2 相位追踪模块故障，无法自动同期
-        _e06 = (fc.active and not fc.repaired and fc.scenario_id == 'E06')
+        # E06 暂时禁用
+        # _e06 = (fc.active and not fc.repaired and fc.scenario_id == 'E06')
+        _e06 = False
         # E03: PT3 A 相极性反接，同期装置以反相位置为目标，自动收敛至 180° 错误相位
         _e03 = (fc.active and not fc.repaired and fc.scenario_id == 'E03')
 
@@ -178,12 +180,12 @@ class ArbitrationMixin:
                     self.auto_adjust_phase(sim.gen2, sim, target_phase_deg)
                     if all_synced:
                         self.arb_msg, self.arb_color = "⚙️ 仲裁: 母线带电，Gen 2 正在捕获相角打同期...", "#ffcc00"
-            else:
-                # E06 故障：相位追踪停止，相角差无法收敛（AUTO 模式）
-                self.arb_msg, self.arb_color = (
-                    "⚠️ 故障: Gen2 相角追踪模块失效，无法自动同期！请停机检修！", "#ff4444")
+            # else block for E06 disabled:
+            # else:
+            #     self.arb_msg, self.arb_color = (
+            #         "⚠️ 故障: Gen2 相角追踪模块失效，无法自动同期！请停机检修！", "#ff4444")
             all_synced = False
-        # Fix 4: E06 手动模式也需要显示警告（mode2=="manual" 时上面的块被跳过）
+        # Fix 4: E06 手动模式警告（E06 禁用时 _e06=False，此块不执行）
         if _e06 and not sim.gen2.breaker_closed and sim.gen2.running and mode2 != "auto":
             self.arb_msg, self.arb_color = (
                 "⚠️ 故障: Gen2 相角追踪模块失效，无法自动同期！请停机检修！", "#ff4444")
@@ -289,9 +291,7 @@ class ArbitrationMixin:
                         _new = round(((_new + 180.0) % 360.0) - 180.0, 3)
                     setattr(_gen, _attr, _new)
 
-        # ── Fix 3: E05 强制幅值锁定（AUTO 与 MANUAL 均适用）─────────────
-        # auto_adjust_local 的 _lock_amp 仅在 AUTO 模式下生效；
-        # 此处在每帧末尾无条件将 gen2.amp 钳回故障值，防止 MANUAL 模式绕过。
-        fc = sim.fault_config
-        if fc.active and not fc.repaired and fc.scenario_id == 'E05':
-            sim.gen2.amp = fc.params.get('gen2_amp', 13000.0)
+        # ── E05 暂时禁用：Fix 3 强制幅值锁定注释掉 ──────────────────────
+        # fc = sim.fault_config
+        # if fc.active and not fc.repaired and fc.scenario_id == 'E05':
+        #     sim.gen2.amp = fc.params.get('gen2_amp', 13000.0)

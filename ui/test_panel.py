@@ -759,16 +759,16 @@ class TestPanelMixin:
         self.tp_s5_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
         lay.addWidget(self.tp_s5_fb_lbl)
 
-        # E06 危险操作：非同期强行合闸按钮（故障场景时可见）
-        self._tp_s5_force_close_btn = QtWidgets.QPushButton(
-            "⚠ 非同期合闸（危险操作演示）")
-        self._tp_s5_force_close_btn.setStyleSheet(
-            "background:#7f1d1d; color:#fef2f2; font-weight:bold;"
-            " font-size:12px; padding:4px; border-radius:3px;")
-        self._tp_s5_force_close_btn.setVisible(False)
-        self._tp_s5_force_close_btn.clicked.connect(
-            lambda: self.ctrl.force_close_gen2_e06())
-        lay.addWidget(self._tp_s5_force_close_btn)
+        # E06 暂时禁用：非同期合闸按钮隐藏
+        # self._tp_s5_force_close_btn = QtWidgets.QPushButton(
+        #     "⚠ 非同期合闸（危险操作演示）")
+        # self._tp_s5_force_close_btn.setStyleSheet(
+        #     "background:#7f1d1d; color:#fef2f2; font-weight:bold;"
+        #     " font-size:12px; padding:4px; border-radius:3px;")
+        # self._tp_s5_force_close_btn.setVisible(False)
+        # self._tp_s5_force_close_btn.clicked.connect(
+        #     lambda: self.ctrl.force_close_gen2_e06())
+        # lay.addWidget(self._tp_s5_force_close_btn)
 
         cl.addWidget(grp)
         return grp
@@ -1209,20 +1209,21 @@ class TestPanelMixin:
         self._update_fault_banner()
 
         # ── 第五步前统一修复关卡（方案B）────────────────────────────────
-        # 当学员完成步骤1-4自然进入步骤5时，若存在未修复的渐进故障（非E06/E01），
+        # 当学员完成步骤1-4自然进入步骤5时，若存在未修复的渐进故障（非E01），
         # 先弹出检修对话框，完成修复后方可继续同步测试。
         # E01/E02/E03 特殊处理：不在此处拦截，而是在 Gen2 实际合闸时触发致命事故弹窗。
+        # E06 暂时禁用，已从排除列表移除。
         fc = sim.fault_config
         if (step == 5
                 and fc.active and fc.detected and not fc.repaired
-                and fc.scenario_id not in ('E06', 'E01', 'E02', 'E03')
+                and fc.scenario_id not in ('E01', 'E02', 'E03')  # 'E06' disabled
                 and not getattr(self, '_pre_step5_repair_triggered', False)):
             self._pre_step5_repair_triggered = True
             self._show_fault_repair_dialog(fc)
 
-        # ── E06 force-close button: visible only on step 5 with E06 active
-        _e06 = (fc.active and not fc.repaired and fc.scenario_id == 'E06')
-        self._tp_s5_force_close_btn.setVisible(_e06 and step == 5)
+        # ── E06 force-close button: disabled
+        # _e06 = (fc.active and not fc.repaired and fc.scenario_id == 'E06')
+        # self._tp_s5_force_close_btn.setVisible(_e06 and step == 5)
 
         # ── Multimeter (hidden on step 3 which uses phase seq meter) ──
         mm_visible = (step != 3)

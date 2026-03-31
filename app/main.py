@@ -551,10 +551,11 @@ class PowerSyncController:
             if 'pt3_ratio' in _rows:
                 _, sec_spin, _ = _rows['pt3_ratio']
                 sec_spin.setValue(93)
-        elif scenario_id == 'E05':
-            gen2_amp = fc.params.get('gen2_amp', 13000.0)
-            self.sim_state.gen2.amp = gen2_amp
-            self.sim_state.gen2.actual_amp = gen2_amp
+        # E05 暂时禁用
+        # elif scenario_id == 'E05':
+        #     gen2_amp = fc.params.get('gen2_amp', 13000.0)
+        #     self.sim_state.gen2.amp = gen2_amp
+        #     self.sim_state.gen2.actual_amp = gen2_amp
 
     def repair_fault(self):
         """学员完成虚拟修复后调用，消除故障效果并重置检测标志。"""
@@ -568,10 +569,10 @@ class PowerSyncController:
             self.pt_phase_orders['PT1'] = ['A', 'B', 'C']
         elif sid == 'E02':
             self.sim_state.fault_reverse_bc = False
-        elif sid == 'E05':
-            # Fix 2: 立即将 Gen2 幅值恢复到额定值，无需等待 auto_adjust_local 慢速收敛
-            self.sim_state.gen2.amp = GRID_AMP
-            self.sim_state.gen2.actual_amp = GRID_AMP
+        # E05 暂时禁用
+        # elif sid == 'E05':
+        #     self.sim_state.gen2.amp = GRID_AMP
+        #     self.sim_state.gen2.actual_amp = GRID_AMP
         elif sid == 'E04':
             # 修复后恢复 PT3 正确变比 11000:193
             self.sim_state.pt3_ratio = 11000.0 / 193.0
@@ -623,31 +624,27 @@ class PowerSyncController:
             pass
 
     # ════════════════════════════════════════════════════════════════════════
-    # E06 专项：非同期强行合闸（危险操作事故模拟）
+    # E06 专项：非同期强行合闸（暂时禁用）
     # ════════════════════════════════════════════════════════════════════════
     def force_close_gen2_e06(self):
-        """
-        E06 专用：绕过同期检查强行闭合 Gen2 断路器。
-        计算冲击电流，设置 detected 标志触发事故报告弹窗。
-        """
-        fc = self.sim_state.fault_config
-        if not (fc.active and fc.scenario_id == 'E06'):
-            return
-        sim = self.sim_state
-        # 计算相位差（弧度）
-        import math
-        bus_phase_deg = math.degrees(self.physics.bus_phase) if self.physics.bus_live else 0.0
-        phase_diff_deg = sim.gen2.phase_deg - bus_phase_deg
-        phase_diff_deg = (phase_diff_deg + 180.0) % 360.0 - 180.0
-        # 记录冲击电流估算（峰值，一次侧 A）
-        from domain.constants import XS, GRID_AMP
-        peak_phase_v = GRID_AMP * math.sqrt(2.0 / 3.0)
-        i_surge = abs(2.0 * peak_phase_v * math.sin(math.radians(phase_diff_deg / 2.0)) / XS)
-        fc.params['surge_current_kA'] = round(i_surge / 1000.0, 1)
-        fc.params['phase_diff_deg']   = round(abs(phase_diff_deg), 1)
-        # 强行合闸 → 触发保护
-        sim.gen2.breaker_closed = True
-        fc.detected = True   # 触发事故报告弹窗
+        """E06 专用：暂时禁用，保留方法签名避免调用方报错。"""
+        pass
+    # def force_close_gen2_e06(self):
+    #     fc = self.sim_state.fault_config
+    #     if not (fc.active and fc.scenario_id == 'E06'):
+    #         return
+    #     sim = self.sim_state
+    #     import math
+    #     bus_phase_deg = math.degrees(self.physics.bus_phase) if self.physics.bus_live else 0.0
+    #     phase_diff_deg = sim.gen2.phase_deg - bus_phase_deg
+    #     phase_diff_deg = (phase_diff_deg + 180.0) % 360.0 - 180.0
+    #     from domain.constants import XS, GRID_AMP
+    #     peak_phase_v = GRID_AMP * math.sqrt(2.0 / 3.0)
+    #     i_surge = abs(2.0 * peak_phase_v * math.sin(math.radians(phase_diff_deg / 2.0)) / XS)
+    #     fc.params['surge_current_kA'] = round(i_surge / 1000.0, 1)
+    #     fc.params['phase_diff_deg']   = round(abs(phase_diff_deg), 1)
+    #     sim.gen2.breaker_closed = True
+    #     fc.detected = True
 
     # ════════════════════════════════════════════════════════════════════════
     # 主循环（QTimer 每 33ms 触发）
