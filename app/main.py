@@ -560,6 +560,15 @@ class PowerSyncController:
         pt1_order = fc.params.get('pt1_phase_order')
         if pt1_order:
             self.pt_phase_orders['PT1'] = list(pt1_order)
+        # Gen1 机端换相同时影响母排（Bus）：Bus 端子与 PT2 相序一致，需同步更新
+        swap = fc.params.get('g1_loop_swap')
+        if swap:
+            p1, p2 = swap
+            new_pt2 = list(self.pt_phase_orders['PT2'])
+            i1 = ('A', 'B', 'C').index(p1)
+            i2 = ('A', 'B', 'C').index(p2)
+            new_pt2[i1], new_pt2[i2] = new_pt2[i2], new_pt2[i1]
+            self.pt_phase_orders['PT2'] = new_pt2
 
         # E15 暂时禁用（原E05）
         # elif scenario_id == 'E15':
@@ -589,6 +598,8 @@ class PowerSyncController:
         # E05–E14: Gen1/PT1 接线矩阵场景（通用恢复）
         if fc.params.get('pt1_phase_order') is not None:
             self.pt_phase_orders['PT1'] = ['A', 'B', 'C']
+        if fc.params.get('g1_loop_swap') is not None:
+            self.pt_phase_orders['PT2'] = ['A', 'B', 'C']
 
     def reset_for_scenario(self, scenario_id: str):
         """

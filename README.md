@@ -35,7 +35,7 @@ ThreePhase/
 │   ├── enums.py                     # 系统模式、断路器状态枚举
 │   ├── models.py                    # GeneratorState、SimulationState 数据类
 │   ├── test_states.py               # 各步骤状态类
-│   ├── fault_scenarios.py           # 错误场景定义（当前启用 E01-E04，E05/E06 已注释禁用）
+│   ├── fault_scenarios.py           # 错误场景定义（当前启用 E01-E14，E15/E16 已注释禁用）
 │   └── node_map.py                  # 测量节点坐标
 ├── services/                        # 业务逻辑与物理引擎
 │   ├── physics_engine.py            # 物理引擎主类（Mixin 组合）
@@ -217,6 +217,26 @@ elif fc.scenario_id == 'E02': show_e02_accident_dialog()
 
 > **工程原理**：E02 中 Gen2 B/C 端子对调，自动同步以 A 相参考角收敛（Δf/ΔV/Δθ 均满足），同期仪误判条件满足，但合闸瞬间 B/C 两相跨接母线造成 120° 相位差的直接短路。物理引擎采用单相等效电路，无法计算跨相短路电流，故在保护层硬编码拦截。
 
+### Gen1/PT1 接线矩阵注入机制（E05–E14）
+
+信号链：Gen1 → [G节点] → Bus → [P1节点] → PT1一次侧 → [P2节点] → PT1二次侧
+
+**params 字段**：
+- `pt1_phase_order`（必填）：PT1 二次侧净相序，如 `['B','A','C']`（BAC）或 `['A','B','C']`（隐性正序）
+- `g1_loop_swap`（可选）：Gen1 机端对调端子对，如 `('A','B')`
+
+**注入时两处写入**（`inject_fault()`）：
+1. `pt_phase_orders['PT1'] = pt1_phase_order` — PT1 端子相序
+2. 若有 `g1_loop_swap`，同步交换 `pt_phase_orders['PT2']` 对应位置 — Gen1 换相同时影响 Bus 端子相位映射
+
+> 若仅更新 PT1 而不更新 PT2，步骤四 cross-PT 压差计算会错误地认为 Bus 端子仍为标准 A/B/C 相序，导致 E05 的"0V陷阱"变成 183V、E09/E10/E14 的 183V 异常变成 0V 等错误显示。
+
+**检测触发**：
+- 步骤一：凡有 `g1_loop_swap` 的场景（E05/E09/E10/E12/E13/E14），回路断路时置 `fc.detected = True`
+- 步骤四：凡有 `pt1_phase_order` 且 PT1 与 Bus 异相时置 `fc.detected = True`，覆盖步骤一无断路的 E06/E07/E11；E08（全部同相，`pt1_phase_order=['A','B','C']`）永不触发（完全隐性设计）
+
+**修复时**（`repair_fault()`）：`pt_phase_orders['PT1']` 和 `pt_phase_orders['PT2']`（若有 `g1_loop_swap`）均还原为 `['A','B','C']`
+
 ### 故障注入通用流程
 
 1. 教师在右侧控制面板选择故障场景
@@ -327,6 +347,5 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 ## 当前状态
 
 - **已完成并验证**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
-- **已实现待验证**：E03 步骤 5（Gen2 追踪 +180° 目标，双层拦截，事故弹窗）；E04 步骤 2（PT3 标红、记录表格标红、检测触发）
-- **已设计（场景元数据完成，物理注入待实现）**：E05–E14（Gen1/PT1 接线矩阵十种场景）
+- **已实现待验证**：E03 步骤 5（Gen2 追踪 +180° 目标，双层拦截，事故弹窗）；E04 步骤 2（PT3 标红、记录表格标红、检测触发）；E05–E14（Gen1/PT1 接线矩阵十种场景，物理注入完成，含两处漏洞修复：`inject_fault` 同步更新 PT2 相序、步骤四通用 PT1 异相检测）
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）

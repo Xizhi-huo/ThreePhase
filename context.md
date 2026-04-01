@@ -228,9 +228,71 @@ if fc.scenario_id == 'E03': show_e03_accident_dialog()
 1. 教师在右侧控制面板选择故障场景
 2. `FaultConfig` 注入 `SimulationState`（及 `fault_reverse_bc` 等专属标志）
 3. `PhysicsEngine` 读取故障参数扭曲测量值
-4. UI 轮询 `fault_config.detected` 标志，更新横幅提示（E04 另在步骤4→5过渡时弹修复对话框；E05/E06 已禁用）
+4. UI 轮询 `fault_config.detected` 标志，更新横幅提示（E05–E14 在步骤4→5过渡时弹修复对话框）
 5. 学员"修复"确认 → `repaired = True`，允许继续测试
 6. E01/E02/E03 例外：修复时机在第五步合闸事故弹窗内，步骤2~4仅显示横幅不弹窗
+
+### Gen1/PT1 接线矩阵注入机制（E05–E14，通用参数驱动）
+
+**params 字段**：
+- `pt1_phase_order`（必填）：PT1 二次侧净相序，如 `['B','A','C']`（BAC）或 `['A','B','C']`（隐性正序）。注入时写入 `pt_phase_orders['PT1']`，修复时还原为 `['A','B','C']`。
+- `g1_loop_swap`（可选）：Gen1 机端对调端子对，如 `('A','B')`。
+
+**两处关键注入（inject_fault）**：
+```python
+# 1. PT1 端子相序
+pt1_order = fc.params.get('pt1_phase_order')
+if pt1_order:
+    pt_phase_orders['PT1'] = list(pt1_order)
+
+# 2. Gen1 换相同步影响母排（Bus）：Gen1 A↔B → Bus_A 载 B 相
+swap = fc.params.get('g1_loop_swap')
+if swap:
+    p1, p2 = swap
+    new_pt2 = list(pt_phase_orders['PT2'])
+    new_pt2[i1], new_pt2[i2] = new_pt2[i2], new_pt2[i1]
+    pt_phase_orders['PT2'] = new_pt2
+```
+> **设计原因**：若仅更新 PT1 而不更新 PT2，步骤四 cross-PT 压差计算会将 Bus 端子误判为 A 相，导致 E05 显示本该为 0V 的陷阱变成 183V，E09/E10/E14 本该为 183V 的异常变成 0V，E12/E13 的"A端0V陷阱"消失。
+
+**步骤一断路检测**（`_physics_measurement.py`）：
+```python
+# E01/E02 硬编码 + E05–E14 通用（凡有 g1_loop_swap 的场景）
+if fc.params.get('g1_loop_swap') or fc.params.get('g2_loop_swap'):
+    fc.detected = True   # 回路断路时触发
+```
+触发场景：E05 / E09 / E10 / E12 / E13 / E14。
+
+**步骤四异相检测**（`_physics_measurement.py`，补丁修复 Bug A）：
+```python
+# E05–E14 通用：PT1 端子与 Bus 相位不匹配时触发
+elif (gen_pt_name == 'PT1'
+      and fc.params.get('pt1_phase_order') is not None
+      and not is_same_phase):
+    fc.detected = True
+```
+覆盖 E06 / E07 / E11（这三个场景步骤一无断路，仅步骤四能暴露）。
+E08 全部同相（pt1_phase_order=['A','B','C'] 且无 g1_loop_swap），永远不触发——这是设计意图（完全隐性故障）。
+
+**各场景步骤四预期电压**（修复后）：
+| 场景 | Bus_A | PT1_A | A端压差 | B端压差 | C端压差 |
+|------|-------|-------|---------|---------|---------|
+| E05 | B相 | B相 | **0V** (陷阱) | **0V** (陷阱) | 0V |
+| E06 | A相 | B相 | **183V** ❌ | 183V ❌ | 0V |
+| E07 | A相 | B相 | **183V** ❌ | 183V ❌ | 0V |
+| E09/E10 | B相 | A相 | **183V** ❌ | 183V ❌ | 0V |
+| E11 | A相 | B相 | **183V** ❌ | 183V ❌ | 183V ❌ |
+| E12/E13 | B相 | B相 | **0V** (陷阱) | 183V ❌ | 183V ❌ |
+| E14 | B相 | A相 | **183V** ❌ | 183V ❌ | **0V** (陷阱) |
+| E08 | A相 | A相 | 0V ✅ | 0V ✅ | 0V ✅ |
+
+**resolve_loop_node_phase（步骤一回路相位映射）**：
+```python
+swap = fc.params.get('g1_loop_swap')
+if swap and gen_name == 'G1':
+    p1, p2 = swap
+    return {p1: p2, p2: p1}.get(terminal, terminal)
+```
 
 ---
 
@@ -343,8 +405,7 @@ def record_all_pt_measurements_quick(self):
 ## 项目当前状态
 
 - **已完成并验证**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
-- **已实现待验证**：E03 步骤5（Gen2追踪+180°目标，双层拦截，事故弹窗）；E04 步骤2（PT3标红、记录表格标红、检测触发）
-- **已设计（场景元数据完成，物理注入待实现）**：E05–E14（Gen1/PT1接线矩阵十种场景，见下方表格）
+- **已实现待验证**：E03 步骤5（Gen2追踪+180°目标，双层拦截，事故弹窗）；E04 步骤2（PT3标红、记录表格标红、检测触发）；E05–E14 物理注入（通用参数驱动，含两处漏洞修复，见下方"Gen1/PT1接线矩阵注入机制"）
 - **暂时禁用（代码已注释保留，开发中）**：
   - E15（原E05）：Gen2过电压（AVR故障），步骤2/4/5
   - E16（原E06）：强行非同期合闸，步骤5

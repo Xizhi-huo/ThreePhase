@@ -322,6 +322,13 @@ class MeasurementMixin:
                         elif fc.scenario_id == 'E04' and gen_pt_name == 'PT3' and is_same_phase:
                             # E04 在 step4 同相压差异常时辅助检测（主要检测在 step2 intra-PT）
                             fc.detected = True
+                        elif (gen_pt_name == 'PT1'
+                              and fc.params.get('pt1_phase_order') is not None
+                              and not is_same_phase):
+                            # E05–E14 通用：PT1 端子与 Bus 相位不匹配时触发检测
+                            # 覆盖 E06/E07/E11（步骤一无断路，仅步骤四才暴露）
+                            # E08 全部同相，不触发；E05/E09/E10/E12/E13/E14 已在步骤一检测
+                            fc.detected = True
 
                     # E03：PT3 A 端子极性反接 = 180° 反相，等同于相位不匹配
                     self.meter_phase_match = False if _e03_active else is_same_phase
