@@ -224,18 +224,23 @@ elif fc.scenario_id == 'E02': show_e02_accident_dialog()
 **params 字段**：
 - `pt1_phase_order`（必填）：PT1 二次侧净相序，如 `['B','A','C']`（BAC）或 `['A','B','C']`（隐性正序）
 - `g1_loop_swap`（可选）：Gen1 机端对调端子对，如 `('A','B')`
+- `g1_blackbox_order`（可选）：G1 黑盒图显示用实际机端相序
+- `p1_pri_blackbox_order`（可选）：PT1 一次侧物理接线顺序（黑盒图显示用）
+- `pt2_sec_blackbox_order`（可选）：PT1 二次侧输出相序（黑盒图显示用）
 
-**注入时两处写入**（`inject_fault()`）：
-1. `pt_phase_orders['PT1'] = pt1_phase_order` — PT1 端子相序
-2. 若有 `g1_loop_swap`，同步交换 `pt_phase_orders['PT2']` 对应位置 — Gen1 换相同时影响 Bus 端子相位映射
+**注入时写入**（`inject_fault()`）：
+1. `pt_phase_orders['PT1'] = pt1_phase_order` — PT1 端子净相序
+2. 若有 `g1_loop_swap` **且非 E01**，同步交换 `pt_phase_orders['PT2']` — Gen1 换相影响 Bus 端子相位映射
+3. E01 专属：直接设 `pt_phase_orders['PT1'] = pt_phase_orders['PT2'] = ['B','A','C']`
 
-> 若仅更新 PT1 而不更新 PT2，步骤四 cross-PT 压差计算会错误地认为 Bus 端子仍为标准 A/B/C 相序，导致 E05 的"0V陷阱"变成 183V、E09/E10/E14 的 183V 异常变成 0V 等错误显示。
+> `pt_phase_orders['PT2']` 是 G1 接线状态的**唯一数据源**，`resolve_loop_node_phase` 直接读取，黑盒修复对话框也直接写入，`repair_fault()` 重置为 `['A','B','C']`。
 
 **检测触发**：
 - 步骤一：凡有 `g1_loop_swap` 的场景（E05/E09/E10/E12/E13/E14），回路断路时置 `fc.detected = True`
-- 步骤四：凡有 `pt1_phase_order` 且 PT1 与 Bus 异相时置 `fc.detected = True`，覆盖步骤一无断路的 E06/E07/E11；E08（全部同相，`pt1_phase_order=['A','B','C']`）永不触发（完全隐性设计）
+- 步骤四：凡有 `pt1_phase_order` 且 PT1 与 Bus 异相时置 `fc.detected = True`，覆盖步骤一无断路的 E06/E07/E11；E08（全部同相）永不触发（完全隐性设计）
 
-**修复时**（`repair_fault()`）：`pt_phase_orders['PT1']` 和 `pt_phase_orders['PT2']`（若有 `g1_loop_swap`）均还原为 `['A','B','C']`
+**修复时**（`repair_fault()`）：`pt_phase_orders['PT1']` 和 `pt_phase_orders['PT2']` 均还原为 `['A','B','C']`。
+交互黑盒修复中，`_on_confirm()` 在两者同时为 `['A','B','C']` 时自动触发 `repair_fault()`；单处修复正确时仅更新 `pt_phase_orders`，提示学员继续检查其他位置。
 
 ### 故障注入通用流程
 
@@ -346,23 +351,24 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 
 路径动画（绿色流动球 / 红色断路 X）已注释（`ui/tabs/circuit_tab.py`）。表笔搭接后图面无任何动态变化，学员只能通过万用表面板读数（`0.0 Ω` / `不导通`）判断通断。
 
-### 第四步黑盒接线检查
+### 物理接线黑盒检查（渐进式交互修复）
 
-控制台新增"物理接线检查"区，4 个按钮弹出图形化接线图（`_GenWiringWidget` / `_PTWiringWidget`，QPainter 绘制）：
+"物理接线检查"区（`_add_blackbox_section`）在**第 1～4 步控制台均显示**，4 个按钮弹出图形化接线图（`_GenWiringWidget` / `_PTWiringWidget`，QPainter 绘制）：
 
-| 按钮 | 内容 | 数据来源 |
-|------|------|---------|
-| G1 机端接线 | 内部绕组（A黄/B绿/C红）→ 接线柱（U/V/W），交叉=错接 | `g1_loop_swap` |
-| G2 机端接线 | 同上，含 `fault_reverse_bc` B/C 对调 | `g2_loop_swap` + `fault_reverse_bc` |
-| PT1 接线盒 | 六点式：电缆→一次侧端子 / 二次侧端子→测量端口 | `pt_phase_orders['PT2'/'PT1']` |
-| PT3 接线盒 | 同上，含 Gen2 相序与 B/C 对调；E03 显示极性反接警告 | `fault_reverse_bc` + `pt_phase_orders['PT3']` |
+| 按钮 | 内容 | 可修复 | 数据来源 |
+|------|------|--------|---------|
+| G1 机端接线 | 内部绕组（A黄/B绿/C红）→ 接线柱（U/V/W），交叉=错接 | ✅ 点击互换 | `g1_blackbox_order` / `pt_phase_orders['PT2']` |
+| G2 机端接线 | 同上，含 `fault_reverse_bc` B/C 对调 | ❌ 仅查看 | `fault_reverse_bc` |
+| PT1 接线盒 | 六点式：电缆→一次侧（只读） / 二次侧→测量端口（可互换） | ✅ 点击互换二次侧 | `p1_pri_blackbox_order` / `pt2_sec_blackbox_order` |
+| PT3 接线盒 | 同上；E03 额外显示极性反接警告 | ✅ 点击互换二次侧 | `fault_reverse_bc` / `pt_phase_orders['PT3']` |
 
-线段对角即为错接；修复后（`fc.repaired=True`）G1/G2 自动显示正常接线；PT1/PT3 由 `pt_phase_orders` 实时反映修复状态。
+**渐进式修复逻辑**：点击"确认修复"后，仅当 `pt_phase_orders['PT1']` 和 `pt_phase_orders['PT2']` **同时还原为 `['A','B','C']`** 时才调用 `repair_fault()` 清除故障；单个组件修复正确后显示蓝色"继续检查其他位置"提示，不提前清除故障。学员需对所有涉及故障的接线位置逐一修复，方可推进下一步。
 
 ---
 
 ## 当前状态
 
 - **已完成并验证**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
-- **已实现待验证**：E03 步骤 5（Gen2 追踪 +180° 目标，双层拦截，事故弹窗）；E04 步骤 2（PT3 标红、记录表格标红、检测触发）；E05–E14（Gen1/PT1 接线矩阵十种场景，物理注入完成，含两处漏洞修复）；第一步路径动画已注释（强迫仪表读数判断）；第四步黑盒接线检查图形化界面（4 按钮 + QPainter 动态绘图）
+- **已实现待验证**：E03 步骤 5；E04 步骤 2；E05–E14 物理注入；物理接线黑盒检查交互修复（第 1～4 步均显示，渐进式逐组件修复）
+- **最新修复**：E01 double-swap bug；`pt_phase_orders['PT2']` 统一为 G1 唯一数据源；黑盒 params 键名统一（`p1_pri_blackbox_order` / `pt2_sec_blackbox_order`）
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）
