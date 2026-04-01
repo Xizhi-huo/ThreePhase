@@ -762,83 +762,22 @@ class CircuitTabMixin:
             self.probe2_plot.set_data([], [])
             self.multimeter_widget.setVisible(False)
 
-        # ── 回路连通测试电流动画（沿真实电路路径：探针→断路器→母排→断路器→探针）──
-        _PHASE_CLR_MPL = {'A': '#b45309', 'B': '#1a9c3c', 'C': '#d62828'}
-        mn = p.meter_nodes
-        ms = p.meter_status
-        loop_done = self.ctrl.loop_test_state.completed
-        is_loop = (mn and not loop_done and
-                   mn[0] and mn[0].startswith('LOOP_G') and
-                   mn[1] and mn[1].startswith('LOOP_G'))
-        if is_loop:
-            # n1 = probe1（红表笔，电流出发点）  n2 = probe2（黑表笔，电流到达点）
-            # 不做坐标对换，严格按表笔顺序决定动画方向
-            n1, n2 = mn
-            x1, y1 = NODES[n1][:2]
-            x2, y2 = NODES[n2][:2]
-            phase_str = NODES[n1][3]
-            clr = _PHASE_CLR_MPL[phase_str]
-            bus_y = _LOOP_BUS_Y[phase_str]
-
-            # 完整回路路径（顺序即电流方向：红表笔→断路器→母排→断路器→黑表笔）
-            wpts = np.array([
-                [x1,  y1            ],   # 红表笔 (probe1)
-                [x1,  _LOOP_CB_TOP  ],   # probe1 侧断路器上端
-                [x1,  _LOOP_CB_BOT  ],   # probe1 侧断路器下端
-                [x1,  bus_y         ],   # probe1 侧母排接入点
-                [x2,  bus_y         ],   # probe2 侧母排接入点（水平穿越母排）
-                [x2,  _LOOP_CB_BOT  ],   # probe2 侧断路器下端
-                [x2,  _LOOP_CB_TOP  ],   # probe2 侧断路器上端
-                [x2,  y2            ],   # 黑表笔 (probe2)
-            ])
-            seg_lens = np.sqrt(np.sum(np.diff(wpts, axis=0)**2, axis=1))
-            cum = np.concatenate([[0.0], np.cumsum(seg_lens)])
-            total = cum[-1]
-
-            if ms == 'ok':
-                self._loop_anim_offset = (self._loop_anim_offset + 0.038) % 1.0
-                self.loop_anim_wire_ok.set_data(wpts[:, 0], wpts[:, 1])
-                self.loop_anim_wire_ok.set_color(clr)
-                n_dots = 5
-                dot_xs, dot_ys = [], []
-                for i in range(n_dots):
-                    t = (self._loop_anim_offset + i / n_dots) % 1.0
-                    d = t * total
-                    idx = int(np.clip(np.searchsorted(cum, d, side='right') - 1,
-                                      0, len(wpts) - 2))
-                    seg_d = cum[idx + 1] - cum[idx]
-                    s = (d - cum[idx]) / seg_d if seg_d > 1e-10 else 0.0
-                    dot_xs.append(wpts[idx, 0] + s * (wpts[idx+1, 0] - wpts[idx, 0]))
-                    dot_ys.append(wpts[idx, 1] + s * (wpts[idx+1, 1] - wpts[idx, 1]))
-                self.loop_anim_dots.set_data(dot_xs, dot_ys)
-                self.loop_anim_dots.set_color(clr)
-                self.loop_anim_gap_l.set_data([], [])
-                self.loop_anim_gap_r.set_data([], [])
-                self.loop_anim_x1.set_data([], [])
-                self.loop_anim_x2.set_data([], [])
-            elif ms == 'danger':
-                self._loop_anim_offset = 0.0
-                self.loop_anim_wire_ok.set_data([], [])
-                self.loop_anim_dots.set_data([], [])
-                mid_x  = (x1 + x2) / 2
-                toward = np.sign(x2 - x1)   # +1 左→右，-1 右→左
-                gap, xsz = 0.025, 0.011
-                # probe1 侧路径延伸到断口前（朝 probe2 方向退 gap）
-                g1 = np.array([[x1, y1], [x1, _LOOP_CB_TOP], [x1, _LOOP_CB_BOT],
-                                [x1, bus_y], [mid_x - toward * gap, bus_y]])
-                # probe2 侧路径从断口后开始（朝 probe2 方向前进 gap）
-                g2 = np.array([[mid_x + toward * gap, bus_y], [x2, bus_y],
-                                [x2, _LOOP_CB_BOT], [x2, _LOOP_CB_TOP], [x2, y2]])
-                self.loop_anim_gap_l.set_data(g1[:, 0], g1[:, 1])
-                self.loop_anim_gap_r.set_data(g2[:, 0], g2[:, 1])
-                self.loop_anim_x1.set_data([mid_x - xsz, mid_x + xsz],
-                                            [bus_y - 0.012, bus_y + 0.012])
-                self.loop_anim_x2.set_data([mid_x + xsz, mid_x - xsz],
-                                            [bus_y - 0.012, bus_y + 0.012])
-            else:
-                self._clear_loop_anim()
-        else:
-            self._clear_loop_anim()
+        # ── 回路连通测试电流动画（已禁用）────────────────────────────────────────
+        # 导通绿色流动球与断路红色 X 路径动画已注释。
+        # 学员须通过万用表面板读数（导通: 0.0 Ω，断路: 不导通）来判断通断状态。
+        # _PHASE_CLR_MPL = {'A': '#b45309', 'B': '#1a9c3c', 'C': '#d62828'}
+        # mn = p.meter_nodes
+        # ms = p.meter_status
+        # loop_done = self.ctrl.loop_test_state.completed
+        # is_loop = (mn and not loop_done and
+        #            mn[0] and mn[0].startswith('LOOP_G') and
+        #            mn[1] and mn[1].startswith('LOOP_G'))
+        # if is_loop:
+        #     n1, n2 = mn
+        #     ...（导通绿色流动球 + 断路红色 X 动画，全部已注释）...
+        # else:
+        #     self._clear_loop_anim()
+        self._clear_loop_anim()
 
     def _clear_loop_anim(self):
         self._loop_anim_offset = 0.0

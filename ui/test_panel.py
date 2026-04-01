@@ -6,7 +6,7 @@ ui/test_panel.py
 母排拓扑图自动保持前台，所有测试步骤的必要按钮全部集中在此条内。
 """
 
-from PyQt5 import QtWidgets, QtCore
+from PyQt5 import QtWidgets, QtCore, QtGui
 from domain.enums import BreakerPosition
 
 # ── 主题色常量（清新工业教学风）────────────────────────────────────────────
@@ -21,6 +21,215 @@ _GRP_STYLE  = (
     " background:{bg}; color:#1d4ed8;}}"
     "QGroupBox *{{font-size:12px; color:#334155; font-weight:normal;}}"
 )
+
+
+# ── 相色常量（黄/绿/红）────────────────────────────────────────────────────
+_PC = {'A': '#f59e0b', 'B': '#22c55e', 'C': '#ef4444'}
+_PI = {'A': 0, 'B': 1, 'C': 2}
+
+
+class _GenWiringWidget(QtWidgets.QWidget):
+    """发电机端子盒接线图：上方三个内部绕组圆（A/B/C 固定色），
+    下方三个输出接线柱方块（U/V/W），连线根据 mapping 动态绘制。"""
+
+    def __init__(self, mapping, parent=None):
+        """mapping: dict {terminal('A'/'B'/'C'): actual_phase}"""
+        super().__init__(parent)
+        self.mapping = mapping
+        self.setFixedSize(270, 210)
+
+    def paintEvent(self, event):
+        qp = QtGui.QPainter(self)
+        qp.setRenderHint(QtGui.QPainter.Antialiasing)
+        w = self.width()
+        xs = [int(w * 0.22), int(w * 0.50), int(w * 0.78)]
+        phases = ['A', 'B', 'C']
+        term_labels = ['U', 'V', 'W']
+        r = 13          # circle/square half-size
+        y_src = 52      # 内部绕组圆心 y
+        y_dst = 158     # 输出接线柱中心 y
+
+        # 白色背景
+        qp.setPen(QtCore.Qt.NoPen)
+        qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
+        qp.drawRoundedRect(0, 0, w, self.height(), 6, 6)
+
+        # 区域标签
+        f7 = QtGui.QFont(); f7.setPointSize(7)
+        qp.setFont(f7); qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
+        qp.drawText(QtCore.QRect(0, 2, w, 14), QtCore.Qt.AlignCenter, "── 内部绕组 ──")
+        qp.drawText(QtCore.QRect(0, self.height() - 14, w, 13),
+                    QtCore.Qt.AlignCenter, "── 输出接线柱 ──")
+
+        # ── 连线（先画，在圆下方）──
+        for i, terminal in enumerate(phases):
+            actual = self.mapping.get(terminal, terminal)
+            sx = xs[_PI[actual]]   # 源：actual 相绕组的固定 x
+            dx = xs[i]             # 目标：第 i 个接线柱 x
+            c = QtGui.QColor(_PC[actual])
+            pen = QtGui.QPen(c, 2.5, QtCore.Qt.SolidLine,
+                             QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)
+            qp.setPen(pen)
+            qp.drawLine(sx, y_src + r + 1, dx, y_dst - r - 1)
+
+        # ── 内部绕组圆（A=黄/B=绿/C=红，位置固定）──
+        f9b = QtGui.QFont(); f9b.setPointSize(9); f9b.setBold(True)
+        for i, ph in enumerate(phases):
+            x = xs[i]; c = QtGui.QColor(_PC[ph])
+            qp.setPen(QtGui.QPen(c.darker(130), 2))
+            qp.setBrush(QtGui.QBrush(c))
+            qp.drawEllipse(x - r, y_src - r, 2 * r, 2 * r)
+            qp.setPen(QtGui.QPen(QtGui.QColor('#ffffff')))
+            qp.setFont(f9b)
+            qp.drawText(QtCore.QRect(x - r, y_src - r, 2 * r, 2 * r),
+                        QtCore.Qt.AlignCenter, ph)
+
+        # ── 输出接线柱方块（U/V/W，颜色跟随实际相）──
+        for i, terminal in enumerate(phases):
+            x = xs[i]
+            actual = self.mapping.get(terminal, terminal)
+            c = QtGui.QColor(_PC[actual])
+            qp.setPen(QtGui.QPen(QtGui.QColor('#475569'), 2))
+            qp.setBrush(QtGui.QBrush(QtGui.QColor('#f0f4f8')))
+            qp.drawRect(x - r, y_dst - r, 2 * r, 2 * r)
+            qp.setPen(QtGui.QPen(QtGui.QColor('#1e293b')))
+            qp.setFont(f9b)
+            qp.drawText(QtCore.QRect(x - r, y_dst - r, 2 * r, 2 * r),
+                        QtCore.Qt.AlignCenter, term_labels[i])
+            # 实际相标注（接线柱下方）
+            f8 = QtGui.QFont(); f8.setPointSize(8)
+            qp.setFont(f8); qp.setPen(QtGui.QPen(c))
+            qp.drawText(QtCore.QRect(x - 18, y_dst + r + 2, 36, 16),
+                        QtCore.Qt.AlignCenter, f"({actual})")
+        qp.end()
+
+
+class _PTWiringWidget(QtWidgets.QWidget):
+    """PT 接线盒图（六点式）：
+    上方二次侧（a2/b2/c2 → 测量端口 A/B/C），
+    中间变压器铁芯黑盒，
+    下方一次侧（输入电缆 A/B/C → 端子 A1/B1/C1）。
+    两组连线均根据 pri_order / sec_order 动态绘制，交叉即错接。"""
+
+    def __init__(self, pri_order, sec_order, parent=None):
+        """pri_order: [ph_at_A1, ph_at_B1, ph_at_C1]
+           sec_order: [ph_at_a2, ph_at_b2, ph_at_c2]"""
+        super().__init__(parent)
+        self.pri_order = pri_order
+        self.sec_order = sec_order
+        self.setFixedSize(270, 350)
+
+    def paintEvent(self, event):
+        qp = QtGui.QPainter(self)
+        qp.setRenderHint(QtGui.QPainter.Antialiasing)
+        w = self.width()
+        xs = [int(w * 0.22), int(w * 0.50), int(w * 0.78)]
+        phases = ['A', 'B', 'C']
+        r = 11   # 端子半径
+
+        # Y 布局
+        y_out    = 24     # 二次侧测量端口圆心
+        y_sec    = 104    # 二次侧端子 a2/b2/c2 圆心
+        y_boxt   = 124    # 变压器铁芯盒顶
+        y_boxb   = 202    # 变压器铁芯盒底
+        y_pri    = 222    # 一次侧端子 A1/B1/C1 圆心
+        y_cable  = 318    # 输入电缆圆心
+
+        # 白色背景
+        qp.setPen(QtCore.Qt.NoPen)
+        qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
+        qp.drawRoundedRect(0, 0, w, self.height(), 6, 6)
+
+        # 变压器铁芯盒（中间灰色虚线框）
+        qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8'), 1.5, QtCore.Qt.DashLine))
+        qp.setBrush(QtGui.QBrush(QtGui.QColor('#f0f9ff')))
+        qp.drawRect(10, y_boxt, w - 20, y_boxb - y_boxt)
+        f8 = QtGui.QFont(); f8.setPointSize(8)
+        qp.setFont(f8); qp.setPen(QtGui.QPen(QtGui.QColor('#64748b')))
+        ymid = (y_boxt + y_boxb) // 2
+        qp.drawText(QtCore.QRect(0, ymid - 8, w, 16),
+                    QtCore.Qt.AlignCenter, "⚡  变压器铁芯（黑盒）")
+
+        f9b = QtGui.QFont(); f9b.setPointSize(9); f9b.setBold(True)
+        f7  = QtGui.QFont(); f7.setPointSize(7)
+
+        # ═══════════════════ 二次侧（上半部）═══════════════════
+
+        # 测量端口圆（A/B/C 位置固定，颜色固定）
+        qp.setFont(f7); qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
+        qp.drawText(QtCore.QRect(0, 2, w, 12), QtCore.Qt.AlignCenter,
+                    "── 二次侧测量端口 ──")
+        for i, ph in enumerate(phases):
+            x = xs[i]; c = QtGui.QColor(_PC[ph])
+            qp.setPen(QtGui.QPen(c.darker(120), 1.5))
+            qp.setBrush(QtGui.QBrush(c.lighter(140)))
+            qp.drawEllipse(x - r, y_out - r, 2 * r, 2 * r)
+            qp.setPen(QtGui.QPen(c.darker(140)))
+            qp.setFont(f9b)
+            qp.drawText(QtCore.QRect(x - r, y_out - r, 2 * r, 2 * r),
+                        QtCore.Qt.AlignCenter, ph)
+
+        # 二次侧交叉连线：a2(xs[i]) → 测量端口 xs[PI[sec_order[i]]]
+        for i, ph_out in enumerate(self.sec_order):
+            sx = xs[i]                      # 二次侧端子 x（固定位置）
+            dx = xs[_PI[ph_out]]            # 该相的测量端口 x
+            c  = QtGui.QColor(_PC[ph_out])
+            pen = QtGui.QPen(c, 2.2, QtCore.Qt.SolidLine,
+                             QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)
+            qp.setPen(pen)
+            qp.drawLine(sx, y_sec - r - 1, dx, y_out + r + 1)
+
+        # 二次侧端子圆（a2/b2/c2，颜色跟随输出相）
+        sec_lbl = ['a2', 'b2', 'c2']
+        for i, ph_out in enumerate(self.sec_order):
+            x = xs[i]; c = QtGui.QColor(_PC[ph_out])
+            qp.setPen(QtGui.QPen(c.darker(120), 2))
+            qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
+            qp.drawEllipse(x - r, y_sec - r, 2 * r, 2 * r)
+            f7b = QtGui.QFont(); f7b.setPointSize(7); f7b.setBold(True)
+            qp.setFont(f7b); qp.setPen(QtGui.QPen(QtGui.QColor('#1e293b')))
+            qp.drawText(QtCore.QRect(x - r, y_sec - r, 2 * r, 2 * r),
+                        QtCore.Qt.AlignCenter, sec_lbl[i])
+
+        # ═══════════════════ 一次侧（下半部）═══════════════════
+
+        # 一次侧端子圆（A1/B1/C1，颜色跟随输入相）
+        pri_lbl = ['A1', 'B1', 'C1']
+        for i, ph_in in enumerate(self.pri_order):
+            x = xs[i]; c = QtGui.QColor(_PC[ph_in])
+            qp.setPen(QtGui.QPen(c.darker(120), 2))
+            qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
+            qp.drawEllipse(x - r, y_pri - r, 2 * r, 2 * r)
+            f7b = QtGui.QFont(); f7b.setPointSize(7); f7b.setBold(True)
+            qp.setFont(f7b); qp.setPen(QtGui.QPen(QtGui.QColor('#1e293b')))
+            qp.drawText(QtCore.QRect(x - r, y_pri - r, 2 * r, 2 * r),
+                        QtCore.Qt.AlignCenter, pri_lbl[i])
+
+        # 一次侧交叉连线：电缆 xs[PI[pri_order[i]]] → 端子 xs[i]
+        for i, ph_in in enumerate(self.pri_order):
+            src_x = xs[_PI[ph_in]]   # 固定电缆 x（A=xs[0], B=xs[1], C=xs[2]）
+            dst_x = xs[i]             # 一次侧端子 x
+            c = QtGui.QColor(_PC[ph_in])
+            pen = QtGui.QPen(c, 2.2, QtCore.Qt.SolidLine,
+                             QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)
+            qp.setPen(pen)
+            qp.drawLine(src_x, y_cable - r - 1, dst_x, y_pri + r + 1)
+
+        # 输入电缆圆（A/B/C 位置固定，颜色固定：黄/绿/红）
+        for i, ph in enumerate(phases):
+            x = xs[i]; c = QtGui.QColor(_PC[ph])
+            qp.setPen(QtGui.QPen(c.darker(120), 2))
+            qp.setBrush(QtGui.QBrush(c))
+            qp.drawEllipse(x - r, y_cable - r, 2 * r, 2 * r)
+            qp.setPen(QtGui.QPen(QtGui.QColor('#ffffff')))
+            qp.setFont(f9b)
+            qp.drawText(QtCore.QRect(x - r, y_cable - r, 2 * r, 2 * r),
+                        QtCore.Qt.AlignCenter, ph)
+
+        qp.setFont(f7); qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
+        qp.drawText(QtCore.QRect(0, self.height() - 14, w, 13),
+                    QtCore.Qt.AlignCenter, "── 一次侧输入电缆 ──")
+        qp.end()
 
 
 class TestPanelMixin:
@@ -642,6 +851,37 @@ class TestPanelMixin:
                 max(1, self._tp_s4_bg.checkedId())))
         rh.addWidget(btn_rec)
         lay.addWidget(rrow)
+
+        # ── 物理接线黑盒检查 ────────────────────────────────────────────────
+        bb_lbl = QtWidgets.QLabel("物理接线检查 (开盖查线):")
+        bb_lbl.setStyleSheet("color:#64748b; font-size:11px; margin-top:4px;")
+        lay.addWidget(bb_lbl)
+
+        bb_row1 = QtWidgets.QWidget()
+        bb_row1.setStyleSheet(f"background:{_SECTION_BG};")
+        bb_h1 = QtWidgets.QHBoxLayout(bb_row1)
+        bb_h1.setContentsMargins(0, 0, 0, 0)
+        bb_h1.setSpacing(4)
+        btn_g1 = self._make_btn("G1 机端接线", "#92400e")
+        btn_g1.clicked.connect(lambda: self._show_blackbox_dialog('G1'))
+        btn_g2 = self._make_btn("G2 机端接线", "#92400e")
+        btn_g2.clicked.connect(lambda: self._show_blackbox_dialog('G2'))
+        bb_h1.addWidget(btn_g1)
+        bb_h1.addWidget(btn_g2)
+        lay.addWidget(bb_row1)
+
+        bb_row2 = QtWidgets.QWidget()
+        bb_row2.setStyleSheet(f"background:{_SECTION_BG};")
+        bb_h2 = QtWidgets.QHBoxLayout(bb_row2)
+        bb_h2.setContentsMargins(0, 0, 0, 0)
+        bb_h2.setSpacing(4)
+        btn_pt1 = self._make_btn("PT1 接线盒", "#1e40af")
+        btn_pt1.clicked.connect(lambda: self._show_blackbox_dialog('PT1'))
+        btn_pt3 = self._make_btn("PT3 接线盒", "#1e40af")
+        btn_pt3.clicked.connect(lambda: self._show_blackbox_dialog('PT3'))
+        bb_h2.addWidget(btn_pt1)
+        bb_h2.addWidget(btn_pt3)
+        lay.addWidget(bb_row2)
 
         # 管理员快捷记录按钮（仅管理员模式可见）
         self._tp_s4_quick_btn = self._make_btn("⚡ 快捷记录全部18组", "#7c3aed")
@@ -1447,6 +1687,81 @@ class TestPanelMixin:
         self.tp_s4_fb_lbl.setText(state.feedback)
         self.tp_s4_fb_lbl.setStyleSheet(
             f"color:{state.feedback_color}; font-size:12px;")
+
+    def _show_blackbox_dialog(self, target):
+        """打开物理接线黑盒检查对话框（图形化接线图）。target: 'G1'|'G2'|'PT1'|'PT3'"""
+        sim = self.ctrl.sim_state
+        fc  = sim.fault_config
+        pt_orders = self.ctrl.pt_phase_orders
+
+        def _fc_params():
+            return fc.params if (fc and fc.active and fc.params) else {}
+
+        dlg = QtWidgets.QDialog(self)
+        dlg.setStyleSheet("background:#f1f5f9;")
+        dlg.setFixedWidth(300)
+        vlay = QtWidgets.QVBoxLayout(dlg)
+        vlay.setSpacing(6)
+        vlay.setContentsMargins(12, 10, 12, 10)
+
+        if target in ('G1', 'G2'):
+            dlg.setWindowTitle(f"发电机 {target} 机端接线检查")
+            mapping = {'A': 'A', 'B': 'B', 'C': 'C'}
+            if target == 'G2' and sim.fault_reverse_bc:
+                mapping['B'], mapping['C'] = 'C', 'B'
+            swap = _fc_params().get('g1_loop_swap' if target == 'G1' else 'g2_loop_swap')
+            if swap:
+                p1, p2 = swap
+                mapping[p1], mapping[p2] = mapping[p2], mapping[p1]
+            sub = QtWidgets.QLabel("上方绕组（A黄/B绿/C红）→ 下方接线柱（U/V/W）")
+            sub.setStyleSheet("color:#64748b; font-size:10px;")
+            vlay.addWidget(sub)
+            vlay.addWidget(_GenWiringWidget(mapping), alignment=QtCore.Qt.AlignHCenter)
+
+        elif target == 'PT1':
+            dlg.setWindowTitle("PT1 接线盒检查")
+            pri_order = list(pt_orders.get('PT2', ['A', 'B', 'C']))  # Bus相序→一次侧
+            sec_order = list(pt_orders.get('PT1', ['A', 'B', 'C']))  # 二次侧净相序
+            sub = QtWidgets.QLabel("上: 二次侧输出→测量端口  |  下: 一次侧输入←Bus")
+            sub.setStyleSheet("color:#64748b; font-size:10px;")
+            vlay.addWidget(sub)
+            vlay.addWidget(_PTWiringWidget(pri_order, sec_order),
+                           alignment=QtCore.Qt.AlignHCenter)
+
+        elif target == 'PT3':
+            dlg.setWindowTitle("PT3 接线盒检查")
+            pri_order = ['A', 'B', 'C']
+            if sim.fault_reverse_bc:
+                pri_order = ['A', 'C', 'B']   # E02: Gen2 B/C 物理对调
+            swap2 = _fc_params().get('g2_loop_swap')
+            if swap2:
+                p1, p2 = swap2
+                i1 = ('A', 'B', 'C').index(p1)
+                i2 = ('A', 'B', 'C').index(p2)
+                pri_order[i1], pri_order[i2] = pri_order[i2], pri_order[i1]
+            sec_order = list(pt_orders.get('PT3', ['A', 'B', 'C']))
+            if sim.fault_reverse_bc:
+                sec_order[1], sec_order[2] = sec_order[2], sec_order[1]
+            sub = QtWidgets.QLabel("上: 二次侧输出→测量端口  |  下: 一次侧输入←Gen2")
+            sub.setStyleSheet("color:#64748b; font-size:10px;")
+            vlay.addWidget(sub)
+            vlay.addWidget(_PTWiringWidget(pri_order, sec_order),
+                           alignment=QtCore.Qt.AlignHCenter)
+            if fc and fc.active and fc.scenario_id == 'E03':
+                note = QtWidgets.QLabel("⚠ a2 端子一次侧极性反接（正负极颠倒）")
+                note.setStyleSheet(
+                    "color:#c2410c; font-size:11px; font-weight:bold;"
+                    " background:#fff7ed; border-radius:4px; padding:4px 6px;")
+                note.setWordWrap(True)
+                vlay.addWidget(note)
+
+        btn_ok = QtWidgets.QPushButton("关闭")
+        btn_ok.setStyleSheet(
+            "background:#334155; color:#f1f5f9; border:none;"
+            " padding:5px 18px; border-radius:4px; font-size:12px;")
+        btn_ok.clicked.connect(dlg.accept)
+        vlay.addWidget(btn_ok, alignment=QtCore.Qt.AlignRight)
+        dlg.exec_()
 
     def _refresh_tp_step5(self, sim):
         state   = self.ctrl.sync_test_state
