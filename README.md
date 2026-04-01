@@ -372,3 +372,13 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - **已实现待验证**：E03 步骤 5；E04 步骤 2；E05–E14 物理注入；物理接线黑盒检查交互修复（第 1～4 步均显示，渐进式逐组件修复）
 - **最新修复**：E01 double-swap bug；`pt_phase_orders['PT2']` 统一为 G1 唯一数据源；黑盒 params 键名统一（`p1_pri_blackbox_order` / `pt2_sec_blackbox_order`）
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）
+
+
+
+```
+高严重度: PT1 黑盒只能改二次侧，但确认逻辑会把“净结果恢复正常”当成“物理接线已修复”，导致一次侧故障可被误修复通过。
+在 ui/test_panel.py (line 1879) 里，PT1 始终用 _PTWiringWidget(..., interactive_sec=True)，一次侧只读；而在 ui/test_panel.py (line 1925) 之后，确认时只把二次侧结果写回 pt_phase_orders['PT1']，再用 pt1_ok and pt2_ok 判定全修复。这样像 E06、E10、E11、E13、E14 这类一次侧真实错线场景，学员只要把二次侧调成 ABC，就能触发 repair_fault()，但一次侧物理错线其实还在。这个会直接破坏“黑盒拆检定位物理错点”的训练目标。
+
+高严重度: 黑盒图在故障未 repaired 前优先读 fc.params 的静态初始值，导致局部修复后重新打开对话框仍显示旧接线，状态回显错误。
+G1 在 ui/test_panel.py (line 1847) 优先读 g1_blackbox_order，PT1 在 ui/test_panel.py (line 1875) 和 ui/test_panel.py (line 1876) 优先读 p1_pri_blackbox_order / pt2_sec_blackbox_order。但确认按钮实际更新的是 pt_phase_orders，不是 fc.params。因此像 E05/E09/E10/E12/E13/E14 这类需要分步修复的场景，学员修完一处、关闭再打开，会看到图又回到原始故障态，和真实状态不一致，也会误导后续操作。
+```
