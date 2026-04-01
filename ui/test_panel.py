@@ -1695,7 +1695,9 @@ class TestPanelMixin:
         pt_orders = self.ctrl.pt_phase_orders
 
         def _fc_params():
-            return fc.params if (fc and fc.active and fc.params) else {}
+            # 修复后 fc.repaired=True，pt_phase_orders 已恢复，但 fc.params 仍存旧 swap 值。
+            # 必须排除 repaired 状态，否则 G1/G2 对话框在修复后会错误显示故障接线。
+            return fc.params if (fc and fc.active and not fc.repaired and fc.params) else {}
 
         dlg = QtWidgets.QDialog(self)
         dlg.setStyleSheet("background:#f1f5f9;")
@@ -1747,8 +1749,8 @@ class TestPanelMixin:
             vlay.addWidget(sub)
             vlay.addWidget(_PTWiringWidget(pri_order, sec_order),
                            alignment=QtCore.Qt.AlignHCenter)
-            if fc and fc.active and fc.scenario_id == 'E03':
-                note = QtWidgets.QLabel("⚠ a2 端子一次侧极性反接（正负极颠倒）")
+            if fc and fc.active and not fc.repaired and fc.scenario_id == 'E03':
+                note = QtWidgets.QLabel("⚠ A 相极性反接：A1 正负极颠倒（a2 输出反相）")
                 note.setStyleSheet(
                     "color:#c2410c; font-size:11px; font-weight:bold;"
                     " background:#fff7ed; border-radius:4px; padding:4px 6px;")

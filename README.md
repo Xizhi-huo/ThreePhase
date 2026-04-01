@@ -342,10 +342,27 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - **第二步 PT 变比控制台**：PT1 / PT3 / PT2 分三行独立显示，`_tp_s2_ratio_rows` 字典挂在 `self.ui`（非 `self.ui.test_panel`）上
 - **第四步管理员快捷按钮** `⚡ 快捷记录全部 18 组`：仅管理员模式显示，调用 `record_all_pt_measurements_quick()`，跳过逐组表笔测量直接写入 Gen1 + Gen2 共 18 组压差
 
+### 第一步回路测试 UI 变更
+
+路径动画（绿色流动球 / 红色断路 X）已注释（`ui/tabs/circuit_tab.py`）。表笔搭接后图面无任何动态变化，学员只能通过万用表面板读数（`0.0 Ω` / `不导通`）判断通断。
+
+### 第四步黑盒接线检查
+
+控制台新增"物理接线检查"区，4 个按钮弹出图形化接线图（`_GenWiringWidget` / `_PTWiringWidget`，QPainter 绘制）：
+
+| 按钮 | 内容 | 数据来源 |
+|------|------|---------|
+| G1 机端接线 | 内部绕组（A黄/B绿/C红）→ 接线柱（U/V/W），交叉=错接 | `g1_loop_swap` |
+| G2 机端接线 | 同上，含 `fault_reverse_bc` B/C 对调 | `g2_loop_swap` + `fault_reverse_bc` |
+| PT1 接线盒 | 六点式：电缆→一次侧端子 / 二次侧端子→测量端口 | `pt_phase_orders['PT2'/'PT1']` |
+| PT3 接线盒 | 同上，含 Gen2 相序与 B/C 对调；E03 显示极性反接警告 | `fault_reverse_bc` + `pt_phase_orders['PT3']` |
+
+线段对角即为错接；修复后（`fc.repaired=True`）G1/G2 自动显示正常接线；PT1/PT3 由 `pt_phase_orders` 实时反映修复状态。
+
 ---
 
 ## 当前状态
 
 - **已完成并验证**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
-- **已实现待验证**：E03 步骤 5（Gen2 追踪 +180° 目标，双层拦截，事故弹窗）；E04 步骤 2（PT3 标红、记录表格标红、检测触发）；E05–E14（Gen1/PT1 接线矩阵十种场景，物理注入完成，含两处漏洞修复：`inject_fault` 同步更新 PT2 相序、步骤四通用 PT1 异相检测）
+- **已实现待验证**：E03 步骤 5（Gen2 追踪 +180° 目标，双层拦截，事故弹窗）；E04 步骤 2（PT3 标红、记录表格标红、检测触发）；E05–E14（Gen1/PT1 接线矩阵十种场景，物理注入完成，含两处漏洞修复）；第一步路径动画已注释（强迫仪表读数判断）；第四步黑盒接线检查图形化界面（4 按钮 + QPainter 动态绘图）
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）

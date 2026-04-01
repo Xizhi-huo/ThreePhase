@@ -390,6 +390,39 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - **第二步变比控制台**：PT1/PT3/PT2 分三行独立显示，`_tp_s2_ratio_rows` 字典存储各行控件引用（键为 `'pt_gen_ratio'`/`'pt3_ratio'`/`'pt_bus_ratio'`），**该属性挂在 `self.ui`（PowerSyncUI实例）上，不在 `self.ui.test_panel`（QWidget）上**
 - **第四步管理员快捷按钮** `⚡ 快捷记录全部18组`：仅管理员模式显示，调用 `record_all_pt_measurements_quick()`，跳过逐组表笔测量直接写入 Gen1+Gen2 共18组压差
 
+### 第一步回路测试 UI 变更
+- **路径动画已注释**（`ui/tabs/circuit_tab.py`）：绿色流动球（导通）与红色 X 符号（断路）的路径动画全部注释，图面连线无任何动态变化。
+- 学员**只能**通过万用表面板读数（`0.0 Ω` = 导通，`不导通` = 断路）判断通断，不再有视觉外挂提示。
+- 动画相关 Plot 对象（`loop_anim_wire_ok` 等）保留但始终为空，`_clear_loop_anim()` 方法保留。
+
+### 第四步黑盒接线检查（`_show_blackbox_dialog`）
+第四步控制台"物理接线检查"区有 4 个按钮，点击弹出图形化接线图对话框。
+
+**G1 / G2 发电机端子盒**（`_GenWiringWidget`）：
+- 上方：3 个固定彩色圆 = 内部绕组（A黄 / B绿 / C红），位置永远固定
+- 下方：3 个方块 = 输出接线柱（U / V / W）
+- 连线根据 `mapping = {terminal: actual_phase}` 动态绘制
+  - 正常 `['A','B','C']` → 三条平行竖线
+  - 错接（如 A↔B swap）→ 黄线与绿线在画面中间交叉
+- 数据来源：`g1_loop_swap`（或 `g2_loop_swap` + `fault_reverse_bc`）；**修复后（`fc.repaired=True`）读空 params，显示正常接线**
+
+**PT1 / PT3 接线盒**（`_PTWiringWidget`，六点式）：
+- 上方：测量端口 A/B/C（固定位置，固定颜色）
+- 上半部连线：二次侧端子 a2/b2/c2 → 测量端口；基于 `sec_order`，相序不对则交叉
+- 中间：变压器铁芯黑盒（虚线框）
+- 下半部连线：输入电缆 A(黄)/B(绿)/C(红)（固定位置）→ 一次侧端子 A1/B1/C1；基于 `pri_order`，相序不对则交叉
+- 数据来源：
+  - PT1 `pri_order` = `pt_phase_orders['PT2']`（Bus 相序，随 G1 swap 变化）
+  - PT1 `sec_order` = `pt_phase_orders['PT1']`（P1/P2 换相净结果）
+  - PT3 `pri_order` = 由 `fault_reverse_bc` / `g2_loop_swap` 计算的 Gen2 输出相序
+  - PT3 `sec_order` = `pt_phase_orders['PT3']` + `fault_reverse_bc` B/C 对调
+- E03 激活时额外显示橙色提示：A1 正负极颠倒
+
+**绘图逻辑关键**（两个 widget 共用）：
+- 固定电缆/绕组位置：xs[0]=A, xs[1]=B, xs[2]=C
+- 连线颜色 = 该线实际传输的相色
+- 交叉判断：当 `src_x ≠ dst_x` 时线段对角，即为错接可视化
+
 ### 快捷记录实现（pt_exam_service.py）
 ```python
 def record_all_pt_measurements_quick(self):
