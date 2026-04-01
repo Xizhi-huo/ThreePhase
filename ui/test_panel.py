@@ -1843,7 +1843,10 @@ class TestPanelMixin:
             dlg.setWindowTitle(f"发电机 {target} 机端接线检查")
             # G1：从 pt_phase_orders['PT2'] 读取（inject_fault 已写入，单一数据源）
             if target == 'G1':
-                pt2 = pt_orders.get('PT2', ['A', 'B', 'C'])
+                #pt2 = pt_orders.get('PT2', ['A', 'B', 'C'])
+                pt2 = fc.params.get('g1_blackbox_order') if fault_active else None
+                if pt2 is None:
+                    pt2 = pt_orders.get('PT2', ['A', 'B', 'C'])
                 mapping = {'A': pt2[0], 'B': pt2[1], 'C': pt2[2]}
                 interactive = True
                 repair_target = 'G1'
@@ -1864,9 +1867,19 @@ class TestPanelMixin:
 
         elif target == 'PT1':
             dlg.setWindowTitle("PT1 接线盒检查 [二次侧可交互修复]")
-            pri_order = list(pt_orders.get('PT2', ['A', 'B', 'C']))  # Bus相序→一次侧（只读）
-            sec_order = list(pt_orders.get('PT1', ['A', 'B', 'C']))  # 二次侧（可修复）
-            sub = QtWidgets.QLabel("上: 二次侧输出→测量端口 [可互换]  |  下: 一次侧输入←Bus [只读]")
+            #pri_order = list(pt_orders.get('PT2', ['A', 'B', 'C']))  # Bus相序→一次侧（只读）
+            #sec_order = list(pt_orders.get('PT1', ['A', 'B', 'C']))  # 二次侧（可修复）
+            #sub = QtWidgets.QLabel("上: 二次侧输出→测量端口 [可互换]  |  下: 一次侧输入←Bus [只读]")
+            
+            if fault_active:
+                pri_order = list(fc.params.get('p1_pri_blackbox_order', ['A', 'B', 'C']))
+                sec_order = list(fc.params.get('pt2_sec_blackbox_order', ['A', 'B', 'C']))
+            else:
+                pri_order = ['A', 'B', 'C']
+                sec_order = ['A', 'B', 'C']
+            
+            sub = QtWidgets.QLabel("上: 二次侧输出→测量端口 [按物理接线绘制]  |  下: 一次侧电缆→PT端子 [按物理接线绘制]")
+
             sub.setStyleSheet("color:#64748b; font-size:10px;")
             vlay.addWidget(sub)
             widget = _PTWiringWidget(pri_order, sec_order, interactive_sec=True)
@@ -1916,7 +1929,7 @@ class TestPanelMixin:
                 if repair_target == 'G1':
                     new_order = widget.get_order()    # [ph_at_U, ph_at_V, ph_at_W]
                     self.ctrl.pt_phase_orders['PT2'] = new_order
-                    is_correct = (new_order == ['A', 'B', 'C'])
+                    component_correct = (new_order == ['A', 'B', 'C'])
                 elif repair_target in ('PT1', 'PT3'):
                     new_sec = widget.get_sec_order()
                     # PT3 fault_reverse_bc 场景：显示的 sec_order 已含 B/C 对调视角，
@@ -1924,21 +1937,33 @@ class TestPanelMixin:
                     if repair_target == 'PT3' and sim.fault_reverse_bc:
                         new_sec[1], new_sec[2] = new_sec[2], new_sec[1]
                     self.ctrl.pt_phase_orders[repair_target] = new_sec
-                    is_correct = (new_sec == ['A', 'B', 'C'])
+                    component_correct = (new_sec == ['A', 'B', 'C'])
                 else:
-                    is_correct = False
+                    component_correct = False
 
-                if is_correct:
-                    self.ctrl.repair_fault()
-                    fb_lbl.setText("✓ 接线已恢复正确，故障已清除！")
-                    fb_lbl.setStyleSheet(
-                        "color:#15803d; font-size:11px; font-weight:bold;")
-                    fb_lbl.setVisible(True)
-                    btn_repair.setEnabled(False)
-                else:
+                if not component_correct:
                     fb_lbl.setText("✗ 接线仍有错误，请重新调整后再提交。")
                     fb_lbl.setStyleSheet("color:#dc2626; font-size:11px;")
                     fb_lbl.setVisible(True)
+                    return
+
+                # 此处接线已正确——检查所有接线位置是否全部恢复正常
+                pt1_ok = self.ctrl.pt_phase_orders.get('PT1') == ['A', 'B', 'C']
+                pt2_ok = self.ctrl.pt_phase_orders.get('PT2') == ['A', 'B', 'C']
+                all_correct = pt1_ok and pt2_ok
+
+                if all_correct:
+                    self.ctrl.repair_fault()
+                    fb_lbl.setText("✓ 全部接线均已修复，故障已完全清除！")
+                    fb_lbl.setStyleSheet(
+                        "color:#15803d; font-size:11px; font-weight:bold;")
+                    btn_repair.setEnabled(False)
+                else:
+                    fb_lbl.setText(
+                        "✓ 此处接线已修复。请关闭并检查其他位置的接线。")
+                    fb_lbl.setStyleSheet(
+                        "color:#0369a1; font-size:11px; font-weight:bold;")
+                fb_lbl.setVisible(True)
 
             btn_repair = QtWidgets.QPushButton("确认修复 ✓")
             btn_repair.setStyleSheet(

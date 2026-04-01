@@ -178,7 +178,12 @@ SCENARIOS: dict = {
         'params': {
             'pt1_phase_order': ['B', 'A', 'C'],
             'g1_loop_swap': ('A', 'B'),
+
+            'g1_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保G1/PT1一致反序
+            'p1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt2_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
         },
+
         'repair_prompt': (
             '已定位故障：Gen1机端、PT1一次侧、PT1二次侧三处A/B相均对调。\n\n'
             '修复步骤：\n'
@@ -208,6 +213,9 @@ SCENARIOS: dict = {
         'danger_level': 'recoverable',
         'params': {
             'pt1_phase_order': ['B', 'A', 'C'],
+
+            'p1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt2_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序 
         },
         'repair_prompt': (
             '已定位故障：PT1一次侧A/B相端子对调。\n\n'
@@ -236,6 +244,9 @@ SCENARIOS: dict = {
         'danger_level': 'recoverable',
         'params': {
             'pt1_phase_order': ['B', 'A', 'C'],
+
+            'p1_pri_blackbox_order': ['A', 'B', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt2_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
         },
         'repair_prompt': (
             '已定位故障：PT1二次侧端子排A/B相对调。\n\n'
@@ -265,6 +276,9 @@ SCENARIOS: dict = {
         'danger_level': 'recoverable',
         'params': {
             'pt1_phase_order': ['A', 'B', 'C'],   # 净效果正常，隐性错误
+
+            'p1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt2_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
         },
         'repair_prompt': (
             '已定位隐性故障：PT1一次侧与二次侧均存在A/B相对调，两错相消后测量正常。\n\n'
@@ -296,6 +310,10 @@ SCENARIOS: dict = {
         'params': {
             'pt1_phase_order': ['A', 'B', 'C'],   # 净效果正序，但Bus与PT不同相
             'g1_loop_swap': ('A', 'B'),
+
+            'g1_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保G1/PT1一致反序
+            'p1_pri_blackbox_order': ['A', 'B', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt2_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
         },
         'repair_prompt': (
             '已定位故障：Gen1机端A/B相对调，PT1二次侧A/B相对调（两处跨层错误）。\n\n'
@@ -327,6 +345,10 @@ SCENARIOS: dict = {
         'params': {
             'pt1_phase_order': ['A', 'B', 'C'],   # 净效果正序，但Bus与PT不同相
             'g1_loop_swap': ('A', 'B'),
+            'g1_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保G1/PT1一致反序
+            'p1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt2_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
+
         },
         'repair_prompt': (
             '已定位故障：Gen1机端A/B相对调，PT1一次侧A/B相对调（两处同层错误）。\n\n'
@@ -360,6 +382,9 @@ SCENARIOS: dict = {
         'danger_level': 'recoverable',
         'params': {
             'pt1_phase_order': ['B', 'C', 'A'],   # CAB轮换，相序仪仍显正序
+
+            'p1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt2_sec_blackbox_order': ['A', 'C', 'B'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
         },
         'repair_prompt': (
             '已定位故障：PT1一次侧A/B相对调，PT1二次侧B/C相对调（两处不同换位合成三轮换）。\n\n'
@@ -394,6 +419,10 @@ SCENARIOS: dict = {
         'params': {
             'pt1_phase_order': ['B', 'C', 'A'],
             'g1_loop_swap': ('A', 'B'),
+
+            'g1_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保G1/PT1一致反序
+            'p1_pri_blackbox_order': ['A', 'B', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt2_sec_blackbox_order': ['A', 'C', 'B'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
         },
         'repair_prompt': (
             '已定位故障：Gen1机端A/B相对调，PT1二次侧B/C相对调。\n\n'
@@ -427,6 +456,9 @@ SCENARIOS: dict = {
         'params': {
             'pt1_phase_order': ['B', 'C', 'A'],
             'g1_loop_swap': ('A', 'B'),
+            'g1_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保G1/PT1一致反序
+            'p1_pri_blackbox_order': ['A', 'C', 'B'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt2_sec_blackbox_order': ['A', 'B', 'C'],  
         },
         'repair_prompt': (
             '已定位故障：Gen1机端A/B相对调，PT1一次侧B/C相对调。\n\n'
@@ -462,6 +494,10 @@ SCENARIOS: dict = {
         'params': {
             'pt1_phase_order': ['A', 'B', 'C'],   # 净效果正序，三错相消
             'g1_loop_swap': ('A', 'B'),
+            'g1_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保G1/PT1一致反序
+            'p1_pri_blackbox_order': ['A', 'C', 'B'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt2_sec_blackbox_order': ['C', 'A', 'B'],    
+            
         },
         'repair_prompt': (
             '已定位三级复合故障：Gen1/PT1存在三处接线错误相互抵消，PT测量全程正常。\n\n'
