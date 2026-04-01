@@ -30,19 +30,73 @@ _PI = {'A': 0, 'B': 1, 'C': 2}
 
 class _GenWiringWidget(QtWidgets.QWidget):
     """发电机端子盒接线图：上方三个内部绕组圆（A/B/C 固定色），
-    下方三个输出接线柱方块（U/V/W），连线根据 mapping 动态绘制。"""
+    下方三个输出接线柱方块（U/V/W），连线根据 mapping 动态绘制。
+    interactive=True 时支持点击两个节点互换接线。"""
 
-    def __init__(self, mapping, parent=None):
+    def __init__(self, mapping, interactive=False, parent=None):
         """mapping: dict {terminal('A'/'B'/'C'): actual_phase}"""
         super().__init__(parent)
         self.mapping = mapping
+        self.interactive = interactive
+        # _order[i] = 第 i 个接线柱（U/V/W）实际连接的绕组相
+        phases = ['A', 'B', 'C']
+        self._order = [mapping.get(p, p) for p in phases]
+        self._selected = None   # (zone, raw_idx): zone='top'|'bot', raw_idx∈{0,1,2}
         self.setFixedSize(270, 210)
+        if interactive:
+            self.setCursor(QtCore.Qt.PointingHandCursor)
+
+    def get_order(self):
+        """返回当前 [ph_at_U, ph_at_V, ph_at_W] 列表（供修复时写入 pt_phase_orders）。"""
+        return list(self._order)
+
+    def _xs(self):
+        return [int(self.width() * 0.22), int(self.width() * 0.50), int(self.width() * 0.78)]
+
+    def _hit_test(self, pos):
+        """返回 (zone, raw_idx) 或 None。top=绕组圆(idx=相序0-2), bot=接线柱(idx=柱0-2)。"""
+        xs = self._xs(); r = 13
+        for i in range(3):
+            if abs(pos.x() - xs[i]) <= r + 4 and abs(pos.y() - 52) <= r + 4:
+                return ('top', i)
+        for i in range(3):
+            if abs(pos.x() - xs[i]) <= r + 4 and abs(pos.y() - 158) <= r + 4:
+                return ('bot', i)
+        return None
+
+    def _resolve_j(self, zone, raw_idx):
+        """将点击 (zone, raw_idx) 转换为接线柱下标 j（0/1/2 对应 U/V/W）。"""
+        if zone == 'bot':
+            return raw_idx
+        # top: raw_idx 是绕组序号 → 找到该绕组当前连接的接线柱
+        ph = ['A', 'B', 'C'][raw_idx]
+        return self._order.index(ph)
+
+    def mousePressEvent(self, event):
+        if not self.interactive:
+            return
+        hit = self._hit_test(event.pos())
+        if hit is None:
+            self._selected = None
+            self.update()
+            return
+        if self._selected is None:
+            self._selected = hit
+            self.update()
+            return
+        # 第二次点击：计算两个接线柱下标并互换
+        j1 = self._resolve_j(*self._selected)
+        j2 = self._resolve_j(*hit)
+        if j1 != j2:
+            self._order[j1], self._order[j2] = self._order[j2], self._order[j1]
+        self._selected = None
+        self.update()
 
     def paintEvent(self, event):
         qp = QtGui.QPainter(self)
         qp.setRenderHint(QtGui.QPainter.Antialiasing)
         w = self.width()
-        xs = [int(w * 0.22), int(w * 0.50), int(w * 0.78)]
+        xs = self._xs()
         phases = ['A', 'B', 'C']
         term_labels = ['U', 'V', 'W']
         r = 13          # circle/square half-size
@@ -54,16 +108,23 @@ class _GenWiringWidget(QtWidgets.QWidget):
         qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
         qp.drawRoundedRect(0, 0, w, self.height(), 6, 6)
 
+        if self.interactive:
+            hint = QtWidgets.QLabel()  # 仅借用文字绘制，不显示 widget
+            f6 = QtGui.QFont(); f6.setPointSize(6); f6.setItalic(True)
+            qp.setFont(f6); qp.setPen(QtGui.QPen(QtGui.QColor('#64748b')))
+            qp.drawText(QtCore.QRect(0, self.height() - 28, w, 13),
+                        QtCore.Qt.AlignCenter, "点击任意两个节点可互换接线")
+
         # 区域标签
         f7 = QtGui.QFont(); f7.setPointSize(7)
         qp.setFont(f7); qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
         qp.drawText(QtCore.QRect(0, 2, w, 14), QtCore.Qt.AlignCenter, "── 内部绕组 ──")
-        qp.drawText(QtCore.QRect(0, self.height() - 14, w, 13),
+        qp.drawText(QtCore.QRect(0, y_dst + r + 18, w, 13),
                     QtCore.Qt.AlignCenter, "── 输出接线柱 ──")
 
         # ── 连线（先画，在圆下方）──
-        for i, terminal in enumerate(phases):
-            actual = self.mapping.get(terminal, terminal)
+        for i in range(3):
+            actual = self._order[i]
             sx = xs[_PI[actual]]   # 源：actual 相绕组的固定 x
             dx = xs[i]             # 目标：第 i 个接线柱 x
             c = QtGui.QColor(_PC[actual])
@@ -72,11 +133,16 @@ class _GenWiringWidget(QtWidgets.QWidget):
             qp.setPen(pen)
             qp.drawLine(sx, y_src + r + 1, dx, y_dst - r - 1)
 
-        # ── 内部绕组圆（A=黄/B=绿/C=红，位置固定）──
         f9b = QtGui.QFont(); f9b.setPointSize(9); f9b.setBold(True)
+
+        # ── 内部绕组圆（A=黄/B=绿/C=红，位置固定）──
         for i, ph in enumerate(phases):
             x = xs[i]; c = QtGui.QColor(_PC[ph])
-            qp.setPen(QtGui.QPen(c.darker(130), 2))
+            # 选中高亮
+            sel_top = (self._selected == ('top', i))
+            border_c = QtGui.QColor('#1d4ed8') if sel_top else c.darker(130)
+            border_w = 3.5 if sel_top else 2
+            qp.setPen(QtGui.QPen(border_c, border_w))
             qp.setBrush(QtGui.QBrush(c))
             qp.drawEllipse(x - r, y_src - r, 2 * r, 2 * r)
             qp.setPen(QtGui.QPen(QtGui.QColor('#ffffff')))
@@ -85,11 +151,14 @@ class _GenWiringWidget(QtWidgets.QWidget):
                         QtCore.Qt.AlignCenter, ph)
 
         # ── 输出接线柱方块（U/V/W，颜色跟随实际相）──
-        for i, terminal in enumerate(phases):
+        for i in range(3):
             x = xs[i]
-            actual = self.mapping.get(terminal, terminal)
+            actual = self._order[i]
             c = QtGui.QColor(_PC[actual])
-            qp.setPen(QtGui.QPen(QtGui.QColor('#475569'), 2))
+            sel_bot = (self._selected == ('bot', i))
+            border_c = QtGui.QColor('#1d4ed8') if sel_bot else QtGui.QColor('#475569')
+            border_w = 3 if sel_bot else 2
+            qp.setPen(QtGui.QPen(border_c, border_w))
             qp.setBrush(QtGui.QBrush(QtGui.QColor('#f0f4f8')))
             qp.drawRect(x - r, y_dst - r, 2 * r, 2 * r)
             qp.setPen(QtGui.QPen(QtGui.QColor('#1e293b')))
@@ -109,36 +178,87 @@ class _PTWiringWidget(QtWidgets.QWidget):
     上方二次侧（a2/b2/c2 → 测量端口 A/B/C），
     中间变压器铁芯黑盒，
     下方一次侧（输入电缆 A/B/C → 端子 A1/B1/C1）。
-    两组连线均根据 pri_order / sec_order 动态绘制，交叉即错接。"""
+    两组连线均根据 pri_order / sec_order 动态绘制，交叉即错接。
+    interactive_sec=True 时点击二次侧端子可互换接线（一次侧只读）。"""
 
-    def __init__(self, pri_order, sec_order, parent=None):
+    _Y_OUT   = 24
+    _Y_SEC   = 104
+    _Y_BOXT  = 124
+    _Y_BOXB  = 202
+    _Y_PRI   = 222
+    _Y_CABLE = 318
+
+    def __init__(self, pri_order, sec_order, interactive_sec=False, parent=None):
         """pri_order: [ph_at_A1, ph_at_B1, ph_at_C1]
            sec_order: [ph_at_a2, ph_at_b2, ph_at_c2]"""
         super().__init__(parent)
-        self.pri_order = pri_order
-        self.sec_order = sec_order
+        self.pri_order = list(pri_order)
+        self._sec_order = list(sec_order)   # 可变副本（interactive 时修改）
+        self.interactive_sec = interactive_sec
+        self._sel_sec = None   # 选中的二次侧端子下标（0/1/2 对应 a2/b2/c2）
         self.setFixedSize(270, 350)
+        if interactive_sec:
+            self.setCursor(QtCore.Qt.PointingHandCursor)
+
+    def get_sec_order(self):
+        """返回当前二次侧 [ph_at_a2, ph_at_b2, ph_at_c2]（供修复写入 pt_phase_orders）。"""
+        return list(self._sec_order)
+
+    def _xs(self):
+        return [int(self.width() * 0.22), int(self.width() * 0.50), int(self.width() * 0.78)]
+
+    def _hit_sec(self, pos):
+        """若点击落在二次侧端子圆内，返回下标（0/1/2），否则返回 None。"""
+        xs = self._xs(); r = 11
+        for i in range(3):
+            if abs(pos.x() - xs[i]) <= r + 4 and abs(pos.y() - self._Y_SEC) <= r + 4:
+                return i
+        return None
+
+    def mousePressEvent(self, event):
+        if not self.interactive_sec:
+            return
+        hit = self._hit_sec(event.pos())
+        if hit is None:
+            self._sel_sec = None
+            self.update()
+            return
+        if self._sel_sec is None:
+            self._sel_sec = hit
+            self.update()
+            return
+        # 第二次点击：互换两个二次侧端子的相
+        j1, j2 = self._sel_sec, hit
+        if j1 != j2:
+            self._sec_order[j1], self._sec_order[j2] = self._sec_order[j2], self._sec_order[j1]
+        self._sel_sec = None
+        self.update()
 
     def paintEvent(self, event):
         qp = QtGui.QPainter(self)
         qp.setRenderHint(QtGui.QPainter.Antialiasing)
         w = self.width()
-        xs = [int(w * 0.22), int(w * 0.50), int(w * 0.78)]
+        xs = self._xs()
         phases = ['A', 'B', 'C']
         r = 11   # 端子半径
 
-        # Y 布局
-        y_out    = 24     # 二次侧测量端口圆心
-        y_sec    = 104    # 二次侧端子 a2/b2/c2 圆心
-        y_boxt   = 124    # 变压器铁芯盒顶
-        y_boxb   = 202    # 变压器铁芯盒底
-        y_pri    = 222    # 一次侧端子 A1/B1/C1 圆心
-        y_cable  = 318    # 输入电缆圆心
+        y_out   = self._Y_OUT
+        y_sec   = self._Y_SEC
+        y_boxt  = self._Y_BOXT
+        y_boxb  = self._Y_BOXB
+        y_pri   = self._Y_PRI
+        y_cable = self._Y_CABLE
 
         # 白色背景
         qp.setPen(QtCore.Qt.NoPen)
         qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
         qp.drawRoundedRect(0, 0, w, self.height(), 6, 6)
+
+        if self.interactive_sec:
+            f6 = QtGui.QFont(); f6.setPointSize(6); f6.setItalic(True)
+            qp.setFont(f6); qp.setPen(QtGui.QPen(QtGui.QColor('#64748b')))
+            qp.drawText(QtCore.QRect(0, y_out - 13, w, 11),
+                        QtCore.Qt.AlignCenter, "↑ 点击两个二次侧端子可互换接线 ↑")
 
         # 变压器铁芯盒（中间灰色虚线框）
         qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8'), 1.5, QtCore.Qt.DashLine))
@@ -157,7 +277,7 @@ class _PTWiringWidget(QtWidgets.QWidget):
 
         # 测量端口圆（A/B/C 位置固定，颜色固定）
         qp.setFont(f7); qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
-        qp.drawText(QtCore.QRect(0, 2, w, 12), QtCore.Qt.AlignCenter,
+        qp.drawText(QtCore.QRect(0, y_out + r + 2, w, 12), QtCore.Qt.AlignCenter,
                     "── 二次侧测量端口 ──")
         for i, ph in enumerate(phases):
             x = xs[i]; c = QtGui.QColor(_PC[ph])
@@ -170,7 +290,7 @@ class _PTWiringWidget(QtWidgets.QWidget):
                         QtCore.Qt.AlignCenter, ph)
 
         # 二次侧交叉连线：a2(xs[i]) → 测量端口 xs[PI[sec_order[i]]]
-        for i, ph_out in enumerate(self.sec_order):
+        for i, ph_out in enumerate(self._sec_order):
             sx = xs[i]                      # 二次侧端子 x（固定位置）
             dx = xs[_PI[ph_out]]            # 该相的测量端口 x
             c  = QtGui.QColor(_PC[ph_out])
@@ -179,11 +299,14 @@ class _PTWiringWidget(QtWidgets.QWidget):
             qp.setPen(pen)
             qp.drawLine(sx, y_sec - r - 1, dx, y_out + r + 1)
 
-        # 二次侧端子圆（a2/b2/c2，颜色跟随输出相）
+        # 二次侧端子圆（a2/b2/c2，颜色跟随输出相；选中时蓝边）
         sec_lbl = ['a2', 'b2', 'c2']
-        for i, ph_out in enumerate(self.sec_order):
+        for i, ph_out in enumerate(self._sec_order):
             x = xs[i]; c = QtGui.QColor(_PC[ph_out])
-            qp.setPen(QtGui.QPen(c.darker(120), 2))
+            selected = (self._sel_sec == i)
+            border_c = QtGui.QColor('#1d4ed8') if selected else c.darker(120)
+            border_w = 3.5 if selected else 2
+            qp.setPen(QtGui.QPen(border_c, border_w))
             qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
             qp.drawEllipse(x - r, y_sec - r, 2 * r, 2 * r)
             f7b = QtGui.QFont(); f7b.setPointSize(7); f7b.setBold(True)
@@ -528,6 +651,36 @@ class TestPanelMixin:
     # Step section builders
     # ════════════════════════════════════════════════════════════════════
 
+    def _add_blackbox_section(self, lay):
+        """在任意步骤组中插入四个物理接线黑盒检查按钮（可查看 + 交互修复）。"""
+        bb_lbl = QtWidgets.QLabel("物理接线检查 / 手动修复 (开盖查线):")
+        bb_lbl.setStyleSheet("color:#64748b; font-size:11px; margin-top:4px;")
+        lay.addWidget(bb_lbl)
+        bb_row1 = QtWidgets.QWidget()
+        bb_row1.setStyleSheet(f"background:{_SECTION_BG};")
+        bb_h1 = QtWidgets.QHBoxLayout(bb_row1)
+        bb_h1.setContentsMargins(0, 0, 0, 0)
+        bb_h1.setSpacing(4)
+        btn_g1 = self._make_btn("G1 机端接线", "#92400e")
+        btn_g1.clicked.connect(lambda: self._show_blackbox_dialog('G1'))
+        btn_g2 = self._make_btn("G2 机端接线", "#92400e")
+        btn_g2.clicked.connect(lambda: self._show_blackbox_dialog('G2'))
+        bb_h1.addWidget(btn_g1)
+        bb_h1.addWidget(btn_g2)
+        lay.addWidget(bb_row1)
+        bb_row2 = QtWidgets.QWidget()
+        bb_row2.setStyleSheet(f"background:{_SECTION_BG};")
+        bb_h2 = QtWidgets.QHBoxLayout(bb_row2)
+        bb_h2.setContentsMargins(0, 0, 0, 0)
+        bb_h2.setSpacing(4)
+        btn_pt1 = self._make_btn("PT1 接线盒", "#1e40af")
+        btn_pt1.clicked.connect(lambda: self._show_blackbox_dialog('PT1'))
+        btn_pt3 = self._make_btn("PT3 接线盒", "#1e40af")
+        btn_pt3.clicked.connect(lambda: self._show_blackbox_dialog('PT3'))
+        bb_h2.addWidget(btn_pt1)
+        bb_h2.addWidget(btn_pt3)
+        lay.addWidget(bb_row2)
+
     # ── Step 1 ────────────────────────────────────────────────────────
     def _build_step1(self, cl):
         grp = self._make_grp("第一步：回路连通性测试")
@@ -591,6 +744,8 @@ class TestPanelMixin:
             rh.addWidget(btn)
             self.tp_s1_rec_btns[ph] = btn
         lay.addWidget(rrow)
+
+        self._add_blackbox_section(lay)
 
         self.tp_s1_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
         self.tp_s1_fb_lbl.setWordWrap(True)
@@ -740,6 +895,8 @@ class TestPanelMixin:
         self._make_gen_fap_block(lay, '_tp_s2_fap', 1)
         self._make_gen_fap_block(lay, '_tp_s2_fap', 2)
 
+        self._add_blackbox_section(lay)
+
         self.tp_s2_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
         self.tp_s2_fb_lbl.setWordWrap(True)
         self.tp_s2_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
@@ -800,6 +957,8 @@ class TestPanelMixin:
             self._tp_s3_rec_btns[pt_name] = btn
         lay.addWidget(rec_row)
 
+        self._add_blackbox_section(lay)
+
         self.tp_s3_fb_lbl = QtWidgets.QLabel("请先接入相序仪查看结果，再点击记录")
         self.tp_s3_fb_lbl.setWordWrap(True)
         self.tp_s3_fb_lbl.setStyleSheet("color:#64748b; font-size:12px;")
@@ -853,35 +1012,7 @@ class TestPanelMixin:
         lay.addWidget(rrow)
 
         # ── 物理接线黑盒检查 ────────────────────────────────────────────────
-        bb_lbl = QtWidgets.QLabel("物理接线检查 (开盖查线):")
-        bb_lbl.setStyleSheet("color:#64748b; font-size:11px; margin-top:4px;")
-        lay.addWidget(bb_lbl)
-
-        bb_row1 = QtWidgets.QWidget()
-        bb_row1.setStyleSheet(f"background:{_SECTION_BG};")
-        bb_h1 = QtWidgets.QHBoxLayout(bb_row1)
-        bb_h1.setContentsMargins(0, 0, 0, 0)
-        bb_h1.setSpacing(4)
-        btn_g1 = self._make_btn("G1 机端接线", "#92400e")
-        btn_g1.clicked.connect(lambda: self._show_blackbox_dialog('G1'))
-        btn_g2 = self._make_btn("G2 机端接线", "#92400e")
-        btn_g2.clicked.connect(lambda: self._show_blackbox_dialog('G2'))
-        bb_h1.addWidget(btn_g1)
-        bb_h1.addWidget(btn_g2)
-        lay.addWidget(bb_row1)
-
-        bb_row2 = QtWidgets.QWidget()
-        bb_row2.setStyleSheet(f"background:{_SECTION_BG};")
-        bb_h2 = QtWidgets.QHBoxLayout(bb_row2)
-        bb_h2.setContentsMargins(0, 0, 0, 0)
-        bb_h2.setSpacing(4)
-        btn_pt1 = self._make_btn("PT1 接线盒", "#1e40af")
-        btn_pt1.clicked.connect(lambda: self._show_blackbox_dialog('PT1'))
-        btn_pt3 = self._make_btn("PT3 接线盒", "#1e40af")
-        btn_pt3.clicked.connect(lambda: self._show_blackbox_dialog('PT3'))
-        bb_h2.addWidget(btn_pt1)
-        bb_h2.addWidget(btn_pt3)
-        lay.addWidget(bb_row2)
+        self._add_blackbox_section(lay)
 
         # 管理员快捷记录按钮（仅管理员模式可见）
         self._tp_s4_quick_btn = self._make_btn("⚡ 快捷记录全部18组", "#7c3aed")
@@ -1689,67 +1820,75 @@ class TestPanelMixin:
             f"color:{state.feedback_color}; font-size:12px;")
 
     def _show_blackbox_dialog(self, target):
-        """打开物理接线黑盒检查对话框（图形化接线图）。target: 'G1'|'G2'|'PT1'|'PT3'"""
+        """打开物理接线黑盒检查对话框（图形化 + 交互修复）。target: 'G1'|'G2'|'PT1'|'PT3'
+        G1/PT1/PT3 支持点击互换接线后确认修复；G2（fault_reverse_bc 物理对调）仅供查看。"""
         sim = self.ctrl.sim_state
         fc  = sim.fault_config
         pt_orders = self.ctrl.pt_phase_orders
 
-        def _fc_params():
-            # 修复后 fc.repaired=True，pt_phase_orders 已恢复，但 fc.params 仍存旧 swap 值。
-            # 必须排除 repaired 状态，否则 G1/G2 对话框在修复后会错误显示故障接线。
-            return fc.params if (fc and fc.active and not fc.repaired and fc.params) else {}
+        # 是否存在活跃未修复故障（影响接线显示）
+        fault_active = fc and fc.active and not fc.repaired
 
         dlg = QtWidgets.QDialog(self)
         dlg.setStyleSheet("background:#f1f5f9;")
-        dlg.setFixedWidth(300)
+        dlg.setFixedWidth(310)
         vlay = QtWidgets.QVBoxLayout(dlg)
         vlay.setSpacing(6)
         vlay.setContentsMargins(12, 10, 12, 10)
 
+        widget = None          # 引用交互图组件
+        repair_target = None   # 'G1'/'PT1'/'PT3' → 标记可修复目标
+
         if target in ('G1', 'G2'):
             dlg.setWindowTitle(f"发电机 {target} 机端接线检查")
-            mapping = {'A': 'A', 'B': 'B', 'C': 'C'}
-            if target == 'G2' and sim.fault_reverse_bc:
-                mapping['B'], mapping['C'] = 'C', 'B'
-            swap = _fc_params().get('g1_loop_swap' if target == 'G1' else 'g2_loop_swap')
-            if swap:
-                p1, p2 = swap
-                mapping[p1], mapping[p2] = mapping[p2], mapping[p1]
-            sub = QtWidgets.QLabel("上方绕组（A黄/B绿/C红）→ 下方接线柱（U/V/W）")
+            # G1：从 pt_phase_orders['PT2'] 读取（inject_fault 已写入，单一数据源）
+            if target == 'G1':
+                pt2 = pt_orders.get('PT2', ['A', 'B', 'C'])
+                mapping = {'A': pt2[0], 'B': pt2[1], 'C': pt2[2]}
+                interactive = True
+                repair_target = 'G1'
+            else:
+                # G2：fault_reverse_bc 控制物理绕组对调，无法从接线图手动修复
+                mapping = {'A': 'A', 'B': 'B', 'C': 'C'}
+                if sim.fault_reverse_bc:
+                    mapping['B'], mapping['C'] = 'C', 'B'
+                interactive = False   # G2 接线对调是物理绕组级，只查看
+
+            sub_txt = ("上方绕组（A黄/B绿/C红）→ 下方接线柱（U/V/W）"
+                       + (" [可交互修复]" if interactive else " [仅查看]"))
+            sub = QtWidgets.QLabel(sub_txt)
             sub.setStyleSheet("color:#64748b; font-size:10px;")
             vlay.addWidget(sub)
-            vlay.addWidget(_GenWiringWidget(mapping), alignment=QtCore.Qt.AlignHCenter)
+            widget = _GenWiringWidget(mapping, interactive=interactive)
+            vlay.addWidget(widget, alignment=QtCore.Qt.AlignHCenter)
 
         elif target == 'PT1':
-            dlg.setWindowTitle("PT1 接线盒检查")
-            pri_order = list(pt_orders.get('PT2', ['A', 'B', 'C']))  # Bus相序→一次侧
-            sec_order = list(pt_orders.get('PT1', ['A', 'B', 'C']))  # 二次侧净相序
-            sub = QtWidgets.QLabel("上: 二次侧输出→测量端口  |  下: 一次侧输入←Bus")
+            dlg.setWindowTitle("PT1 接线盒检查 [二次侧可交互修复]")
+            pri_order = list(pt_orders.get('PT2', ['A', 'B', 'C']))  # Bus相序→一次侧（只读）
+            sec_order = list(pt_orders.get('PT1', ['A', 'B', 'C']))  # 二次侧（可修复）
+            sub = QtWidgets.QLabel("上: 二次侧输出→测量端口 [可互换]  |  下: 一次侧输入←Bus [只读]")
             sub.setStyleSheet("color:#64748b; font-size:10px;")
             vlay.addWidget(sub)
-            vlay.addWidget(_PTWiringWidget(pri_order, sec_order),
-                           alignment=QtCore.Qt.AlignHCenter)
+            widget = _PTWiringWidget(pri_order, sec_order, interactive_sec=True)
+            vlay.addWidget(widget, alignment=QtCore.Qt.AlignHCenter)
+            repair_target = 'PT1'
 
         elif target == 'PT3':
-            dlg.setWindowTitle("PT3 接线盒检查")
+            dlg.setWindowTitle("PT3 接线盒检查 [二次侧可交互修复]")
             pri_order = ['A', 'B', 'C']
             if sim.fault_reverse_bc:
-                pri_order = ['A', 'C', 'B']   # E02: Gen2 B/C 物理对调
-            swap2 = _fc_params().get('g2_loop_swap')
-            if swap2:
-                p1, p2 = swap2
-                i1 = ('A', 'B', 'C').index(p1)
-                i2 = ('A', 'B', 'C').index(p2)
-                pri_order[i1], pri_order[i2] = pri_order[i2], pri_order[i1]
+                pri_order = ['A', 'C', 'B']
+            # 注意：fault_reverse_bc 同时影响 PT3 sec_order 显示
             sec_order = list(pt_orders.get('PT3', ['A', 'B', 'C']))
             if sim.fault_reverse_bc:
                 sec_order[1], sec_order[2] = sec_order[2], sec_order[1]
-            sub = QtWidgets.QLabel("上: 二次侧输出→测量端口  |  下: 一次侧输入←Gen2")
+            sub = QtWidgets.QLabel("上: 二次侧输出→测量端口 [可互换]  |  下: 一次侧输入←Gen2 [只读]")
             sub.setStyleSheet("color:#64748b; font-size:10px;")
             vlay.addWidget(sub)
-            vlay.addWidget(_PTWiringWidget(pri_order, sec_order),
-                           alignment=QtCore.Qt.AlignHCenter)
-            if fc and fc.active and not fc.repaired and fc.scenario_id == 'E03':
+            widget = _PTWiringWidget(pri_order, sec_order, interactive_sec=True)
+            vlay.addWidget(widget, alignment=QtCore.Qt.AlignHCenter)
+            repair_target = 'PT3'
+            if fault_active and fc.scenario_id == 'E03':
                 note = QtWidgets.QLabel("⚠ A 相极性反接：A1 正负极颠倒（a2 输出反相）")
                 note.setStyleSheet(
                     "color:#c2410c; font-size:11px; font-weight:bold;"
@@ -1757,12 +1896,64 @@ class TestPanelMixin:
                 note.setWordWrap(True)
                 vlay.addWidget(note)
 
+        # ── 反馈标签 ────────────────────────────────────────────────────
+        fb_lbl = QtWidgets.QLabel("")
+        fb_lbl.setWordWrap(True)
+        fb_lbl.setStyleSheet("font-size:11px;")
+        fb_lbl.setVisible(False)
+        vlay.addWidget(fb_lbl)
+
+        # ── 底部按钮行 ───────────────────────────────────────────────────
+        btn_row = QtWidgets.QWidget()
+        btn_row.setStyleSheet("background:transparent;")
+        bh = QtWidgets.QHBoxLayout(btn_row)
+        bh.setContentsMargins(0, 0, 0, 0)
+        bh.setSpacing(6)
+
+        # "确认修复" 按钮（仅对可修复目标显示）
+        if repair_target is not None:
+            def _on_confirm():
+                if repair_target == 'G1':
+                    new_order = widget.get_order()    # [ph_at_U, ph_at_V, ph_at_W]
+                    self.ctrl.pt_phase_orders['PT2'] = new_order
+                    is_correct = (new_order == ['A', 'B', 'C'])
+                elif repair_target in ('PT1', 'PT3'):
+                    new_sec = widget.get_sec_order()
+                    # PT3 fault_reverse_bc 场景：显示的 sec_order 已含 B/C 对调视角，
+                    # 写回时需还原（pt_phase_orders 存储不含 fault_reverse_bc 偏移的值）
+                    if repair_target == 'PT3' and sim.fault_reverse_bc:
+                        new_sec[1], new_sec[2] = new_sec[2], new_sec[1]
+                    self.ctrl.pt_phase_orders[repair_target] = new_sec
+                    is_correct = (new_sec == ['A', 'B', 'C'])
+                else:
+                    is_correct = False
+
+                if is_correct:
+                    self.ctrl.repair_fault()
+                    fb_lbl.setText("✓ 接线已恢复正确，故障已清除！")
+                    fb_lbl.setStyleSheet(
+                        "color:#15803d; font-size:11px; font-weight:bold;")
+                    fb_lbl.setVisible(True)
+                    btn_repair.setEnabled(False)
+                else:
+                    fb_lbl.setText("✗ 接线仍有错误，请重新调整后再提交。")
+                    fb_lbl.setStyleSheet("color:#dc2626; font-size:11px;")
+                    fb_lbl.setVisible(True)
+
+            btn_repair = QtWidgets.QPushButton("确认修复 ✓")
+            btn_repair.setStyleSheet(
+                "background:#16a34a; color:white; font-weight:bold;"
+                " padding:5px 12px; border-radius:4px; font-size:12px;")
+            btn_repair.clicked.connect(_on_confirm)
+            bh.addWidget(btn_repair, 1)
+
         btn_ok = QtWidgets.QPushButton("关闭")
         btn_ok.setStyleSheet(
             "background:#334155; color:#f1f5f9; border:none;"
             " padding:5px 18px; border-radius:4px; font-size:12px;")
         btn_ok.clicked.connect(dlg.accept)
-        vlay.addWidget(btn_ok, alignment=QtCore.Qt.AlignRight)
+        bh.addWidget(btn_ok)
+        vlay.addWidget(btn_row)
         dlg.exec_()
 
     def _refresh_tp_step5(self, sim):

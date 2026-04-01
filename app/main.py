@@ -169,17 +169,11 @@ class PowerSyncController:
 
     def resolve_loop_node_phase(self, node_name):
         _, gen_name, terminal = node_name.split('_', 2)
-        fc = self.sim_state.fault_config
-        if fc.active and not fc.repaired:
-            if fc.scenario_id == 'E01' and gen_name == 'G1':
-                return {'A': 'B', 'B': 'A', 'C': 'C'}[terminal]
-            if fc.scenario_id == 'E02' and gen_name == 'G2':
-                return {'A': 'A', 'B': 'C', 'C': 'B'}[terminal]
-            # E05–E14: 通用 G1 换相（读取 g1_loop_swap 参数）
-            swap = fc.params.get('g1_loop_swap')
-            if swap and gen_name == 'G1':
-                p1, p2 = swap
-                return {p1: p2, p2: p1}.get(terminal, terminal)
+        # G1：以 pt_phase_orders['PT2'] 为单一数据源（inject_fault/repair_fault/手动修复均写此处）
+        if gen_name == 'G1':
+            idx = ('A', 'B', 'C').index(terminal)
+            return self.pt_phase_orders['PT2'][idx]
+        # G2：fault_reverse_bc 表示物理 B/C 对调（E02 及永久状态）
         if gen_name == 'G2' and self.sim_state.fault_reverse_bc:
             return {'A': 'A', 'B': 'C', 'C': 'B'}[terminal]
         return terminal
@@ -544,6 +538,8 @@ class PowerSyncController:
         if scenario_id == 'E01':
             # PT1 端子相序改为 B/A/C（A 端子连 B 相绕组，B 端子连 A 相绕组）
             self.pt_phase_orders['PT1'] = ['B', 'A', 'C']
+            # E01 根本原因是 Gen1 机端 A/B 对调，同步更新 PT2（Bus）相序
+            self.pt_phase_orders['PT2'] = ['B', 'A', 'C']
         elif scenario_id == 'E02':
             # E02: Gen2 B/C 相绕组接线对调
             # 只设 fault_reverse_bc（物理层对调波形内容），不修改 pt_phase_orders，
@@ -561,8 +557,9 @@ class PowerSyncController:
         if pt1_order:
             self.pt_phase_orders['PT1'] = list(pt1_order)
         # Gen1 机端换相同时影响母排（Bus）：Bus 端子与 PT2 相序一致，需同步更新
+        # E01 已在上方显式设置 PT2，此处跳过以避免二次交换抵消 E01 的设定
         swap = fc.params.get('g1_loop_swap')
-        if swap:
+        if swap and scenario_id != 'E01':
             p1, p2 = swap
             new_pt2 = list(self.pt_phase_orders['PT2'])
             i1 = ('A', 'B', 'C').index(p1)
@@ -586,6 +583,7 @@ class PowerSyncController:
         # 恢复场景专属注入的效果
         if sid == 'E01':
             self.pt_phase_orders['PT1'] = ['A', 'B', 'C']
+            self.pt_phase_orders['PT2'] = ['A', 'B', 'C']
         elif sid == 'E02':
             self.sim_state.fault_reverse_bc = False
         elif sid == 'E04':
