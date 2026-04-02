@@ -183,10 +183,10 @@ class PowerSyncUI(
         """
         轮询 fault_config.detected 标志。
 
-        策略（方案B — 延迟修复）：
-          · E06 事故：立即弹出事故报告对话框（紧急处置，不能延后）
-          · E01-E05 渐进故障：不弹窗，仅通过横幅提示学员继续测试；
-            修复统一延迟到第五步前，由 _render_test_panel 的关卡逻辑触发。
+        策略：
+          · accident 场景：立即弹出事故报告对话框（E03 仍在步骤五合闸瞬间单独处理）
+          · recoverable 场景：仅通过横幅提示学员继续测试；
+            修复统一延迟到第五步前，由测试面板门禁逻辑触发。
         """
         fc = self.ctrl.sim_state.fault_config
         if not (fc.active and fc.detected and not fc.repaired):
@@ -200,7 +200,6 @@ class PowerSyncUI(
             # E03 的事故发生在步骤五合闸瞬间，由 show_e03_accident_dialog() 处理，此处不弹窗
             if fc.scenario_id == 'E03':
                 return
-            # E06 事故：立即弹出
             self._fault_dialog_open = True
             self._show_fault_repair_dialog(fc)
         # 其他故障：横幅已更新，等待步骤五关卡触发修复
@@ -236,7 +235,7 @@ class PowerSyncUI(
         inner_lay = QtWidgets.QVBoxLayout(inner)
         inner_lay.setContentsMargins(10, 10, 10, 10)
 
-        # E06 事故：加入冲击电流信息
+        # 事故场景补充瞬态数据
         prompt = info.get('repair_prompt', '已检测到故障，请检查并修复。')
         if is_accident and 'surge_current_kA' in fc.params:
             surge_info = (
@@ -282,6 +281,50 @@ class PowerSyncUI(
 
         dlg.exec_()
         self._fault_dialog_open = False
+
+    def _show_blackbox_required_dialog(self, fc):
+        """步骤五前发现黑盒接线未修复时，提示学员先回到黑盒中完成物理修复。"""
+        from domain.fault_scenarios import SCENARIOS
+
+        info = SCENARIOS.get(fc.scenario_id, {})
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("⚠️ 仍有接线故障未修复")
+        dlg.setModal(True)
+        dlg.resize(500, 300)
+
+        lay = QtWidgets.QVBoxLayout(dlg)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(10)
+
+        title_lbl = QtWidgets.QLabel(info.get('title', '故障') + " — 需先完成黑盒修复")
+        title_lbl.setStyleSheet("font-size:14px; font-weight:bold; color:#991b1b;")
+        lay.addWidget(title_lbl)
+
+        hint = QtWidgets.QLabel(
+            "当前仍存在未恢复的物理接线错误，不能进入第五步【同步功能测试】。\n\n"
+            "请先回到当前流程中的黑盒检查区，打开 G1 / PT1 接线盒完成修复。"
+            "只有当相关接线全部恢复为正确顺序后，系统才会自动允许进入第五步。"
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet(
+            "font-size:12px; color:#1f2937; background:#fff7ed;"
+            " border:1px solid #fdba74; border-radius:4px; padding:8px;")
+        lay.addWidget(hint)
+
+        symptom_lbl = QtWidgets.QLabel("【当前已记录的异常现象】\n" + info.get('symptom', ''))
+        symptom_lbl.setWordWrap(True)
+        symptom_lbl.setStyleSheet(
+            "font-size:11px; color:#374151; background:#fef3c7;"
+            " padding:6px; border-radius:4px;")
+        lay.addWidget(symptom_lbl)
+
+        btn_ok = QtWidgets.QPushButton("知道了")
+        btn_ok.setStyleSheet(
+            "background:#334155; color:white; font-weight:bold; padding:6px 14px;")
+        btn_ok.clicked.connect(dlg.accept)
+        lay.addWidget(btn_ok, alignment=QtCore.Qt.AlignRight)
+
+        dlg.exec_()
 
     def show_e01_accident_dialog(self):
         """

@@ -118,6 +118,7 @@ class WidgetBuilderMixin:
 
         # ── 故障训练场景预设（教师在进入测试前设置，学员不可见）──────────────
         self._pre_test_scenario_id = ''   # 默认无故障
+        self._pre_test_flow_mode = 'teaching'
         fault_grp = QtWidgets.QGroupBox("故障训练场景（教师预设）")
         fault_grp.setStyleSheet(
             "QGroupBox{background:#fffbeb; color:#92400e; font-size:11px;"
@@ -160,7 +161,8 @@ class WidgetBuilderMixin:
         fg_lay.addWidget(btn_row)
 
         # 第二行：已选场景状态标签
-        self._fp_status_lbl = QtWidgets.QLabel("已选: 正常模式（无故障注入）")
+        self._fp_status_lbl = QtWidgets.QLabel(
+            "已选: 正常模式（无故障注入）\n流程模式: 教学模式")
         self._fp_status_lbl.setStyleSheet(
             "color:#92400e; font-size:11px; padding:2px 0;")
         self._fp_status_lbl.setWordWrap(True)
@@ -535,19 +537,26 @@ class WidgetBuilderMixin:
         self._fp_btn_random.setStyleSheet(_inactive)
         self._fp_btn_choose.setStyleSheet(_fault if scenario_id else _inactive)
         # 更新状态标签
+        self._refresh_pretest_status_label()
+
+    def _refresh_pretest_status_label(self):
+        mode_text = "工程模式" if self._pre_test_flow_mode == 'engineering' else "教学模式"
+        scenario_id = self._pre_test_scenario_id
         if not scenario_id:
-            self._fp_status_lbl.setText("已选: 正常模式（无故障注入）")
-            self._fp_status_lbl.setStyleSheet("color:#92400e; font-size:11px; padding:2px 0;")
-        else:
-            info = SCENARIOS.get(scenario_id, {})
-            cat_label = info.get('label', '')
             self._fp_status_lbl.setText(
-                f"已选: {scenario_id} — {cat_label}\n{info.get('title', '')}")
+                f"已选: 正常模式（无故障注入）\n流程模式: {mode_text}")
             self._fp_status_lbl.setStyleSheet(
-                "color:#dc2626; font-size:11px; padding:2px 0; font-weight:bold;")
+                "color:#92400e; font-size:11px; padding:2px 0;")
+            return
+        info = SCENARIOS.get(scenario_id, {})
+        cat_label = info.get('label', '')
+        self._fp_status_lbl.setText(
+            f"已选: {scenario_id} — {cat_label}\n{info.get('title', '')}\n流程模式: {mode_text}")
+        self._fp_status_lbl.setStyleSheet(
+            "color:#dc2626; font-size:11px; padding:2px 0; font-weight:bold;")
 
     def _on_fp_random(self):
-        """随机选取一个故障场景（E01-E06），不对外显示具体场景。"""
+        """随机选取一个故障场景，不对外显示具体场景。"""
         fault_ids = [k for k in SCENARIOS if k]   # 排除空键
         sid = _random.choice(fault_ids)
         _active = ("background:#dc2626; color:white; font-size:11px;"
@@ -558,7 +567,9 @@ class WidgetBuilderMixin:
         self._fp_btn_normal.setStyleSheet(_inactive)
         self._fp_btn_random.setStyleSheet(_active)
         self._fp_btn_choose.setStyleSheet(_inactive)
-        self._fp_status_lbl.setText("已选: 随机故障（进入测试后自动注入，内容对学员保密）")
+        mode_text = "工程模式" if self._pre_test_flow_mode == 'engineering' else "教学模式"
+        self._fp_status_lbl.setText(
+            f"已选: 随机故障（进入测试后自动注入，内容对学员保密）\n流程模式: {mode_text}")
         self._fp_status_lbl.setStyleSheet(
             "color:#dc2626; font-size:11px; padding:2px 0; font-weight:bold;")
 
@@ -567,7 +578,7 @@ class WidgetBuilderMixin:
         dlg = QtWidgets.QDialog(self)
         dlg.setWindowTitle("指定故障场景")
         dlg.setModal(True)
-        dlg.resize(460, 340)
+        dlg.resize(460, 430)
 
         lay = QtWidgets.QVBoxLayout(dlg)
         lay.setContentsMargins(12, 10, 12, 10)
@@ -595,6 +606,26 @@ class WidgetBuilderMixin:
             btn_grp.addButton(rb)
             lay.addWidget(rb)
 
+        mode_grp = QtWidgets.QGroupBox("流程模式")
+        mode_lay = QtWidgets.QVBoxLayout(mode_grp)
+        mode_lay.setContentsMargins(8, 6, 8, 6)
+        mode_lay.setSpacing(4)
+        mode_hint = QtWidgets.QLabel(
+            "教学模式允许带故障继续后续步骤；工程模式要求当前步骤合格后才能进入下一步。")
+        mode_hint.setWordWrap(True)
+        mode_hint.setStyleSheet("color:#475569; font-size:11px;")
+        mode_lay.addWidget(mode_hint)
+        mode_bg = QtWidgets.QButtonGroup(dlg)
+        rb_teaching = QtWidgets.QRadioButton("教学模式")
+        rb_engineering = QtWidgets.QRadioButton("工程模式")
+        rb_teaching.setChecked(self._pre_test_flow_mode != 'engineering')
+        rb_engineering.setChecked(self._pre_test_flow_mode == 'engineering')
+        mode_bg.addButton(rb_teaching)
+        mode_bg.addButton(rb_engineering)
+        mode_lay.addWidget(rb_teaching)
+        mode_lay.addWidget(rb_engineering)
+        lay.addWidget(mode_grp)
+
         lay.addStretch()
 
         brow = QtWidgets.QHBoxLayout()
@@ -615,6 +646,9 @@ class WidgetBuilderMixin:
                 if btn.isChecked():
                     selected_id = btn.property('scenario_id')
                     break
+            self._pre_test_flow_mode = (
+                'engineering' if rb_engineering.isChecked() else 'teaching'
+            )
             self._on_fp_set(selected_id)
 
     # ════════════════════════════════════════════════════════════════════════

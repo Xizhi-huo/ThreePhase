@@ -129,6 +129,11 @@ class SyncTestService:
             self._set_sync_test_feedback(
                 "请先完成第四步【PT 二次端子压差测试】（Gen1 和 Gen2 均需完成）。", "red")
             return
+        if (self._ctrl.should_block_step5_until_blackbox_fixed()
+                and self._ctrl.has_unrepaired_wiring_fault()):
+            self._set_sync_test_feedback(
+                "请先修复未恢复的黑盒接线故障，再进行第五步【同步功能测试】。", "red")
+            return
 
         if round_num == 1:
             if not (gen1.breaker_closed and

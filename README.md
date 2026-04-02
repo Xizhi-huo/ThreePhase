@@ -130,7 +130,7 @@ PhysicsEngine  (4 个 Mixin 组合)
 |------|--------|----------|----------|
 | 1. 回路导通测试 | `LoopTestService` | 双机工作位 / 合闸 / 未启机 | A/B/C 三相回路导通；检出相序接线错误 |
 | 2. PT 电压检查 | `PtVoltageCheckService` | Gen1 并网，Gen2 运行断路器分闸 | PT1/PT2/PT3 三相线电压，±15% 容差（额定 10.5 kV） |
-| 3. PT 相序检查 | `PtPhaseCheckService` | 同步骤 2 | PT1/PT3 相序表指示；检出 B/C 互换故障 |
+| 3. PT 相序检查 | `PtPhaseCheckService` | 同步骤 2 | PT1/PT3 相序表指示；按真实三字母结果逐相记录端子错位 |
 | 4. PT 压差考核 | `PtExamService` | Gen1/Gen2 交替上母线 | 9 对 PT 端子间向量压差；验证同期就绪 |
 | 5. 同期功能测试 | `SyncTestService` | Gen2 自动模式追踪 Gen1 | Δf < 0.5 Hz，ΔV < 500 V，Δθ < 15° 收敛后合闸 |
 
@@ -233,14 +233,14 @@ elif fc.scenario_id == 'E02': show_e02_accident_dialog()
 2. 若有 `g1_loop_swap` **且非 E01**，同步交换 `pt_phase_orders['PT2']` — Gen1 换相影响 Bus 端子相位映射
 3. E01 专属：直接设 `pt_phase_orders['PT1'] = pt_phase_orders['PT2'] = ['B','A','C']`
 
-> `pt_phase_orders['PT2']` 是 G1 接线状态的**唯一数据源**，`resolve_loop_node_phase` 直接读取，黑盒修复对话框也直接写入，`repair_fault()` 重置为 `['A','B','C']`。
+> `g1_blackbox_order` 才是 G1 机端物理接线的运行态真值源；`pt_phase_orders['PT2']` 是同步后的派生结果，供回路/测量计算使用。
 
 **检测触发**：
 - 步骤一：凡有 `g1_loop_swap` 的场景（E05/E09/E10/E12/E13/E14），回路断路时置 `fc.detected = True`
 - 步骤四：凡有 `pt1_phase_order` 且 PT1 与 Bus 异相时置 `fc.detected = True`，覆盖步骤一无断路的 E06/E07/E11；E08（全部同相）永不触发（完全隐性设计）
 
 **修复时**（`repair_fault()`）：`pt_phase_orders['PT1']` 和 `pt_phase_orders['PT2']` 均还原为 `['A','B','C']`。
-交互黑盒修复中，`_on_confirm()` 在两者同时为 `['A','B','C']` 时自动触发 `repair_fault()`；单处修复正确时仅更新 `pt_phase_orders`，提示学员继续检查其他位置。
+交互黑盒修复中，`_on_confirm()` 仅在 `g1_blackbox_order`、`pt1_pri_blackbox_order`、`pt1_sec_blackbox_order` 全部恢复为 `['A','B','C']` 时才自动触发 `repair_fault()`；单处修复正确时只更新运行态黑盒状态及其同步后的 `pt_phase_orders`，提示学员继续检查其他位置。
 
 ### 故障注入通用流程
 
@@ -248,8 +248,21 @@ elif fc.scenario_id == 'E02': show_e02_accident_dialog()
 2. `FaultConfig` 注入 `SimulationState`（E02 同时置 `fault_reverse_bc=True`）
 3. `PhysicsEngine` 读取故障参数扭曲测量值
 4. UI 轮询 `fault_config.detected` 标志，触发警告横幅
-5. 学员"修复"确认 → `repaired = True`，允许继续测试
+5. 黑盒内实际修复完成 → `repair_fault()` → `repaired = True`，允许继续测试
 6. E01/E02/E03 例外：修复时机在第五步合闸事故弹窗内，而非步骤 4→5 过渡时
+
+### 流程模式策略（当前两模式已策略化）
+
+- 控制器在 [app/main.py](/abs/path/c:/Users/AW57P/Documents/ThreePhase_entier/app/main.py) 统一维护 `FLOW_MODE_POLICIES`，`test_flow_mode` 不再只代表一个模式名，而是映射到一组流程规则。
+- 业务层与 UI 不再直接散落写“教学/工程”判断，改为读取控制器语义接口，如 `can_advance_with_fault()`、`should_block_step5_until_blackbox_fixed()`、`should_show_fault_detected_banner()`。
+- 当前两种模式的策略差异只保留在“步骤 1~3 发现异常后能否完成当前步骤”这一核心点：
+  - `teaching`：允许带异常完成当前步骤并继续收集故障证据
+  - `engineering`：要求当前步骤结果合格后才能完成并进入下一步
+- 两种模式当前保持一致的策略：
+  - 都要求先完成本步规定测量项
+  - 都会显示故障横幅和诊断性提示
+  - 都要求第五步前完成黑盒真实修复
+  - 都允许黑盒查看与交互修复
 
 ---
 
@@ -359,17 +372,24 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 |------|------|--------|---------|
 | G1 机端接线 | 内部绕组（A黄/B绿/C红）→ 接线柱（U/V/W），交叉=错接 | ✅ 点击互换 | `g1_blackbox_order` / `pt_phase_orders['PT2']` |
 | G2 机端接线 | 同上，含 `fault_reverse_bc` B/C 对调 | ❌ 仅查看 | `fault_reverse_bc` |
-| PT1 接线盒 | 六点式：电缆→一次侧（只读） / 二次侧→测量端口（可互换） | ✅ 点击互换二次侧 | `p1_pri_blackbox_order` / `pt2_sec_blackbox_order` |
+| PT1 接线盒 | 六点式：电缆→一次侧 / 二次侧→测量端口，均按物理接线绘制 | ✅ 点击互换一次侧或二次侧 | `p1_pri_blackbox_order` / `pt2_sec_blackbox_order` |
 | PT3 接线盒 | 同上；E03 额外显示极性反接警告 | ✅ 点击互换二次侧 | `fault_reverse_bc` / `pt_phase_orders['PT3']` |
 
-**渐进式修复逻辑**：点击"确认修复"后，仅当 `pt_phase_orders['PT1']` 和 `pt_phase_orders['PT2']` **同时还原为 `['A','B','C']`** 时才调用 `repair_fault()` 清除故障；单个组件修复正确后显示蓝色"继续检查其他位置"提示，不提前清除故障。学员需对所有涉及故障的接线位置逐一修复，方可推进下一步。
+**渐进式修复逻辑**：点击"确认修复"后，仅当 `g1_blackbox_order`、`pt1_pri_blackbox_order`、`pt1_sec_blackbox_order` **同时还原为 `['A','B','C']`** 时才调用 `repair_fault()` 清除故障；单个组件修复正确后显示蓝色"继续检查其他位置"提示，不提前清除故障。学员需对所有涉及故障的接线位置逐一修复，方可推进下一步。
 
 ---
 
 ## 当前状态
 
+- **2026-04 黑盒接线逻辑校正**：
+  - G1 / PT1 黑盒对话框现在读取的是控制器运行态黑盒状态，而不是 `fault_scenarios.py` 中的静态 `params` 快照。
+  - G1 运行态真值源为 `ctrl.g1_blackbox_order`；`pt_phase_orders['PT2']` 仍用于回路/测量计算，但它是由黑盒状态同步得到的派生结果，不再应视为唯一物理真值源。
+  - PT1 黑盒运行态真值源为 `ctrl.pt1_pri_blackbox_order` 与 `ctrl.pt1_sec_blackbox_order`；`pt_phase_orders['PT1']` 是由 G1 Bus 相序 + PT1 一次侧 + PT1 二次侧组合推导出的净相序。
+  - PT1 黑盒支持一次侧、二次侧分别交互修复，不再是“仅二次侧可修复”。
+  - `repair_fault()` 的自动触发条件已改为：`g1_blackbox_order`、`pt1_pri_blackbox_order`、`pt1_sec_blackbox_order` 三者都恢复为 `['A','B','C']`；不再仅凭 `pt_phase_orders['PT1']` / `['PT2']` 的净结果判定。
+  - 对于 E06 / E10，此前文档里容易混淆的 PT1 二次侧黑盒状态现已固定为正常 `['A','B','C']`，故障只在 PT1 一次侧。
+
 - **已完成并验证**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
 - **已实现待验证**：E03 步骤 5；E04 步骤 2；E05–E14 物理注入；物理接线黑盒检查交互修复（第 1～4 步均显示，渐进式逐组件修复）
-- **最新修复**：E01 double-swap bug；`pt_phase_orders['PT2']` 统一为 G1 唯一数据源；黑盒 params 键名统一（`p1_pri_blackbox_order` / `pt2_sec_blackbox_order`）
+- **最新修复**：E01 double-swap bug；黑盒 params 键名统一（`g1_blackbox_order` / `p1_pri_blackbox_order` / `pt2_sec_blackbox_order`）；PT1 一次侧/二次侧独立修复；黑盒对话框运行态回显修复；`teaching / engineering` 两模式差异已收敛到 `FLOW_MODE_POLICIES`
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）
-

@@ -169,10 +169,13 @@ class PtPhaseCheckService:
     def finalize_pt_phase_check(self):
         state = self._ctrl.pt_phase_check_state
         fc = self._ctrl.sim_state.fault_config
-        fault_training = fc.active and fc.detected and not fc.repaired
+        fault_training = (
+            fc.active and fc.detected and not fc.repaired
+            and self._ctrl.can_advance_with_fault()
+        )
 
         if fault_training:
-            # 故障训练模式：六相全部测量完即可完成，无需全部通过
+            # 当前流程策略允许带异常完成，但仍要求本步测量项齐全
             if not self._are_all_records_filled():
                 self._set_feedback(
                     '请先完成 PT1/PT3 全部六相相序测量，再点击"完成第三步测试"。', "red")
@@ -191,7 +194,7 @@ class PtPhaseCheckService:
                     "第三步【PT 相序检查】已确认完成，后续操作将不再影响该步骤状态。",
                     "#006600")
         else:
-            # 正常模式：要求六相全部通过
+            # 当前流程策略要求本步全部通过后才能完成
             if not self._are_phase_check_records_complete():
                 self._set_feedback(
                     '请先完成 PT1/PT3 全部六相相序测量（且全部通过），再点击"完成第三步测试"。',

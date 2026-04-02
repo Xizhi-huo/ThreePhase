@@ -50,7 +50,7 @@ class PhaseSeqMeterWidget(QtWidgets.QWidget):
         self.setFixedSize(180, 200)
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
-        self.setToolTip("相序仪\n顺时针=正序(ABC)  逆时针=逆序(ACB)")
+        self.setToolTip("相序仪\n顺时针=正序组(ABC/BCA/CAB)  逆时针=逆序组")
 
     # ── Public API ────────────────────────────────────────────────────────
     def connect_pt(self, pt_name: str, sequence: str):

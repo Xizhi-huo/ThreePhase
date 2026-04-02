@@ -207,10 +207,13 @@ class PtVoltageCheckService:
     def finalize_pt_voltage_check(self):
         state = self._ctrl.pt_voltage_check_state
         fc = self._ctrl.sim_state.fault_config
-        fault_training = fc.active and fc.detected and not fc.repaired
+        fault_training = (
+            fc.active and fc.detected and not fc.repaired
+            and self._ctrl.can_advance_with_fault()
+        )
 
         if fault_training:
-            # 故障训练模式：九项全部测量完即可完成，无需全部在合格范围内
+            # 当前流程策略允许带异常完成，但仍要求本步测量项齐全
             if not self._are_all_records_filled():
                 records = state.records
                 missing = [k for k in _ALL_KEYS if records[k] is None]
@@ -234,7 +237,7 @@ class PtVoltageCheckService:
                     "第二步【PT 单体线电压检查】已确认完成，后续操作将不再影响该步骤状态。",
                     "#006600")
         else:
-            # 正常模式：九项全部记录且均在合格范围内才能完成
+            # 当前流程策略要求本步全部通过后才能完成
             if not self._are_records_complete():
                 records = state.records
                 missing = [k for k in _ALL_KEYS if records[k] is None]

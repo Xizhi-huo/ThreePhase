@@ -37,6 +37,37 @@ from services.pt_exam_service import PtExamService
 from services.sync_test_service import SyncTestService
 from ui.main_window import PowerSyncUI
 
+FLOW_MODE_POLICIES = {
+    'teaching': {
+        'allow_continue_with_fault': True,
+        'require_all_measurements_before_finalize': True,
+        'require_step_pass_to_finalize': False,
+        'show_fault_detected_banner': True,
+        'show_diagnostic_hints': True,
+        'block_step5_until_blackbox_fixed': True,
+        'hold_at_step4_when_wiring_fault_unrepaired': True,
+        'show_blackbox_required_dialog_before_step5': True,
+        'allow_blackbox_inspection': True,
+        'allow_blackbox_repair': True,
+        'auto_clear_fault_only_when_all_blackboxes_normal': True,
+        'allow_admin_shortcuts': True,
+    },
+    'engineering': {
+        'allow_continue_with_fault': False,
+        'require_all_measurements_before_finalize': True,
+        'require_step_pass_to_finalize': True,
+        'show_fault_detected_banner': True,
+        'show_diagnostic_hints': True,
+        'block_step5_until_blackbox_fixed': True,
+        'hold_at_step4_when_wiring_fault_unrepaired': True,
+        'show_blackbox_required_dialog_before_step5': True,
+        'allow_blackbox_inspection': True,
+        'allow_blackbox_repair': True,
+        'auto_clear_fault_only_when_all_blackboxes_normal': True,
+        'allow_admin_shortcuts': True,
+    },
+}
+
 
 class PowerSyncController:
     """
@@ -70,6 +101,10 @@ class PowerSyncController:
             'PT2': ['A', 'B', 'C'],
             'PT3': ['A', 'B', 'C'],
         }
+        self.g1_blackbox_order = ['A', 'B', 'C']
+        self.pt1_pri_blackbox_order = ['A', 'B', 'C']
+        self.pt1_sec_blackbox_order = ['A', 'B', 'C']
+        self.test_flow_mode = 'teaching'
         self.pt_blackbox_mode_val: bool = False
 
         # ── 业务服务（各服务通过 self._ctrl 回写状态 dataclass）─────────
@@ -116,6 +151,54 @@ class PowerSyncController:
     @property
     def pt_blackbox_mode(self):
         return self._BoolProxy(self)
+
+    def flow_policy(self):
+        return FLOW_MODE_POLICIES.get(self.test_flow_mode, FLOW_MODE_POLICIES['teaching'])
+
+    def flow_policy_flag(self, name: str):
+        return bool(self.flow_policy().get(name, False))
+
+    def is_teaching_mode(self):
+        return self.test_flow_mode == 'teaching'
+
+    def is_engineering_mode(self):
+        return self.test_flow_mode == 'engineering'
+
+    def can_advance_with_fault(self):
+        return self.flow_policy_flag('allow_continue_with_fault')
+
+    def require_all_measurements_before_finalize(self):
+        return self.flow_policy_flag('require_all_measurements_before_finalize')
+
+    def require_step_pass_to_finalize(self):
+        return self.flow_policy_flag('require_step_pass_to_finalize')
+
+    def should_show_fault_detected_banner(self):
+        return self.flow_policy_flag('show_fault_detected_banner')
+
+    def should_show_diagnostic_hints(self):
+        return self.flow_policy_flag('show_diagnostic_hints')
+
+    def should_block_step5_until_blackbox_fixed(self):
+        return self.flow_policy_flag('block_step5_until_blackbox_fixed')
+
+    def should_hold_at_step4_when_wiring_fault_unrepaired(self):
+        return self.flow_policy_flag('hold_at_step4_when_wiring_fault_unrepaired')
+
+    def should_show_blackbox_required_dialog_before_step5(self):
+        return self.flow_policy_flag('show_blackbox_required_dialog_before_step5')
+
+    def can_inspect_blackbox(self):
+        return self.flow_policy_flag('allow_blackbox_inspection')
+
+    def can_repair_in_blackbox(self):
+        return self.flow_policy_flag('allow_blackbox_repair')
+
+    def should_auto_clear_fault_only_when_all_blackboxes_normal(self):
+        return self.flow_policy_flag('auto_clear_fault_only_when_all_blackboxes_normal')
+
+    def allow_admin_shortcuts(self):
+        return self.flow_policy_flag('allow_admin_shortcuts')
 
     # ════════════════════════════════════════════════════════════════════════
     # PT 节点解析辅助（physics_engine.py 通过 self.ctrl 调用）
@@ -508,6 +591,40 @@ class PowerSyncController:
         }
         self.rebuild_circuit_view()
 
+    def reset_blackbox_orders(self):
+        self.g1_blackbox_order = ['A', 'B', 'C']
+        self.pt1_pri_blackbox_order = ['A', 'B', 'C']
+        self.pt1_sec_blackbox_order = ['A', 'B', 'C']
+
+    def _compute_pt1_net_order(self, bus_order=None, pri_order=None, sec_order=None):
+        labels = ('A', 'B', 'C')
+        bus_order = list(bus_order if bus_order is not None else self.g1_blackbox_order)
+        pri_order = list(pri_order if pri_order is not None else self.pt1_pri_blackbox_order)
+        sec_order = list(sec_order if sec_order is not None else self.pt1_sec_blackbox_order)
+
+        primary_actual = [bus_order[labels.index(cable_label)] for cable_label in pri_order]
+        return [primary_actual[labels.index(sec_label)] for sec_label in sec_order]
+
+    def sync_pt1_blackbox_to_phase_orders(self):
+        self.pt_phase_orders['PT2'] = list(self.g1_blackbox_order)
+        self.pt_phase_orders['PT1'] = self._compute_pt1_net_order()
+
+    def has_unrepaired_wiring_fault(self) -> bool:
+        fc = self.sim_state.fault_config
+        if not (fc.active and not fc.repaired):
+            return False
+
+        wiring_keys = ('g1_blackbox_order', 'p1_pri_blackbox_order', 'pt2_sec_blackbox_order')
+        if not any(fc.params.get(key) is not None for key in wiring_keys):
+            return False
+
+        normal_order = ['A', 'B', 'C']
+        return any(order != normal_order for order in (
+            self.g1_blackbox_order,
+            self.pt1_pri_blackbox_order,
+            self.pt1_sec_blackbox_order,
+        ))
+
     def on_pt_blackbox_toggle(self, checked: bool):
         self.pt_blackbox_mode_val = checked
         if not checked:
@@ -533,6 +650,7 @@ class PowerSyncController:
 
         # 重置已有的 fault_reverse_bc（E02 激活时重新设置）
         self.sim_state.fault_reverse_bc = False
+        self.reset_blackbox_orders()
 
         # 场景专属注入
         if scenario_id == 'E01':
@@ -540,6 +658,7 @@ class PowerSyncController:
             self.pt_phase_orders['PT1'] = ['B', 'A', 'C']
             # E01 根本原因是 Gen1 机端 A/B 对调，同步更新 PT2（Bus）相序
             self.pt_phase_orders['PT2'] = ['B', 'A', 'C']
+            self.g1_blackbox_order = ['B', 'A', 'C']
         elif scenario_id == 'E02':
             # E02: Gen2 B/C 相绕组接线对调
             # 只设 fault_reverse_bc（物理层对调波形内容），不修改 pt_phase_orders，
@@ -553,6 +672,10 @@ class PowerSyncController:
                 _, sec_spin, _ = _rows['pt3_ratio']
                 sec_spin.setValue(93)
         # E05–E14: Gen1/PT1 接线矩阵场景（通用注入）
+        self.g1_blackbox_order = list(fc.params.get('g1_blackbox_order', ['A', 'B', 'C']))
+        self.pt1_pri_blackbox_order = list(fc.params.get('p1_pri_blackbox_order', ['A', 'B', 'C']))
+        self.pt1_sec_blackbox_order = list(fc.params.get('pt2_sec_blackbox_order', ['A', 'B', 'C']))
+
         pt1_order = fc.params.get('pt1_phase_order')
         if pt1_order:
             self.pt_phase_orders['PT1'] = list(pt1_order)
@@ -567,6 +690,9 @@ class PowerSyncController:
             new_pt2[i1], new_pt2[i2] = new_pt2[i2], new_pt2[i1]
             self.pt_phase_orders['PT2'] = new_pt2
 
+        if scenario_id.startswith('E0') and scenario_id not in ('', 'E01', 'E02', 'E03', 'E04'):
+            self.sync_pt1_blackbox_to_phase_orders()
+
         # E15 暂时禁用（原E05）
         # elif scenario_id == 'E15':
         #     gen2_amp = fc.params.get('gen2_amp', 13000.0)
@@ -579,6 +705,7 @@ class PowerSyncController:
         sid = fc.scenario_id
         fc.repaired = True
         fc.detected = False
+        self.reset_blackbox_orders()
 
         # 恢复场景专属注入的效果
         if sid == 'E01':
@@ -630,6 +757,7 @@ class PowerSyncController:
             'PT2': ['A', 'B', 'C'],
             'PT3': ['A', 'B', 'C'],
         }
+        self.reset_blackbox_orders()
         self.sim_state.fault_reverse_bc = False
 
         # 4. 注入新故障
@@ -640,29 +768,6 @@ class PowerSyncController:
             self.rebuild_circuit_view()
         except Exception:
             pass
-
-    # ════════════════════════════════════════════════════════════════════════
-    # E06 专项：非同期强行合闸（暂时禁用）
-    # ════════════════════════════════════════════════════════════════════════
-    def force_close_gen2_e06(self):
-        """E06 专用：暂时禁用，保留方法签名避免调用方报错。"""
-        pass
-    # def force_close_gen2_e06(self):
-    #     fc = self.sim_state.fault_config
-    #     if not (fc.active and fc.scenario_id == 'E06'):
-    #         return
-    #     sim = self.sim_state
-    #     import math
-    #     bus_phase_deg = math.degrees(self.physics.bus_phase) if self.physics.bus_live else 0.0
-    #     phase_diff_deg = sim.gen2.phase_deg - bus_phase_deg
-    #     phase_diff_deg = (phase_diff_deg + 180.0) % 360.0 - 180.0
-    #     from domain.constants import XS, GRID_AMP
-    #     peak_phase_v = GRID_AMP * math.sqrt(2.0 / 3.0)
-    #     i_surge = abs(2.0 * peak_phase_v * math.sin(math.radians(phase_diff_deg / 2.0)) / XS)
-    #     fc.params['surge_current_kA'] = round(i_surge / 1000.0, 1)
-    #     fc.params['phase_diff_deg']   = round(abs(phase_diff_deg), 1)
-    #     sim.gen2.breaker_closed = True
-    #     fc.detected = True
 
     # ════════════════════════════════════════════════════════════════════════
     # 主循环（QTimer 每 33ms 触发）

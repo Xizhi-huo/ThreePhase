@@ -151,9 +151,12 @@ class LoopTestService:
         fault_phases = [ph for ph in ('A', 'B', 'C')
                         if records[ph] and records[ph]['status'] != 'ok']
         fc = self._ctrl.sim_state.fault_config
-        fault_training = fc.active and fc.detected and not fc.repaired
+        fault_training = (
+            fc.active and fc.detected and not fc.repaired
+            and self._ctrl.can_advance_with_fault()
+        )
         if fault_phases and not fault_training:
-            # 非故障训练模式：拦截，要求学员纠正后重测
+            # 当前流程策略要求先纠正异常后再完成该步
             fault_str = '、'.join(fault_phases)
             self._set_loop_test_feedback(
                 f"回路测试发现故障：{fault_str} 相断路 [∞Ω]，说明对应相接线错误。"
@@ -163,7 +166,7 @@ class LoopTestService:
         self._ctrl.exit_loop_test_mode()   # 退出回路检查模式，恢复断路器联锁
         self._ctrl.loop_test_state.completed = True
         if fault_phases:
-            # 故障训练模式：带异常完成，提示继续后续步骤
+            # 当前流程策略允许带异常完成，提示继续后续步骤
             fault_str = '、'.join(fault_phases)
             self._set_loop_test_feedback(
                 f"第一步完成（发现异常）：{fault_str} 相断路 [∞Ω]，"

@@ -215,7 +215,7 @@ SCENARIOS: dict = {
             'pt1_phase_order': ['B', 'A', 'C'],
 
             'p1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
-            'pt2_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序 
+            'pt2_sec_blackbox_order': ['A', 'B', 'C'],   # 仅一次侧错接，二次侧保持正序
         },
         'repair_prompt': (
             '已定位故障：PT1一次侧A/B相端子对调。\n\n'
@@ -347,7 +347,7 @@ SCENARIOS: dict = {
             'g1_loop_swap': ('A', 'B'),
             'g1_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保G1/PT1一致反序
             'p1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
-            'pt2_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
+            'pt2_sec_blackbox_order': ['A', 'B', 'C'],   # 仅一次侧错接，二次侧保持正序
 
         },
         'repair_prompt': (

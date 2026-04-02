@@ -884,11 +884,13 @@ class CircuitTabMixin:
                                   and fc.scenario_id == 'E03'
                                   and pt_name == 'PT3')
                     if ok:
-                        label, bg = "正序ABC", '#dcfce7'
+                        seq = self.ctrl.get_pt_phase_sequence(pt_name)
+                        label, bg = f"正序{seq}", '#dcfce7'
                     elif is_e03_pt3:
                         label, bg = "故障/不平衡", '#fff3cd'
                     else:
-                        label, bg = "逆序ACB", '#fee2e2'
+                        seq = self.ctrl.get_pt_phase_sequence(pt_name)
+                        label, bg = f"逆序{seq}", '#fee2e2'
                     tbl[(1, 1)].get_text().set_text(label)
                 else:
                     tbl[(1, 1)].get_text().set_text("---")
@@ -928,5 +930,4 @@ class CircuitTabMixin:
                 bg = '#dcfce7' if done else '#f1f5f9'
                 for c in range(2):
                     tbl[(1, c)].set_facecolor(bg)
-
 
