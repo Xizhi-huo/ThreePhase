@@ -393,3 +393,15 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - **已实现待验证**：E03 步骤 5；E04 步骤 2；E05–E14 物理注入；物理接线黑盒检查交互修复（第 1～4 步均显示，渐进式逐组件修复）
 - **最新修复**：E01 double-swap bug；黑盒 params 键名统一（`g1_blackbox_order` / `p1_pri_blackbox_order` / `pt2_sec_blackbox_order`）；PT1 一次侧/二次侧独立修复；黑盒对话框运行态回显修复；`teaching / engineering` 两模式差异已收敛到 `FLOW_MODE_POLICIES`
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）
+
+
+‘’‘
+Bug 1 — 快捷记录压差计算错误
+在 services/pt_exam_service.py 第 306 行，record_all_pt_measurements_quick() 管理员快捷记录功能中，判断"是否同相"时直接用了 bus_phase（PT2 端子标签 A/B/C），而不是通过 _resolve_terminal_actual_phase('PT2', bus_phase) 解析出来的真实物理相。在正常场景下这两者相同不会出问题，但对于所有修改了 PT2 相序的故障场景（E01、E05、E09、E10、E12、E13、E14），PT2 的端子标签与实际物理相已经不对应，导致 is_same_phase 判断完全反向——本该是同相的被当异相算，异相的被当同相算，18 组压差数据全部错误。
+
+Bug 2 — E01 黑盒状态设置后被立即覆盖
+在 app/main.py 第 661 行，inject_fault() 的 E01 专属处理块中写了 self.g1_blackbox_order = ['B', 'A', 'C']，但紧接着第 675 行的通用赋值 self.g1_blackbox_order = list(fc.params.get('g1_blackbox_order', ['A', 'B', 'C'])) 会立即将其覆盖回 ['A', 'B', 'C']——因为 E01 的 params 字典里根本没有 g1_blackbox_order 这个键，所以取到默认值。第 661 行是一行无效的死代码，完全没有实际作用。由于 E01 的修复流程走的是第五步合闸事故弹窗通道，不依赖黑盒修复路径，运行行为不受影响，但该行代码造成了误导，已将其删除。
+
+Bug 3 — 控制器 wrapper 参数签名不匹配
+在 app/main.py 第 270–271 行，控制器对 _expected_pt_probe_pair 的 wrapper 方法只声明了两个参数 (gen_id, phase)，而其代理的 PtExamService._expected_pt_probe_pair 实际需要三个参数 (gen_id, gen_phase, bus_phase)。如果任何代码通过控制器调用这个方法，会直接抛出 TypeError 崩溃。目前该 wrapper 在整个代码库中没有任何调用点，属于潜伏 bug，已将签名修正为与 service 方法一致的三参数形式。
+’‘’
