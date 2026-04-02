@@ -373,8 +373,3 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - **最新修复**：E01 double-swap bug；`pt_phase_orders['PT2']` 统一为 G1 唯一数据源；黑盒 params 键名统一（`p1_pri_blackbox_order` / `pt2_sec_blackbox_order`）
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）
 
-
-
-```
-有一点需要注意的是，目前的黑盒连线功能并不完善，目前所表示的连线中，所有最终的点和出发点都是按照ABC的正确顺序默认排列，但是在实际情况中，除了母排是按照UVW的顺序，其余都应该按照前置位的具体顺序和该位是否反接来表示连线。例如发电机一次侧反接（BAC），PT一次侧反接（ACB），PT二次侧反接（CAB），那么目前发电机测的连线情况就是BAC，PT一次侧的连线就应该是以发电机侧的连线为标准，而不是UVW的顺序，所以PT一次侧的连线顺序就是BCA，PT二次侧同理ABC。
-```
