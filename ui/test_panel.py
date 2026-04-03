@@ -1653,11 +1653,13 @@ class TestPanelMixin:
     def _show_assessment_result_dialog(self, result):
         score_labels = {
             "flow_discipline": "流程纪律",
-            "measurement_completeness": "测量完整性",
-            "anomaly_identification": "异常识别",
-            "fault_localization": "故障定位",
+            "loop_test": "第一步回路测试",
+            "pt_voltage_check": "第二步PT电压检查",
+            "pt_phase_check": "第三步PT相序检查",
+            "pt_exam": "第四步压差考核",
+            "anomaly_localization": "异常识别与故障定位",
             "blackbox_repair": "黑盒修复",
-            "efficiency": "效率",
+            "efficiency": "效率与规范性",
         }
         metric_labels = {
             "step_entered_order": "步骤进入顺序",

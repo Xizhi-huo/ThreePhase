@@ -11,7 +11,7 @@ from domain.fault_scenarios import SCENARIOS
 
 
 class AssessmentService:
-    """Build a stricter assessment result from the recorded event stream and controller state."""
+    """Build a 30-item assessment result from the recorded event stream."""
 
     def __init__(self, ctrl):
         self._ctrl = ctrl
@@ -28,6 +28,7 @@ class AssessmentService:
         scene_info = SCENARIOS.get(session.scene_id, {})
         detection_step = scene_info.get("detection_step")
         expected_targets = self._expected_blackbox_targets(scene_info)
+        expected_target_set = set(expected_targets)
 
         def add_penalty(code: str, message: str, score_delta: int, step: int = 0, timestamp: str = ""):
             if score_delta == 0:
@@ -50,7 +51,9 @@ class AssessmentService:
             earned_score: int,
             step: int = 0,
             detail: str = "",
+            penalty_message: str = "",
         ):
+            earned_score = max(0, min(max_score, earned_score))
             if earned_score >= max_score:
                 status = "通过"
             elif earned_score <= 0:
@@ -69,6 +72,9 @@ class AssessmentService:
                     detail=detail,
                 )
             )
+            lost_score = max_score - earned_score
+            if lost_score > 0 and penalty_message:
+                add_penalty(code, penalty_message, -lost_score, step)
 
         def count(event_type: str) -> int:
             return sum(1 for event in events if event.event_type == event_type)
@@ -89,13 +95,48 @@ class AssessmentService:
                 return True
             return lhs.timestamp <= rhs.timestamp
 
+        def first_step_index(step: int):
+            for idx, event in enumerate(step_enter_events):
+                if event.step == step:
+                    return idx
+            return None
+
+        def trio_completion_score(count_value: int) -> int:
+            if count_value >= 3:
+                return 3
+            if count_value == 2:
+                return 2
+            if count_value == 1:
+                return 1
+            return 0
+
+        def nine_group_completion_score(count_value: int) -> int:
+            if count_value >= 9:
+                return 4
+            if count_value >= 7:
+                return 3
+            if count_value >= 5:
+                return 2
+            if count_value >= 3:
+                return 1
+            return 0
+
+        def count_present(records: Dict[str, object]) -> int:
+            return sum(1 for value in records.values() if value is not None)
+
         blocked_events = all_events("advance_blocked")
         finalize_rejected = [
             event for event in all_events("step_finalize_attempted")
             if not bool(event.payload.get("allowed", False))
         ]
         gate_block_events = all_events("assessment_gate_blocked")
-        invalid_measurements = count("measurement_invalid")
+        invalid_events = all_events("measurement_invalid")
+        invalid_by_step = {
+            1: sum(1 for event in invalid_events if event.step == 1),
+            2: sum(1 for event in invalid_events if event.step == 2),
+            3: sum(1 for event in invalid_events if event.step == 3),
+            4: sum(1 for event in invalid_events if event.step == 4),
+        }
         blackbox_failed_confirms = sum(
             1 for event in all_events("blackbox_confirm_attempted")
             if not bool(event.payload.get("success", False))
@@ -110,6 +151,35 @@ class AssessmentService:
                 opened_targets.append(target)
         opened_target_set: Set[str] = set(opened_targets)
 
+        step_enter_events = all_events("step_entered")
+        blocked_by_step = {
+            1: sum(1 for event in blocked_events if event.payload.get("from_step") == 1 or event.step == 1),
+            2: sum(1 for event in blocked_events if event.payload.get("from_step") == 2 or event.step == 2),
+            3: sum(1 for event in blocked_events if event.payload.get("from_step") == 3 or event.step == 3),
+            4: sum(1 for event in blocked_events if event.payload.get("from_step") == 4 or event.step == 4),
+        }
+        finalize_rejected_by_step = {
+            1: sum(1 for event in finalize_rejected if event.step == 1),
+            2: sum(1 for event in finalize_rejected if event.step == 2),
+            3: sum(1 for event in finalize_rejected if event.step == 3),
+            4: sum(1 for event in finalize_rejected if event.step == 4),
+        }
+
+        fault_detected_event = first("fault_detected")
+        fault_repaired_event = first("fault_repaired")
+        first_gate_block = first("assessment_gate_blocked")
+        first_blackbox_open = first("blackbox_opened")
+
+        detected_before_gate = happened_before(fault_detected_event, first_gate_block)
+        blackbox_open_before_gate = happened_before(first_blackbox_open, first_gate_block)
+        hidden_fault = bool(session.scene_id) and detection_step is None and bool(expected_targets)
+
+        loop_records = self._ctrl.loop_test_state.records
+        voltage_records = self._ctrl.pt_voltage_check_state.records
+        phase_records = self._ctrl.pt_phase_check_state.records
+        pt_exam_records_1 = self._ctrl.pt_exam_states[1].records
+        pt_exam_records_2 = self._ctrl.pt_exam_states[2].records
+
         loop_complete = self._ctrl.is_loop_test_complete()
         voltage_complete = self._ctrl.is_pt_voltage_check_complete()
         phase_complete = self._ctrl.is_pt_phase_check_complete()
@@ -118,213 +188,282 @@ class AssessmentService:
             and self._ctrl.pt_exam_states[2].completed
         )
         closure_complete = self._ctrl.is_assessment_closed_loop_ready()
-
-        fault_detected_event = first("fault_detected")
-        fault_repaired_event = first("fault_repaired")
-        first_gate_block = first("assessment_gate_blocked")
-        first_blackbox_open = first("blackbox_opened")
-
-        step_enter_order = [event.step for event in all_events("step_entered")]
-        step_sequence_errors = 0
-        previous_step = None
-        for step in step_enter_order:
-            if previous_step is not None and (step < previous_step or step - previous_step > 1):
-                step_sequence_errors += 1
-            previous_step = step
-
-        detected_before_gate = happened_before(fault_detected_event, first_gate_block)
-        blackbox_open_before_gate = happened_before(first_blackbox_open, first_gate_block)
-
-        # A1-A3 流程纪律
-        a1_penalty = min(8, step_sequence_errors * 2)
-        a1_score = 8 - a1_penalty
-        add_penalty("A1", "存在乱序推进或异常步骤跳转。", -a1_penalty)
-        add_score_item(
-            "A1", "按顺序推进", "流程纪律", 8, a1_score, detail=
-            "步骤推进顺序正确。" if a1_score == 8 else f"检测到 {step_sequence_errors} 次乱序或跳步。"
-        )
-
-        a2_penalty = min(6, len(finalize_rejected) * 2)
-        a2_score = 6 - a2_penalty
-        add_penalty("A2", "异常后仍尝试完成当前步骤。", -a2_penalty, finalize_rejected[0].step if finalize_rejected else 0)
-        add_score_item(
-            "A2", "异常后停留当前步骤", "流程纪律", 6, a2_score, detail=
-            "未出现错误完成步骤尝试。" if a2_score == 6 else f"共发生 {len(finalize_rejected)} 次错误完成步骤尝试。"
-        )
-
-        a3_penalty = min(6, len(gate_block_events) * 2)
-        a3_score = 6 - a3_penalty
-        add_penalty("A3", "闭环未完成仍尝试结束考核或进入后续流程。", -a3_penalty, 4)
-        add_score_item(
-            "A3", "遵守闭环门禁", "流程纪律", 6, a3_score, 4, detail=
-            "未触发第四步闭环门禁。" if a3_score == 6 else f"第四步闭环门禁触发 {len(gate_block_events)} 次。"
-        )
-
-        # B1-B4 测量完整性
-        b1_score = 5 if loop_complete else 0
-        if not loop_complete:
-            add_penalty("B1", "第一步测量记录不完整。", -5, 1)
-        add_score_item("B1", "第一步记录完整", "测量完整性", 5, b1_score, 1, "回路记录齐全。" if b1_score else "回路记录存在缺项。")
-
-        b2_score = 5 if voltage_complete else 0
-        if not voltage_complete:
-            add_penalty("B2", "第二步测量记录不完整。", -5, 2)
-        add_score_item("B2", "第二步记录完整", "测量完整性", 5, b2_score, 2, "PT 电压记录齐全。" if b2_score else "PT 电压记录存在缺项。")
-
-        b3_score = 5 if phase_complete else 0
-        if not phase_complete:
-            add_penalty("B3", "第三步测量记录不完整。", -5, 3)
-        add_score_item("B3", "第三步记录完整", "测量完整性", 5, b3_score, 3, "PT 相序记录齐全。" if b3_score else "PT 相序记录存在缺项。")
-
-        b4_score = 5 if pt_exam_complete else 0
-        if not pt_exam_complete:
-            add_penalty("B4", "第四步测量记录不完整。", -5, 4)
-        add_score_item("B4", "第四步记录完整", "测量完整性", 5, b4_score, 4, "压差记录齐全。" if b4_score else "压差记录存在缺项。")
-
-        # C1-C2 异常识别
-        if not session.scene_id:
-            c1_score = 10
-        else:
-            c1_score = 10 if detected_before_gate else 0
-            if c1_score == 0:
-                add_penalty("C1", "未在第四步闭环门禁前形成有效异常识别。", -10)
-        add_score_item(
-            "C1", "前四步内识别出异常", "异常识别", 10, c1_score, getattr(fault_detected_event, "step", 0),
-            "在门禁拦截前已识别异常。" if c1_score else "直到系统门禁拦截后仍未形成有效异常识别。"
-        )
-
-        hidden_fault = bool(session.scene_id) and detection_step is None and bool(expected_targets)
-        if hidden_fault:
-            c2_score = 10 if blackbox_open_before_gate else 0
-            if c2_score == 0:
-                add_penalty("C2", "隐性故障未在系统拦截前主动识别。", -10)
-            c2_detail = "已在系统拦截前主动进入黑盒确认隐性故障。" if c2_score else "依赖系统闭环门禁后才意识到仍有隐性故障。"
-        else:
-            c2_score = 10
-            c2_detail = "本场景不属于隐性故障，或已满足识别要求。"
-        add_score_item("C2", "隐性故障识别", "异常识别", 10, c2_score, detail=c2_detail)
-
-        # D1-D3 故障定位
-        if not expected_targets:
-            d1_score = 8
-            d1_detail = "本场景无额外黑盒定位要求。"
-        else:
-            expected_set = set(expected_targets)
-            if opened_target_set == expected_set:
-                d1_score = 8
-                d1_detail = "打开黑盒范围与场景所需定位层级一致。"
-            elif opened_target_set & expected_set:
-                d1_score = 4
-                d1_detail = "命中了部分正确定位层级，但仍存在额外或缺失的黑盒打开。"
-                add_penalty("D1", "故障定位层级不够准确。", -4)
-            else:
-                d1_score = 0
-                d1_detail = "未打开正确的黑盒目标，定位层级错误。"
-                add_penalty("D1", "故障定位层级错误。", -8)
-        add_score_item("D1", "定位到正确设备层级", "故障定位", 8, d1_score, 4, d1_detail)
-
-        if not expected_targets:
-            d2_score = 6
-            d2_detail = "本场景无黑盒定位提示依赖问题。"
-        else:
-            d2_score = 6 if blackbox_open_before_gate else 0
-            d2_detail = "在系统门禁前完成了黑盒确认。" if d2_score else "在系统门禁拦截后才进入黑盒确认，存在依赖系统提示定位的情况。"
-            if d2_score == 0:
-                add_penalty("D2", "依赖系统门禁后才进入黑盒确认。", -6)
-        add_score_item("D2", "不依赖系统提示定位", "故障定位", 6, d2_score, 4, d2_detail)
-
-        if not expected_targets:
-            d3_score = 6
-            d3_detail = "本场景无额外黑盒范围控制要求。"
-        else:
-            extra_targets = max(0, len(opened_target_set - set(expected_targets)))
-            d3_penalty = min(6, extra_targets * 2)
-            d3_score = 6 - d3_penalty
-            if d3_penalty:
-                add_penalty("D3", "打开了不必要的黑盒目标。", -d3_penalty)
-            d3_detail = "黑盒查看范围合理。" if d3_score == 6 else f"多打开了 {extra_targets} 个无关黑盒。"
-        add_score_item("D3", "黑盒开启范围合理", "故障定位", 6, d3_score, 4, d3_detail)
-
-        # E1-E3 黑盒修复
         repair_required = bool(expected_targets)
-        if not repair_required:
-            e1_score = 8
-            e1_detail = "本场景不依赖黑盒接线修复闭环。"
-        else:
-            e1_score = 8 if self._ctrl.sim_state.fault_config.repaired else 0
-            if e1_score == 0:
-                add_penalty("E1", "最终未完成正确修复。", -8, 4)
-            e1_detail = "黑盒目标已全部恢复正确。" if e1_score else "考核结束时仍存在未完成修复的黑盒目标。"
-        add_score_item("E1", "修复结果正确", "黑盒修复", 8, e1_score, 4, e1_detail)
+        repaired = bool(self._ctrl.sim_state.fault_config.repaired)
 
-        if not repair_required:
-            e2_score = 4
-            e2_detail = "本场景无额外修复步骤要求。"
+        pt1_voltage_count = sum(1 for key in ("PT1_AB", "PT1_BC", "PT1_CA") if voltage_records.get(key) is not None)
+        pt2_voltage_count = sum(1 for key in ("PT2_AB", "PT2_BC", "PT2_CA") if voltage_records.get(key) is not None)
+        pt3_voltage_count = sum(1 for key in ("PT3_AB", "PT3_BC", "PT3_CA") if voltage_records.get(key) is not None)
+        pt1_phase_count = sum(1 for key in ("PT1_A", "PT1_B", "PT1_C") if phase_records.get(key) is not None)
+        pt3_phase_count = sum(1 for key in ("PT3_A", "PT3_B", "PT3_C") if phase_records.get(key) is not None)
+        gen1_exam_count = count_present(pt_exam_records_1)
+        gen2_exam_count = count_present(pt_exam_records_2)
+
+        # A1-A5 流程纪律（16）
+        idx1 = first_step_index(1)
+        idx2 = first_step_index(2)
+        idx3 = first_step_index(3)
+        idx4 = first_step_index(4)
+
+        a1_score = 2 if idx1 is not None and idx2 is not None and idx1 < idx2 else 0
+        add_score_item("A1", "顺序进入第二步", "流程纪律", 2, a1_score, 2,
+                       "第二步进入顺序正确。" if a1_score else "第二步进入顺序异常。", "第二步进入顺序异常。")
+
+        a2_score = 2 if idx2 is not None and idx3 is not None and idx2 < idx3 else 0
+        add_score_item("A2", "顺序进入第三步", "流程纪律", 2, a2_score, 3,
+                       "第三步进入顺序正确。" if a2_score else "第三步进入顺序异常。", "第三步进入顺序异常。")
+
+        a3_score = 2 if idx3 is not None and idx4 is not None and idx3 < idx4 else 0
+        add_score_item("A3", "顺序进入第四步", "流程纪律", 2, a3_score, 4,
+                       "第四步进入顺序正确。" if a3_score else "第四步进入顺序异常。", "第四步进入顺序异常。")
+
+        a4_deduction = min(5, len(blocked_events))
+        a4_score = 5 - a4_deduction
+        add_score_item(
+            "A4", "不越级推进", "流程纪律", 5, a4_score, detail=
+            "未出现越级推进尝试。" if a4_score == 5 else f"共发生 {len(blocked_events)} 次越级或门禁拦截。",
+            penalty_message="存在越级推进或门禁拦截记录。"
+        )
+
+        gate_violations = len(finalize_rejected) + len(gate_block_events)
+        a5_deduction = min(5, gate_violations)
+        a5_score = 5 - a5_deduction
+        add_score_item(
+            "A5", "遵守异常与闭环门禁", "流程纪律", 5, a5_score, 4, detail=
+            "未出现异常后强行完成步骤或闭环未完成仍继续推进。" if a5_score == 5 else f"共发生 {gate_violations} 次违规推进尝试。",
+            penalty_message="未严格遵守异常停留或闭环门禁。"
+        )
+
+        # B1-B4 第一步回路测试（10）
+        for code, phase, step_score in (("B1", "A", 2), ("B2", "B", 2), ("B3", "C", 2)):
+            recorded = loop_records.get(phase) is not None
+            add_score_item(
+                code,
+                f"{phase}相回路记录完成",
+                "第一步回路测试",
+                step_score,
+                step_score if recorded else 0,
+                1,
+                f"{phase}相回路已完成记录。" if recorded else f"{phase}相回路记录缺失。",
+                f"{phase}相回路记录缺失。"
+            )
+
+        b4_score = 4 if loop_complete else 2 if count_present(loop_records) >= 2 else 0
+        add_score_item(
+            "B4", "第一步结果提交规范",
+            "第一步回路测试", 4, b4_score, 1,
+            "第一步已形成完整闭环。" if b4_score == 4 else "第一步存在漏项或未完成确认。",
+            "第一步结果提交不规范。"
+        )
+
+        # C1-C4 第二步 PT 电压检查（12）
+        c1_score = trio_completion_score(pt1_voltage_count)
+        add_score_item("C1", "PT1电压记录完整", "第二步PT电压检查", 3, c1_score, 2,
+                       f"PT1 已记录 {pt1_voltage_count}/3 项。", "PT1 电压记录不完整。")
+        c2_score = trio_completion_score(pt2_voltage_count)
+        add_score_item("C2", "PT2电压记录完整", "第二步PT电压检查", 3, c2_score, 2,
+                       f"PT2 已记录 {pt2_voltage_count}/3 项。", "PT2 电压记录不完整。")
+        c3_score = trio_completion_score(pt3_voltage_count)
+        add_score_item("C3", "PT3电压记录完整", "第二步PT电压检查", 3, c3_score, 2,
+                       f"PT3 已记录 {pt3_voltage_count}/3 项。", "PT3 电压记录不完整。")
+
+        if not session.scene_id or detection_step != 2:
+            c4_score = 3
+            c4_detail = "第二步不承担本场景的关键异常识别。"
         else:
-            if self._ctrl.sim_state.fault_config.repaired and opened_target_set.issuperset(set(expected_targets)):
-                e2_score = 4
-                e2_detail = "修复步骤与场景要求一致。"
-            elif self._ctrl.sim_state.fault_config.repaired:
-                e2_score = 2
-                e2_detail = "虽然完成了修复，但修复过程存在绕行或定位偏差。"
-                add_penalty("E2", "修复步骤合理性不足。", -2)
+            c4_score = 3 if fault_detected_event is not None and fault_detected_event.step <= 2 else 0
+            c4_detail = "已在第二步形成有效电压异常判断。" if c4_score else "未在第二步形成有效电压异常判断。"
+        add_score_item("C4", "第二步结果判读有效", "第二步PT电压检查", 3, c4_score, 2, c4_detail, "第二步结果判读不足。")
+
+        # D1-D4 第三步 PT 相序检查（12）
+        d1_score = trio_completion_score(pt1_phase_count)
+        add_score_item("D1", "PT1相序记录完整", "第三步PT相序检查", 3, d1_score, 3,
+                       f"PT1 已记录 {pt1_phase_count}/3 项。", "PT1 相序记录不完整。")
+        d2_score = trio_completion_score(pt3_phase_count)
+        add_score_item("D2", "PT3相序记录完整", "第三步PT相序检查", 3, d2_score, 3,
+                       f"PT3 已记录 {pt3_phase_count}/3 项。", "PT3 相序记录不完整。")
+
+        d3_score = 2 if invalid_by_step[3] == 0 else 1 if invalid_by_step[3] == 1 else 0
+        add_score_item(
+            "D3", "第三步记录顺序规范", "第三步PT相序检查", 2, d3_score, 3,
+            "第三步记录顺序与接线选择规范。" if d3_score == 2 else f"第三步存在 {invalid_by_step[3]} 次无效测量。",
+            "第三步记录顺序或接线操作不规范。"
+        )
+
+        if not session.scene_id or detection_step != 3:
+            d4_score = 4
+            d4_detail = "第三步不承担本场景的关键异常识别。"
+        else:
+            d4_score = 4 if fault_detected_event is not None and fault_detected_event.step <= 3 else 0
+            d4_detail = "已在第三步形成有效相序异常判断。" if d4_score else "未在第三步形成有效相序异常判断。"
+        add_score_item("D4", "第三步能识别相序异常", "第三步PT相序检查", 4, d4_score, 3, d4_detail, "第三步异常识别不足。")
+
+        # E1-E4 第四步压差考核（16）
+        e1_score = nine_group_completion_score(gen1_exam_count)
+        add_score_item("E1", "Gen1压差记录完整", "第四步压差考核", 4, e1_score, 4,
+                       f"Gen1 已记录 {gen1_exam_count}/9 组。", "Gen1 压差记录不完整。")
+        e2_score = nine_group_completion_score(gen2_exam_count)
+        add_score_item("E2", "Gen2压差记录完整", "第四步压差考核", 4, e2_score, 4,
+                       f"Gen2 已记录 {gen2_exam_count}/9 组。", "Gen2 压差记录不完整。")
+
+        e3_score = 2 if invalid_by_step[4] == 0 and finalize_rejected_by_step[4] == 0 else 1 if invalid_by_step[4] <= 1 else 0
+        add_score_item(
+            "E3", "第四步操作顺序规范", "第四步压差考核", 2, e3_score, 4,
+            "第四步操作顺序规范。" if e3_score == 2 else "第四步存在无效测量或过早完成尝试。",
+            "第四步操作顺序不规范。"
+        )
+
+        if not session.scene_id:
+            e4_score = 6
+            e4_detail = "正常场景无需形成故障判断。"
+        elif hidden_fault:
+            e4_score = 6 if blackbox_open_before_gate else 0
+            e4_detail = "已在系统拦截前通过拆检形成判断。" if e4_score else "直到系统门禁拦截后才意识到第四步仍未闭环。"
+        else:
+            e4_score = 6 if fault_detected_event is not None and fault_detected_event.step <= 4 else 0
+            e4_detail = "已在第四步内形成有效判断。" if e4_score else "未在第四步内形成有效判断。"
+        add_score_item("E4", "第四步形成有效判断", "第四步压差考核", 6, e4_score, 4, e4_detail, "第四步未形成有效判断。")
+
+        # F1-F4 异常识别与故障定位（14）
+        if not session.scene_id:
+            f1_score = 4
+            f1_detail = "正常场景不要求故障识别。"
+        else:
+            identified = detected_before_gate or (hidden_fault and blackbox_open_before_gate)
+            f1_score = 4 if identified else 0
+            f1_detail = "已在第四步门禁前识别到异常。" if f1_score else "未在第四步门禁前识别到异常。"
+        add_score_item("F1", "第四步门禁前识别异常", "异常识别与故障定位", 4, f1_score, 4, f1_detail, "未在第四步门禁前识别异常。")
+
+        if hidden_fault:
+            f2_score = 4 if blackbox_open_before_gate else 0
+            f2_detail = "已主动识别隐性故障。" if f2_score else "依赖系统门禁后才意识到隐性故障。"
+        else:
+            f2_score = 4
+            f2_detail = "本场景不属于隐性故障，或已满足识别要求。"
+        add_score_item("F2", "隐性故障识别能力", "异常识别与故障定位", 4, f2_score, 4, f2_detail, "隐性故障识别能力不足。")
+
+        if not expected_targets:
+            f3_score = 3
+            f3_detail = "本场景无黑盒定位要求。"
+        else:
+            correct_side_hit = bool(opened_target_set & expected_target_set)
+            f3_score = 3 if correct_side_hit else 0
+            f3_detail = "已命中正确设备侧。" if f3_score else "未命中正确设备侧。"
+        add_score_item("F3", "定位到正确设备侧", "异常识别与故障定位", 3, f3_score, 4, f3_detail, "故障定位未命中正确设备侧。")
+
+        if not expected_targets:
+            f4_score = 3
+            f4_detail = "本场景无黑盒门禁定位要求。"
+        else:
+            f4_score = 3 if blackbox_open_before_gate else 0
+            f4_detail = "未依赖系统门禁才进入黑盒。" if f4_score else "在系统门禁拦截后才进入黑盒定位。"
+        add_score_item("F4", "定位不依赖系统门禁", "异常识别与故障定位", 3, f4_score, 4, f4_detail, "定位依赖了系统门禁提示。")
+
+        # G1-G3 黑盒修复（12）
+        if not expected_targets:
+            g1_score = 3
+            g1_detail = "本场景无黑盒范围控制要求。"
+        else:
+            extra_targets = len(opened_target_set - expected_target_set)
+            missing_targets = len(expected_target_set - opened_target_set)
+            if extra_targets == 0 and missing_targets == 0:
+                g1_score = 3
+            elif extra_targets <= 1 and missing_targets <= 1:
+                g1_score = 1
             else:
-                e2_score = 0
-                e2_detail = "未形成有效修复闭环。"
-                add_penalty("E2", "未形成有效修复闭环。", -4)
-        add_score_item("E2", "修复步骤合理", "黑盒修复", 4, e2_score, 4, e2_detail)
+                g1_score = 0
+            g1_detail = (
+                "黑盒开启范围与场景需求一致。"
+                if g1_score == 3 else
+                f"存在额外打开 {extra_targets} 个、缺失 {missing_targets} 个目标。"
+            )
+        add_score_item("G1", "黑盒开启范围合理", "黑盒修复", 3, g1_score, 4, g1_detail, "黑盒开启范围不合理。")
 
-        e3_penalty = min(3, blackbox_failed_confirms + max(0, blackbox_swap_count - 2))
-        e3_score = 3 - e3_penalty
-        if e3_penalty:
-            add_penalty("E3", "黑盒操作存在无效交换或错误确认。", -e3_penalty)
-        add_score_item(
-            "E3", "黑盒操作效率", "黑盒修复", 3, e3_score, 4,
-            "黑盒操作效率正常。" if e3_score == 3 else f"交换 {blackbox_swap_count} 次，错误确认 {blackbox_failed_confirms} 次。"
-        )
-
-        # F1-F2 效率与规范性
-        if elapsed_seconds <= 420:
-            f1_score = 3
-            f1_detail = "总耗时控制良好。"
-        elif elapsed_seconds <= 600:
-            f1_score = 2
-            f1_detail = "总耗时略长。"
-            add_penalty("F1", "总耗时略长。", -1)
-        elif elapsed_seconds <= 900:
-            f1_score = 1
-            f1_detail = "总耗时明显偏长。"
-            add_penalty("F1", "总耗时明显偏长。", -2)
+        if not repair_required:
+            g2_score = 5
+            g2_detail = "本场景不依赖黑盒修复闭环。"
         else:
-            f1_score = 0
-            f1_detail = "总耗时严重超标。"
-            add_penalty("F1", "总耗时严重超标。", -3)
-        add_score_item("F1", "总耗时", "效率与规范性", 3, f1_score, detail=f1_detail)
+            g2_score = 5 if repaired else 0
+            g2_detail = "最终修复结果正确。" if g2_score else "考核结束时仍未完成正确修复。"
+        add_score_item("G2", "最终修复结果正确", "黑盒修复", 5, g2_score, 4, g2_detail, "最终修复结果不正确。")
 
-        f2_penalty = min(2, max(0, invalid_measurements - 2))
-        f2_score = 2 - f2_penalty
-        if f2_penalty:
-            add_penalty("F2", "无效重复测量次数偏多。", -f2_penalty)
-        add_score_item(
-            "F2", "无效重复测量控制", "效率与规范性", 2, f2_score,
-            detail="无效重复测量控制正常。" if f2_score == 2 else f"无效测量共 {invalid_measurements} 次。"
+        if not repair_required:
+            g3_score = 4
+            g3_detail = "本场景无黑盒修复路径要求。"
+        elif not repaired:
+            g3_score = 0
+            g3_detail = "未形成有效修复闭环。"
+        else:
+            g3_score = 4
+            if not opened_target_set.issuperset(expected_target_set):
+                g3_score -= 2
+            g3_score -= min(1, blackbox_failed_confirms)
+            g3_score -= min(1, max(0, blackbox_swap_count - max(1, len(expected_target_set))))
+            g3_score = max(0, g3_score)
+            g3_detail = (
+                "修复路径合理，操作效率正常。"
+                if g3_score == 4 else
+                f"存在黑盒操作折返：交换 {blackbox_swap_count} 次，错误确认 {blackbox_failed_confirms} 次。"
+            )
+        add_score_item("G3", "修复路径合理", "黑盒修复", 4, g3_score, 4, g3_detail, "黑盒修复路径合理性不足。")
+
+        # H1-H2 效率与规范性（8）
+        if elapsed_seconds <= 300:
+            h1_score = 4
+        elif elapsed_seconds <= 480:
+            h1_score = 3
+        elif elapsed_seconds <= 660:
+            h1_score = 2
+        elif elapsed_seconds <= 900:
+            h1_score = 1
+        else:
+            h1_score = 0
+        h1_detail = {
+            4: "总耗时控制优秀。",
+            3: "总耗时控制良好。",
+            2: "总耗时偏长。",
+            1: "总耗时明显偏长。",
+            0: "总耗时严重超标。",
+        }[h1_score]
+        add_score_item("H1", "总耗时控制", "效率与规范性", 4, h1_score, detail=h1_detail, penalty_message="总耗时控制未达到理想水平。")
+
+        invalid_operation_count = len(blocked_events) + len(finalize_rejected) + len(invalid_events)
+        if invalid_operation_count <= 2:
+            h2_score = 4
+        elif invalid_operation_count <= 4:
+            h2_score = 3
+        elif invalid_operation_count <= 6:
+            h2_score = 2
+        elif invalid_operation_count <= 8:
+            h2_score = 1
+        else:
+            h2_score = 0
+        h2_detail = (
+            "无效测量与违规操作控制良好。"
+            if h2_score == 4 else
+            f"累计无效/违规操作 {invalid_operation_count} 次。"
         )
+        add_score_item("H2", "无效操作控制", "效率与规范性", 4, h2_score, detail=h2_detail, penalty_message="无效测量或违规操作次数偏多。")
 
         step_scores = {
-            "flow_discipline": a1_score + a2_score + a3_score,
-            "measurement_completeness": b1_score + b2_score + b3_score + b4_score,
-            "anomaly_identification": c1_score + c2_score,
-            "fault_localization": d1_score + d2_score + d3_score,
-            "blackbox_repair": e1_score + e2_score + e3_score,
-            "efficiency": f1_score + f2_score,
+            "flow_discipline": a1_score + a2_score + a3_score + a4_score + a5_score,
+            "loop_test": sum(item.earned_score for item in score_items if item.code.startswith("B")),
+            "pt_voltage_check": sum(item.earned_score for item in score_items if item.code.startswith("C")),
+            "pt_phase_check": sum(item.earned_score for item in score_items if item.code.startswith("D")),
+            "pt_exam": sum(item.earned_score for item in score_items if item.code.startswith("E")),
+            "anomaly_localization": sum(item.earned_score for item in score_items if item.code.startswith("F")),
+            "blackbox_repair": sum(item.earned_score for item in score_items if item.code.startswith("G")),
+            "efficiency": sum(item.earned_score for item in score_items if item.code.startswith("H")),
         }
         step_max_scores = {
-            "flow_discipline": 20,
-            "measurement_completeness": 20,
-            "anomaly_identification": 20,
-            "fault_localization": 20,
-            "blackbox_repair": 15,
-            "efficiency": 5,
+            "flow_discipline": 16,
+            "loop_test": 10,
+            "pt_voltage_check": 12,
+            "pt_phase_check": 12,
+            "pt_exam": 16,
+            "anomaly_localization": 14,
+            "blackbox_repair": 12,
+            "efficiency": 8,
         }
         total_score = sum(step_scores.values())
 
@@ -339,12 +478,12 @@ class AssessmentService:
         passed = veto_reason is None and total_score >= 60
 
         metrics: Dict[str, object] = {
-            "step_entered_order": [event.step for event in all_events("step_entered")],
+            "step_entered_order": [event.step for event in step_enter_events],
             "step_finalize_attempts": count("step_finalize_attempted"),
             "blocked_advances": len(blocked_events),
             "gate_blocks": len(gate_block_events),
             "measurements_recorded": count("measurement_recorded"),
-            "invalid_measurements": invalid_measurements,
+            "invalid_measurements": len(invalid_events),
             "blackboxes_opened": opened_targets,
             "blackbox_swap_count": blackbox_swap_count,
             "blackbox_failed_confirms": blackbox_failed_confirms,
@@ -356,13 +495,13 @@ class AssessmentService:
         if veto_reason:
             summary = f"未通过：{veto_reason}"
         elif total_score >= 90:
-            summary = "通过：识别、定位与修复过程均较严谨。"
+            summary = "通过：流程规范、判断准确，整体表现优秀。"
         elif total_score >= 75:
-            summary = "通过：完成了有效闭环，但过程上仍有扣分点。"
+            summary = "通过：完成了有效闭环，但过程上仍存在若干扣分点。"
         elif total_score >= 60:
-            summary = "通过：达到了基本考核要求。"
+            summary = "通过：达到基本考核要求。"
         else:
-            summary = "未通过：分数未达到及格线。"
+            summary = "未通过：总分未达到及格线。"
 
         return AssessmentResult(
             session_id=session.session_id,
@@ -387,7 +526,10 @@ class AssessmentService:
     def _expected_blackbox_targets(scene_info: Dict) -> List[str]:
         params = scene_info.get("params", {}) if scene_info else {}
         targets: List[str] = []
-        if any(params.get(key) is not None for key in ("g1_blackbox_order", "p1_pri_blackbox_order", "pt2_sec_blackbox_order")):
+        if any(
+            params.get(key) is not None
+            for key in ("g1_blackbox_order", "p1_pri_blackbox_order", "pt2_sec_blackbox_order")
+        ):
             targets.extend(["G1", "PT1"])
         if params.get("g2_blackbox_order") is not None:
             targets.append("G2")
