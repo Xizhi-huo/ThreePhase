@@ -2016,27 +2016,20 @@ class TestPanelMixin:
         # ── 第五步前黑盒修复门禁 ──────────────────────────────────────
         # E01/E02/E03 在 Gen2 实际合闸时触发事故弹窗；黑盒接线类故障需先在步骤1~4修复。
         fc = sim.fault_config
-        ready_for_step5 = (
-            self.ctrl.is_loop_test_complete()
-            and self.ctrl.is_pt_voltage_check_complete()
-            and self.ctrl.is_pt_phase_check_complete()
-            and self.ctrl.pt_exam_states[1].completed
-            and self.ctrl.pt_exam_states[2].completed
+        progress = self.ctrl.get_test_progress_snapshot(
+            step,
+            getattr(self, '_pre_step5_repair_triggered', False),
         )
-        if (ready_for_step5
-                and self.ctrl.should_block_step5_until_blackbox_fixed()
-                and self.ctrl.has_unrepaired_wiring_fault()
-                and fc.scenario_id not in ('E01', 'E02', 'E03')
-                and not getattr(self, '_pre_step5_repair_triggered', False)):
+        if progress.block_before_step5 and not getattr(self, '_pre_step5_repair_triggered', False):
             self._pre_step5_repair_triggered = True
-            if self.ctrl.is_assessment_mode():
+            if progress.should_emit_assessment_gate_event:
                 self.ctrl.append_assessment_event(
                     'assessment_gate_blocked',
                     step=4,
                     scene_id=fc.scenario_id,
                     reason='unrepaired_wiring_before_step5',
                 )
-            if self.ctrl.should_show_blackbox_required_dialog_before_step5():
+            if progress.should_show_blackbox_required_dialog:
                 self._show_blackbox_required_dialog(fc)
         elif not self.ctrl.has_unrepaired_wiring_fault():
             self._pre_step5_repair_triggered = False
@@ -2071,15 +2064,10 @@ class TestPanelMixin:
         elif step == 5:
             self._refresh_tp_step5(sim)
 
-        if (self.ctrl.is_assessment_mode()
-                and self.ctrl.assessment_ends_after_step4_closed_loop()
-                and self.ctrl.is_assessment_closed_loop_ready()):
-            result = self.ctrl.finish_assessment_session()
-            if (result is not None
-                    and self.ctrl.assessment_session is not None
-                    and not self.ctrl.assessment_session.result_shown):
-                self._show_assessment_result_dialog(result)
-                self.ctrl.mark_assessment_result_shown()
+        result = self.ctrl.finish_assessment_session_if_ready(step)
+        if result is not None:
+            self._show_assessment_result_dialog(result)
+            self.ctrl.mark_assessment_result_shown()
 
     def _refresh_tp_gen_refs(self, sim, step):
         step1_active = (step == 1)
@@ -2287,11 +2275,11 @@ class TestPanelMixin:
         self.ctrl.append_assessment_event('blackbox_opened', step=self._current_test_step(), target=target)
         sim = self.ctrl.sim_state
         fc  = sim.fault_config
-        pt_orders = self.ctrl.pt_phase_orders
         allow_repair = self.ctrl.can_repair_in_blackbox()
 
         # 是否存在活跃未修复故障（影响接线显示）
-        fault_active = fc and fc.active and not fc.repaired
+        blackbox_state = self.ctrl.get_blackbox_runtime_state(target)
+        fault_active = blackbox_state['fault_active']
 
         dlg = QtWidgets.QDialog(self)
         dlg.setStyleSheet("background:#f1f5f9;")
@@ -2308,16 +2296,10 @@ class TestPanelMixin:
 
         if target in ('G1', 'G2'):
             dlg.setWindowTitle(f"发电机 {target} 机端接线检查")
-            if target == 'G1':
-                pt2 = list(self.ctrl.g1_blackbox_order) if fault_active else pt_orders.get('PT2', ['A', 'B', 'C'])
-                mapping = {'A': pt2[0], 'B': pt2[1], 'C': pt2[2]}
-                interactive = allow_repair
-                repair_target = 'G1' if allow_repair else None
-            else:
-                pt3 = list(self.ctrl.g2_blackbox_order) if fault_active else pt_orders.get('PT3', ['A', 'B', 'C'])
-                mapping = {'A': pt3[0], 'B': pt3[1], 'C': pt3[2]}
-                interactive = allow_repair
-                repair_target = 'G2' if allow_repair else None
+            order = blackbox_state['order']
+            mapping = {'A': order[0], 'B': order[1], 'C': order[2]}
+            interactive = allow_repair
+            repair_target = blackbox_state['repair_target']
 
             sub_txt = ("上方绕组（A黄/B绿/C红）→ 下方接线柱（U/V/W）"
                        + (" [可交互修复]" if interactive else " [仅查看]"))
@@ -2333,14 +2315,9 @@ class TestPanelMixin:
                 "PT1 接线盒检查 [一次/二次侧可交互修复]" if allow_repair
                 else "PT1 接线盒检查 [只读]"
             )
-            if fault_active:
-                pri_input_order = list(self.ctrl.g1_blackbox_order)
-                pri_order = list(self.ctrl.pt1_pri_blackbox_order)
-                sec_order = list(self.ctrl.pt1_sec_blackbox_order)
-            else:
-                pri_input_order = ['A', 'B', 'C']
-                pri_order = ['A', 'B', 'C']
-                sec_order = ['A', 'B', 'C']
+            pri_input_order = blackbox_state['pri_input_order']
+            pri_order = blackbox_state['pri_order']
+            sec_order = blackbox_state['sec_order']
             sub = QtWidgets.QLabel(
                 "PT1 接线按当前物理状态绘制：一次侧与二次侧均可点击互换并分别修复。"
                 if allow_repair else
@@ -2358,18 +2335,16 @@ class TestPanelMixin:
             initial_pri_order = widget.get_pri_order()
             initial_sec_order = widget.get_sec_order()
             vlay.addWidget(widget, alignment=QtCore.Qt.AlignHCenter)
-            repair_target = 'PT1' if allow_repair else None
+            repair_target = blackbox_state['repair_target']
 
         elif target == 'PT3':
             dlg.setWindowTitle(
                 "PT3 接线盒检查 [二次侧可交互修复]" if allow_repair
                 else "PT3 接线盒检查 [只读]"
             )
-            pri_input_order = ['A', 'B', 'C']
-            if sim.fault_reverse_bc:
-                pri_input_order = ['A', 'C', 'B']
-            pri_order = ['A', 'B', 'C']
-            sec_order = list(pt_orders.get('PT3', ['A', 'B', 'C']))
+            pri_input_order = blackbox_state['pri_input_order']
+            pri_order = blackbox_state['pri_order']
+            sec_order = blackbox_state['sec_order']
             sub = QtWidgets.QLabel(
                 "上: 二次侧输出→测量端口 [可互换]  |  下: 一次侧输入←Gen2 [只读]"
                 if allow_repair else
@@ -2386,7 +2361,7 @@ class TestPanelMixin:
             initial_pri_order = widget.get_pri_order()
             initial_sec_order = widget.get_sec_order()
             vlay.addWidget(widget, alignment=QtCore.Qt.AlignHCenter)
-            repair_target = 'PT3' if allow_repair else None
+            repair_target = blackbox_state['repair_target']
             if fault_active and fc.scenario_id == 'E03':
                 note = QtWidgets.QLabel("⚠ A 相极性反接：A1 正负极颠倒（a2 输出反相）")
                 note.setStyleSheet(
@@ -2412,104 +2387,24 @@ class TestPanelMixin:
         # "确认修复" 按钮（仅对可修复目标显示）
         if repair_target is not None:
             def _on_confirm():
-                if repair_target == 'G1':
-                    new_order = widget.get_order()    # [ph_at_U, ph_at_V, ph_at_W]
-                    if initial_order is not None and list(new_order) != list(initial_order):
-                        self.ctrl.append_assessment_event(
-                            'blackbox_swap',
-                            step=self._current_test_step(),
-                            target='G1',
-                            layer='terminal',
-                            from_order=list(initial_order),
-                            to_order=list(new_order),
-                        )
-                    self.ctrl.g1_blackbox_order = list(new_order)
-                    self.ctrl.sync_pt1_blackbox_to_phase_orders()
-                    component_correct = (new_order == ['A', 'B', 'C'])
-                elif repair_target == 'G2':
-                    new_order = widget.get_order()
-                    if initial_order is not None and list(new_order) != list(initial_order):
-                        self.ctrl.append_assessment_event(
-                            'blackbox_swap',
-                            step=self._current_test_step(),
-                            target='G2',
-                            layer='terminal',
-                            from_order=list(initial_order),
-                            to_order=list(new_order),
-                        )
-                    self.ctrl.g2_blackbox_order = list(new_order)
-                    self.ctrl.sync_g2_blackbox_to_phase_orders()
-                    component_correct = (new_order == ['A', 'B', 'C'])
-                elif repair_target == 'PT1':
-                    new_pri = widget.get_pri_order()
-                    new_sec = widget.get_sec_order()
-                    if initial_pri_order is not None and list(new_pri) != list(initial_pri_order):
-                        self.ctrl.append_assessment_event(
-                            'blackbox_swap',
-                            step=self._current_test_step(),
-                            target='PT1',
-                            layer='primary',
-                            from_order=list(initial_pri_order),
-                            to_order=list(new_pri),
-                        )
-                    if initial_sec_order is not None and list(new_sec) != list(initial_sec_order):
-                        self.ctrl.append_assessment_event(
-                            'blackbox_swap',
-                            step=self._current_test_step(),
-                            target='PT1',
-                            layer='secondary',
-                            from_order=list(initial_sec_order),
-                            to_order=list(new_sec),
-                        )
-                    self.ctrl.pt1_pri_blackbox_order = list(new_pri)
-                    self.ctrl.pt1_sec_blackbox_order = list(new_sec)
-                    self.ctrl.sync_pt1_blackbox_to_phase_orders()
-                    component_correct = (
-                        new_pri == ['A', 'B', 'C']
-                        and new_sec == ['A', 'B', 'C']
-                    )
-                elif repair_target == 'PT3':
-                    new_sec = widget.get_sec_order()
-                    if initial_sec_order is not None and list(new_sec) != list(initial_sec_order):
-                        self.ctrl.append_assessment_event(
-                            'blackbox_swap',
-                            step=self._current_test_step(),
-                            target='PT3',
-                            layer='secondary',
-                            from_order=list(initial_sec_order),
-                            to_order=list(new_sec),
-                        )
-                    self.ctrl.pt_phase_orders[repair_target] = new_sec
-                    component_correct = (new_sec == ['A', 'B', 'C'])
-                else:
-                    component_correct = False
-
-                self.ctrl.append_assessment_event(
-                    'blackbox_confirm_attempted',
+                new_order = widget.get_order() if repair_target in ('G1', 'G2') else None
+                new_pri = widget.get_pri_order() if repair_target in ('PT1', 'PT3') else None
+                new_sec = widget.get_sec_order() if repair_target in ('PT1', 'PT3') else None
+                outcome = self.ctrl.apply_blackbox_repair_attempt(
+                    repair_target,
                     step=self._current_test_step(),
-                    target=repair_target,
-                    success=bool(component_correct),
+                    initial_order=initial_order,
+                    new_order=new_order,
+                    initial_pri_order=initial_pri_order,
+                    new_pri_order=new_pri,
+                    initial_sec_order=initial_sec_order,
+                    new_sec_order=new_sec,
                 )
-
-                if not component_correct:
-                    fb_lbl.setText("✗ 接线仍有错误，请重新调整后再提交。")
-                    fb_lbl.setStyleSheet("color:#dc2626; font-size:11px;")
-                    fb_lbl.setVisible(True)
-                    return
-
-                if (fault_active
-                        and self.ctrl.all_repairable_wiring_targets_normal()
-                        and self.ctrl.should_auto_clear_fault_only_when_all_blackboxes_normal()):
-                    self.ctrl.repair_fault()
-                    fb_lbl.setText("✓ 全部接线均已修复，故障已完全清除！")
-                    fb_lbl.setStyleSheet(
-                        "color:#15803d; font-size:11px; font-weight:bold;")
+                fb_lbl.setText(outcome.message)
+                fb_lbl.setStyleSheet(
+                    f"color:{outcome.message_color}; font-size:11px; font-weight:bold;")
+                if outcome.disable_repair_button:
                     btn_repair.setEnabled(False)
-                else:
-                    fb_lbl.setText(
-                        "✓ 此处接线已修复。请关闭并检查其他位置的接线。")
-                    fb_lbl.setStyleSheet(
-                        "color:#0369a1; font-size:11px; font-weight:bold;")
                 fb_lbl.setVisible(True)
 
             btn_repair = QtWidgets.QPushButton("确认修复 ✓")

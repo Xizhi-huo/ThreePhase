@@ -17,12 +17,6 @@ class ArbitrationMixin:
     def auto_adjust_local(self, generator, sim, target_freq, target_amp):
         if generator.breaker_closed:
             return
-        # E05 暂时禁用：幅值锁定逻辑注释掉
-        fc = sim.fault_config
-        # _lock_amp = (fc.active and not fc.repaired
-        #              and fc.scenario_id == 'E05'
-        #              and generator is sim.gen2)
-        _lock_amp = False
 
         speed_factor = self._control_speed_factor(sim)
         err_f = target_freq - generator.freq
@@ -32,13 +26,12 @@ class ArbitrationMixin:
         else:
             generator.freq = target_freq
 
-        if not _lock_amp:
-            err_a = target_amp - generator.amp
-            step_a = 6.0 * sim.sync_gain * speed_factor
-            if abs(err_a) > step_a:
-                generator.amp = round(generator.amp + np.sign(err_a) * step_a, 1)
-            else:
-                generator.amp = target_amp
+        err_a = target_amp - generator.amp
+        step_a = 6.0 * sim.sync_gain * speed_factor
+        if abs(err_a) > step_a:
+            generator.amp = round(generator.amp + np.sign(err_a) * step_a, 1)
+        else:
+            generator.amp = target_amp
 
     def auto_adjust_phase(self, generator, sim, target_phase_deg):
         phase_error = generator.phase_deg - target_phase_deg

@@ -3,6 +3,8 @@ services/pt_exam_service.py
 PT 二次端子压差考核服务
 """
 
+import numpy as np
+
 from domain.enums import BreakerPosition
 from domain.test_states import PtExamState
 
@@ -296,8 +298,6 @@ class PtExamService:
         快捷记录：跳过表笔放置检查，直接从物理引擎当前 PT 二次电压
         计算 Gen1 和 Gen2 全部 18 组压差并一次性写入记录。
         """
-        import numpy as np
-
         if not (self._ctrl.pt_exam_states[1].started and
                 self._ctrl.pt_exam_states[2].started):
             self._set_pt_exam_feedback(

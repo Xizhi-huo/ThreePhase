@@ -35,8 +35,7 @@ class PtPhaseCheckService:
         self._ctrl.pt_phase_check_state.started = False
 
     def _set_feedback(self, message, color='#444444'):
-        self._ctrl.pt_phase_check_state.feedback = message
-        self._ctrl.pt_phase_check_state.feedback_color = color
+        self._ctrl.set_pt_phase_check_feedback(message, color)
 
     # ── 步骤列表 ──────────────────────────────────────────────────────────────
     def get_pt_phase_check_steps(self):
@@ -139,10 +138,11 @@ class PtPhaseCheckService:
             self._set_feedback("当前测量结果无效，请确认表笔接在 PT 和 PT2 同相端子上。", "red")
             return
 
-        state.records[key] = {
-            'phase_match': phase_match,
-            'reading': self._ctrl.physics.meter_reading,
-        }
+        self._ctrl.record_pt_phase_check_result(
+            key,
+            phase_match,
+            self._ctrl.physics.meter_reading,
+        )
         self._ctrl.append_assessment_event(
             'measurement_recorded',
             step=3,
@@ -212,7 +212,7 @@ class PtPhaseCheckService:
                 self._set_feedback(
                     '请先完成 PT1/PT3 全部六相相序测量，再点击"完成第三步测试"。', "red")
                 return
-            state.completed = True
+            self._ctrl.mark_pt_phase_check_completed()
             fail_keys = [k for k in _ALL_KEYS
                          if state.records.get(k) and not state.records[k]['phase_match']]
             if fail_keys:
@@ -232,7 +232,7 @@ class PtPhaseCheckService:
                     '请先完成 PT1/PT3 全部六相相序测量（且全部通过），再点击"完成第三步测试"。',
                     "red")
                 return
-            state.completed = True
+            self._ctrl.mark_pt_phase_check_completed()
             self._set_feedback(
                 "第三步【PT 相序检查】已确认完成，后续操作将不再影响该步骤状态。",
                 "#006600")

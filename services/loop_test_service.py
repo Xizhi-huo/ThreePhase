@@ -21,8 +21,7 @@ class LoopTestService:
         return LoopTestState()
 
     def _set_loop_test_feedback(self, message, color='#444444'):
-        self._ctrl.loop_test_state.feedback = message
-        self._ctrl.loop_test_state.feedback_color = color
+        self._ctrl.set_loop_test_feedback(message, color)
 
     def _get_current_loop_phase_match(self):
         sim = self._ctrl.sim_state
@@ -123,10 +122,11 @@ class LoopTestService:
             return
 
         # 记录测量结果（导通/断路均可记录，故障分析在完成阶段进行）
-        self._ctrl.loop_test_state.records[phase] = {
-            'status': meter_status,
-            'reading': self._ctrl.physics.meter_reading,
-        }
+        self._ctrl.record_loop_test_result(
+            phase,
+            meter_status,
+            self._ctrl.physics.meter_reading,
+        )
         self._ctrl.append_assessment_event(
             'measurement_recorded',
             step=1,
@@ -194,7 +194,7 @@ class LoopTestService:
             self._set_loop_test_feedback(msg, "red")
             return
         self._ctrl.exit_loop_test_mode()   # 退出回路检查模式，恢复断路器联锁
-        self._ctrl.loop_test_state.completed = True
+        self._ctrl.mark_loop_test_completed()
         if fault_phases:
             # 当前流程策略允许带异常完成，提示继续后续步骤
             fault_str = '、'.join(fault_phases)

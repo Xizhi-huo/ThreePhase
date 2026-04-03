@@ -246,6 +246,7 @@ if fc.scenario_id == 'E03': show_e03_accident_dialog()
 ### 流程模式策略（teaching / engineering / assessment）
 
 - 控制器在 `app/main.py` 中统一维护 `FLOW_MODE_POLICIES`，`test_flow_mode` 通过策略表映射到一组流程规则。
+- `FLOW_MODE_POLICIES` 的值已收敛为 `FlowModePolicy` 强类型配置；控制器通过属性访问读取策略，不再依赖裸字典 `get()`。
 - Service / UI 不再直接散落写“教学模式 / 工程模式 / 考核模式”判断，改为读取控制器语义接口：
   - `can_advance_with_fault()`
   - `should_block_step5_until_blackbox_fixed()`
@@ -502,7 +503,12 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - 每步控制台由 `_build_step1~5` 构建，`_refresh_tp_step1~5` 每帧刷新
 - **管理员模式**：开启后 Tab 2~6 可见，步骤点可手动跳转
 - **第二步变比控制台**：PT1/PT3/PT2 分三行独立显示，`_tp_s2_ratio_rows` 字典存储各行控件引用（键为 `'pt_gen_ratio'`/`'pt3_ratio'`/`'pt_bus_ratio'`），**该属性挂在 `self.ui`（PowerSyncUI实例）上，不在 `self.ui.test_panel`（QWidget）上**
-- **第四步管理员快捷按钮** `⚡ 快捷记录全部18组`：仅管理员模式显示，调用 `record_all_pt_measurements_quick()`，跳过逐组表笔测量直接写入 Gen1+Gen2 共18组压差
+- **第四步快捷按钮** `⚡ 快捷记录全部18组`：管理员模式与考核模式均显示，调用 `record_all_pt_measurements_quick()`，跳过逐组表笔测量直接写入 Gen1+Gen2 共18组压差
+- **现阶段重构收敛**：
+  - 第四步后进入第五步前的黑盒门禁判断已下沉到 `PowerSyncController.get_test_progress_snapshot()`
+  - 考核模式第四步闭环后的自动结算已下沉到 `PowerSyncController.finish_assessment_session_if_ready()`
+  - 黑盒确认修复后的运行态写回、事件记录、自动清故障判断已下沉到 `PowerSyncController.apply_blackbox_repair_attempt()`
+  - `test_panel.py` 仍负责 UI 采集与渲染，但不再直接承担这三类核心业务决策
 
 ### 第一步回路测试 UI 变更
 - **路径动画已注释**（`ui/tabs/circuit_tab.py`）：绿色流动球（导通）与红色 X 符号（断路）的路径动画全部注释，图面连线无任何动态变化。
@@ -602,6 +608,9 @@ def record_all_pt_measurements_quick(self):
   - 第三步 `_on_record_psm()` 已从“按正逆序组记全局布尔”改为“按真实三字母结果逐相写入 `phase_match`”
   - `has_unrepaired_wiring_fault()` 已作为第五步前门禁与 `SyncTestService` 兜底条件；第五步前弹窗现为阻断提示，不再直接调用 `repair_fault()`
   - `teaching / engineering / assessment` 三模式差异已收敛到控制器 `FLOW_MODE_POLICIES`，业务层统一通过语义接口读取策略
+  - `FLOW_MODE_POLICIES` 当前已类型化为 `FlowModePolicy`
+  - `loop_test_service.py` 与 `pt_phase_check_service.py` 已先完成一层收敛：通过控制器语义方法写回状态，而不是直接散落修改 dataclass 字段
+  - 控制器新增最小只读/编排接口：`get_test_progress_snapshot()`、`get_blackbox_runtime_state()`、`finish_assessment_session_if_ready()`、`apply_blackbox_repair_attempt()`
   - G2 机端黑盒已从“仅查看”改为终端接线级可交互修复；E02 通过 `g2_blackbox_order` 与 `pt_phase_orders['PT3']` 同步表达
   - 场景选择弹窗已改为可滚动场景列表，底部固定显示 `teaching / engineering / assessment` 三种流程模式选项
   - 旧的 E06 force-close 入口、仲裁死分支与相关误导性注释已清理

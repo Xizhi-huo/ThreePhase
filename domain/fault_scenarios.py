@@ -13,6 +13,12 @@ domain/fault_scenarios.py
   - danger_level : 'recoverable'（可恢复）或 'accident'（事故级别）
   - params       : 故障注入参数（由控制器读取）
   - repair_prompt: 虚拟修复确认对话框文案
+
+命名约定说明（兼容旧场景键名）：
+  - `p1_pri_blackbox_order` 对应控制器运行态 `pt1_pri_blackbox_order`
+  - `pt2_sec_blackbox_order` 对应控制器运行态 `pt1_sec_blackbox_order`
+上述 params 键名保留是为了兼容历史场景定义；新增场景时不要把 `pt2_sec_blackbox_order`
+误解为 PT2 自身的二次侧，而应理解为“PT1 二次侧黑盒本级置换”的历史键名。
 """
 
 SCENARIOS: dict = {

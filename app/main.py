@@ -19,7 +19,10 @@ import sys
 import os
 import math
 import random
+import traceback
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional
 
 # 将项目根目录加入 sys.path，确保 domain/services/ui 包可以被找到
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -40,58 +43,98 @@ from services.pt_exam_service import PtExamService
 from services.sync_test_service import SyncTestService
 from ui.main_window import PowerSyncUI
 
+
+@dataclass(frozen=True)
+class FlowModePolicy:
+    allow_continue_with_fault: bool
+    require_all_measurements_before_finalize: bool
+    require_step_pass_to_finalize: bool
+    show_fault_detected_banner: bool
+    show_diagnostic_hints: bool
+    block_step5_until_blackbox_fixed: bool
+    hold_at_step4_when_wiring_fault_unrepaired: bool
+    show_blackbox_required_dialog_before_step5: bool
+    allow_blackbox_inspection: bool
+    allow_blackbox_repair: bool
+    auto_clear_fault_only_when_all_blackboxes_normal: bool
+    allow_admin_shortcuts: bool
+    record_assessment_metrics: bool
+    auto_score_assessment: bool
+    assessment_ends_after_step4_closed_loop: bool
+
+
+@dataclass(frozen=True)
+class StepProgressSnapshot:
+    current_step: int
+    ready_for_step5: bool
+    block_before_step5: bool
+    should_emit_assessment_gate_event: bool
+    should_show_blackbox_required_dialog: bool
+    assessment_result_ready: bool
+
+
+@dataclass(frozen=True)
+class BlackboxRepairOutcome:
+    target: str
+    component_correct: bool
+    fault_cleared: bool
+    message: str
+    message_color: str
+    disable_repair_button: bool = False
+
+
 FLOW_MODE_POLICIES = {
-    'teaching': {
-        'allow_continue_with_fault': True,
-        'require_all_measurements_before_finalize': True,
-        'require_step_pass_to_finalize': False,
-        'show_fault_detected_banner': True,
-        'show_diagnostic_hints': True,
-        'block_step5_until_blackbox_fixed': True,
-        'hold_at_step4_when_wiring_fault_unrepaired': True,
-        'show_blackbox_required_dialog_before_step5': True,
-        'allow_blackbox_inspection': True,
-        'allow_blackbox_repair': True,
-        'auto_clear_fault_only_when_all_blackboxes_normal': True,
-        'allow_admin_shortcuts': True,
-        'record_assessment_metrics': False,
-        'auto_score_assessment': False,
-        'assessment_ends_after_step4_closed_loop': False,
-    },
-    'engineering': {
-        'allow_continue_with_fault': False,
-        'require_all_measurements_before_finalize': True,
-        'require_step_pass_to_finalize': True,
-        'show_fault_detected_banner': True,
-        'show_diagnostic_hints': True,
-        'block_step5_until_blackbox_fixed': True,
-        'hold_at_step4_when_wiring_fault_unrepaired': True,
-        'show_blackbox_required_dialog_before_step5': True,
-        'allow_blackbox_inspection': True,
-        'allow_blackbox_repair': True,
-        'auto_clear_fault_only_when_all_blackboxes_normal': True,
-        'allow_admin_shortcuts': True,
-        'record_assessment_metrics': False,
-        'auto_score_assessment': False,
-        'assessment_ends_after_step4_closed_loop': False,
-    },
-    'assessment': {
-        'allow_continue_with_fault': False,
-        'require_all_measurements_before_finalize': True,
-        'require_step_pass_to_finalize': True,
-        'show_fault_detected_banner': False,
-        'show_diagnostic_hints': False,
-        'block_step5_until_blackbox_fixed': True,
-        'hold_at_step4_when_wiring_fault_unrepaired': True,
-        'show_blackbox_required_dialog_before_step5': True,
-        'allow_blackbox_inspection': True,
-        'allow_blackbox_repair': True,
-        'auto_clear_fault_only_when_all_blackboxes_normal': True,
-        'allow_admin_shortcuts': False,
-        'record_assessment_metrics': True,
-        'auto_score_assessment': True,
-        'assessment_ends_after_step4_closed_loop': True,
-    },
+    'teaching': FlowModePolicy(
+        allow_continue_with_fault=True,
+        require_all_measurements_before_finalize=True,
+        require_step_pass_to_finalize=False,
+        show_fault_detected_banner=True,
+        show_diagnostic_hints=True,
+        block_step5_until_blackbox_fixed=True,
+        hold_at_step4_when_wiring_fault_unrepaired=True,
+        show_blackbox_required_dialog_before_step5=True,
+        allow_blackbox_inspection=True,
+        allow_blackbox_repair=True,
+        auto_clear_fault_only_when_all_blackboxes_normal=True,
+        allow_admin_shortcuts=True,
+        record_assessment_metrics=False,
+        auto_score_assessment=False,
+        assessment_ends_after_step4_closed_loop=False,
+    ),
+    'engineering': FlowModePolicy(
+        allow_continue_with_fault=False,
+        require_all_measurements_before_finalize=True,
+        require_step_pass_to_finalize=True,
+        show_fault_detected_banner=True,
+        show_diagnostic_hints=True,
+        block_step5_until_blackbox_fixed=True,
+        hold_at_step4_when_wiring_fault_unrepaired=True,
+        show_blackbox_required_dialog_before_step5=True,
+        allow_blackbox_inspection=True,
+        allow_blackbox_repair=True,
+        auto_clear_fault_only_when_all_blackboxes_normal=True,
+        allow_admin_shortcuts=True,
+        record_assessment_metrics=False,
+        auto_score_assessment=False,
+        assessment_ends_after_step4_closed_loop=False,
+    ),
+    'assessment': FlowModePolicy(
+        allow_continue_with_fault=False,
+        require_all_measurements_before_finalize=True,
+        require_step_pass_to_finalize=True,
+        show_fault_detected_banner=False,
+        show_diagnostic_hints=False,
+        block_step5_until_blackbox_fixed=True,
+        hold_at_step4_when_wiring_fault_unrepaired=True,
+        show_blackbox_required_dialog_before_step5=True,
+        allow_blackbox_inspection=True,
+        allow_blackbox_repair=True,
+        auto_clear_fault_only_when_all_blackboxes_normal=True,
+        allow_admin_shortcuts=False,
+        record_assessment_metrics=True,
+        auto_score_assessment=True,
+        assessment_ends_after_step4_closed_loop=True,
+    ),
 }
 
 
@@ -133,6 +176,7 @@ class PowerSyncController:
         self.pt1_sec_blackbox_order = ['A', 'B', 'C']
         self.test_flow_mode = 'teaching'
         self.pt_blackbox_mode_val: bool = False
+        self._pt_blackbox_mode_proxy = self._BoolProxy(self)
         self.assessment_session = None
         self._last_fault_detected = False
 
@@ -180,13 +224,13 @@ class PowerSyncController:
 
     @property
     def pt_blackbox_mode(self):
-        return self._BoolProxy(self)
+        return self._pt_blackbox_mode_proxy
 
     def flow_policy(self):
         return FLOW_MODE_POLICIES.get(self.test_flow_mode, FLOW_MODE_POLICIES['teaching'])
 
     def flow_policy_flag(self, name: str):
-        return bool(self.flow_policy().get(name, False))
+        return bool(getattr(self.flow_policy(), name))
 
     def is_teaching_mode(self):
         return self.test_flow_mode == 'teaching'
@@ -310,11 +354,228 @@ class PowerSyncController:
             return fc.repaired
         return True
 
+    def get_test_progress_snapshot(self, current_step: int, pre_step5_repair_triggered: bool) -> StepProgressSnapshot:
+        ready_for_step5 = (
+            self.is_loop_test_complete()
+            and self.is_pt_voltage_check_complete()
+            and self.is_pt_phase_check_complete()
+            and self.pt_exam_states[1].completed
+            and self.pt_exam_states[2].completed
+        )
+        fc = self.sim_state.fault_config
+        block_before_step5 = (
+            ready_for_step5
+            and self.should_block_step5_until_blackbox_fixed()
+            and self.has_unrepaired_wiring_fault()
+            and fc.scenario_id not in ('E01', 'E02', 'E03')
+        )
+        should_emit_assessment_gate_event = (
+            block_before_step5
+            and self.is_assessment_mode()
+            and not pre_step5_repair_triggered
+        )
+        should_show_blackbox_required_dialog = (
+            block_before_step5
+            and self.should_show_blackbox_required_dialog_before_step5()
+            and not pre_step5_repair_triggered
+        )
+        assessment_result_ready = (
+            self.is_assessment_mode()
+            and self.assessment_ends_after_step4_closed_loop()
+            and self.is_assessment_closed_loop_ready()
+            and self.assessment_session is not None
+            and not self.assessment_session.result_shown
+        )
+        return StepProgressSnapshot(
+            current_step=current_step,
+            ready_for_step5=ready_for_step5,
+            block_before_step5=block_before_step5,
+            should_emit_assessment_gate_event=should_emit_assessment_gate_event,
+            should_show_blackbox_required_dialog=should_show_blackbox_required_dialog,
+            assessment_result_ready=assessment_result_ready,
+        )
+
+    def finish_assessment_session_if_ready(self, current_step: int) -> Optional[object]:
+        snapshot = self.get_test_progress_snapshot(current_step, pre_step5_repair_triggered=False)
+        if not snapshot.assessment_result_ready:
+            return None
+        return self.finish_assessment_session()
+
+    def get_blackbox_runtime_state(self, target: str) -> dict:
+        fault_active = bool(self.sim_state.fault_config.active and not self.sim_state.fault_config.repaired)
+        if target == 'G1':
+            return {
+                'fault_active': fault_active,
+                'order': list(self.g1_blackbox_order if fault_active else self.pt_phase_orders.get('PT2', ['A', 'B', 'C'])),
+                'repair_target': 'G1' if self.can_repair_in_blackbox() else None,
+            }
+        if target == 'G2':
+            return {
+                'fault_active': fault_active,
+                'order': list(self.g2_blackbox_order if fault_active else self.pt_phase_orders.get('PT3', ['A', 'B', 'C'])),
+                'repair_target': 'G2' if self.can_repair_in_blackbox() else None,
+            }
+        if target == 'PT1':
+            if fault_active:
+                pri_input_order = list(self.g1_blackbox_order)
+                pri_order = list(self.pt1_pri_blackbox_order)
+                sec_order = list(self.pt1_sec_blackbox_order)
+            else:
+                pri_input_order = ['A', 'B', 'C']
+                pri_order = ['A', 'B', 'C']
+                sec_order = ['A', 'B', 'C']
+            return {
+                'fault_active': fault_active,
+                'pri_input_order': pri_input_order,
+                'pri_order': pri_order,
+                'sec_order': sec_order,
+                'repair_target': 'PT1' if self.can_repair_in_blackbox() else None,
+            }
+        if target == 'PT3':
+            pri_input_order = ['A', 'B', 'C']
+            if self.sim_state.fault_reverse_bc:
+                pri_input_order = ['A', 'C', 'B']
+            return {
+                'fault_active': fault_active,
+                'pri_input_order': pri_input_order,
+                'pri_order': ['A', 'B', 'C'],
+                'sec_order': list(self.pt_phase_orders.get('PT3', ['A', 'B', 'C'])),
+                'repair_target': 'PT3' if self.can_repair_in_blackbox() else None,
+            }
+        raise ValueError(f"Unsupported blackbox target: {target}")
+
+    def apply_blackbox_repair_attempt(
+            self,
+            target: str,
+            step: int,
+            *,
+            initial_order=None,
+            new_order=None,
+            initial_pri_order=None,
+            new_pri_order=None,
+            initial_sec_order=None,
+            new_sec_order=None) -> BlackboxRepairOutcome:
+        component_correct = False
+
+        if target == 'G1':
+            if initial_order is not None and list(new_order) != list(initial_order):
+                self.append_assessment_event(
+                    'blackbox_swap',
+                    step=step,
+                    target='G1',
+                    layer='terminal',
+                    from_order=list(initial_order),
+                    to_order=list(new_order),
+                )
+            self.g1_blackbox_order = list(new_order)
+            self.sync_pt1_blackbox_to_phase_orders()
+            component_correct = (list(new_order) == ['A', 'B', 'C'])
+        elif target == 'G2':
+            if initial_order is not None and list(new_order) != list(initial_order):
+                self.append_assessment_event(
+                    'blackbox_swap',
+                    step=step,
+                    target='G2',
+                    layer='terminal',
+                    from_order=list(initial_order),
+                    to_order=list(new_order),
+                )
+            self.g2_blackbox_order = list(new_order)
+            self.sync_g2_blackbox_to_phase_orders()
+            component_correct = (list(new_order) == ['A', 'B', 'C'])
+        elif target == 'PT1':
+            if initial_pri_order is not None and list(new_pri_order) != list(initial_pri_order):
+                self.append_assessment_event(
+                    'blackbox_swap',
+                    step=step,
+                    target='PT1',
+                    layer='primary',
+                    from_order=list(initial_pri_order),
+                    to_order=list(new_pri_order),
+                )
+            if initial_sec_order is not None and list(new_sec_order) != list(initial_sec_order):
+                self.append_assessment_event(
+                    'blackbox_swap',
+                    step=step,
+                    target='PT1',
+                    layer='secondary',
+                    from_order=list(initial_sec_order),
+                    to_order=list(new_sec_order),
+                )
+            self.pt1_pri_blackbox_order = list(new_pri_order)
+            self.pt1_sec_blackbox_order = list(new_sec_order)
+            self.sync_pt1_blackbox_to_phase_orders()
+            component_correct = (
+                list(new_pri_order) == ['A', 'B', 'C']
+                and list(new_sec_order) == ['A', 'B', 'C']
+            )
+        elif target == 'PT3':
+            if initial_sec_order is not None and list(new_sec_order) != list(initial_sec_order):
+                self.append_assessment_event(
+                    'blackbox_swap',
+                    step=step,
+                    target='PT3',
+                    layer='secondary',
+                    from_order=list(initial_sec_order),
+                    to_order=list(new_sec_order),
+                )
+            self.pt_phase_orders['PT3'] = list(new_sec_order)
+            component_correct = (list(new_sec_order) == ['A', 'B', 'C'])
+        else:
+            raise ValueError(f"Unsupported blackbox repair target: {target}")
+
+        self.append_assessment_event(
+            'blackbox_confirm_attempted',
+            step=step,
+            target=target,
+            success=bool(component_correct),
+        )
+
+        if not component_correct:
+            return BlackboxRepairOutcome(
+                target=target,
+                component_correct=False,
+                fault_cleared=False,
+                message="X 接线仍有错误，请重新调整后再提交。",
+                message_color="#dc2626",
+            )
+
+        fault_active = bool(self.sim_state.fault_config.active and not self.sim_state.fault_config.repaired)
+        fault_cleared = False
+        disable_repair_button = False
+        if (
+            fault_active
+            and self.all_repairable_wiring_targets_normal()
+            and self.should_auto_clear_fault_only_when_all_blackboxes_normal()
+        ):
+            self.repair_fault()
+            fault_cleared = True
+            disable_repair_button = True
+            message = "OK 全部接线均已修复，故障已完全清除。"
+            message_color = "#15803d"
+        else:
+            message = "OK 此处接线已修复。请关闭并检查其他位置的接线。"
+            message_color = "#0369a1"
+
+        return BlackboxRepairOutcome(
+            target=target,
+            component_correct=True,
+            fault_cleared=fault_cleared,
+            message=message,
+            message_color=message_color,
+            disable_repair_button=disable_repair_button,
+        )
+
     # ════════════════════════════════════════════════════════════════════════
     # PT 节点解析辅助（physics_engine.py 通过 self.ctrl 调用）
     # ════════════════════════════════════════════════════════════════════════
     def resolve_pt_node_plot_key(self, node_name):
-        pt_name, terminal = node_name.split('_', 1)
+        parts = node_name.split('_', 1)
+        if len(parts) != 2:
+            return None
+        pt_name, terminal = parts
+        if pt_name not in self.pt_phase_orders or terminal not in ('A', 'B', 'C'):
+            return None
         terminal_index = ('A', 'B', 'C').index(terminal)
         actual_phase = self.pt_phase_orders[pt_name][terminal_index]
         if pt_name == 'PT3':
@@ -344,6 +605,8 @@ class PowerSyncController:
         for ph in ('A', 'B', 'C'):
             node = f"{pt_name}_{ph}"
             key = self.resolve_pt_node_plot_key(node)
+            if key is None or key[-1] not in ('a', 'b', 'c'):
+                return 'FAULT'
             actual = key[-1]   # 'a', 'b', or 'c'（基于 pt_phase_orders 的 key 名）
             # fault_reverse_bc 物理上对调 Gen2 B/C 绕组：
             # key 'g2b' 实际承载 C 相波形，'g2c' 实际承载 B 相波形
@@ -395,6 +658,32 @@ class PowerSyncController:
 
     def _is_gen_synced(self, follower, master, freq_tol=0.5, amp_tol=500.0):
         return self._sync_svc._is_gen_synced(follower, master, freq_tol, amp_tol)
+
+    def set_loop_test_feedback(self, message, color='#444444'):
+        self.loop_test_state.feedback = message
+        self.loop_test_state.feedback_color = color
+
+    def record_loop_test_result(self, phase, status, reading):
+        self.loop_test_state.records[phase] = {
+            'status': status,
+            'reading': reading,
+        }
+
+    def mark_loop_test_completed(self):
+        self.loop_test_state.completed = True
+
+    def set_pt_phase_check_feedback(self, message, color='#444444'):
+        self.pt_phase_check_state.feedback = message
+        self.pt_phase_check_state.feedback_color = color
+
+    def record_pt_phase_check_result(self, key, phase_match, reading):
+        self.pt_phase_check_state.records[key] = {
+            'phase_match': phase_match,
+            'reading': reading,
+        }
+
+    def mark_pt_phase_check_completed(self):
+        self.pt_phase_check_state.completed = True
 
     # ════════════════════════════════════════════════════════════════════════
     # 第一步：回路连通性测试 — 委托给 LoopTestService
@@ -864,12 +1153,6 @@ class PowerSyncController:
         if scenario_id.startswith('E0') and scenario_id not in ('', 'E01', 'E02', 'E03', 'E04'):
             self.sync_pt1_blackbox_to_phase_orders()
 
-        # E15 暂时禁用（原E05）
-        # elif scenario_id == 'E15':
-        #     gen2_amp = fc.params.get('gen2_amp', 13000.0)
-        #     self.sim_state.gen2.amp = gen2_amp
-        #     self.sim_state.gen2.actual_amp = gen2_amp
-
     def repair_fault(self):
         """学员完成虚拟修复后调用，消除故障效果并重置检测标志。"""
         fc = self.sim_state.fault_config
@@ -941,7 +1224,7 @@ class PowerSyncController:
         try:
             self.rebuild_circuit_view()
         except Exception:
-            pass
+            traceback.print_exc()
 
     # ════════════════════════════════════════════════════════════════════════
     # 主循环（QTimer 每 33ms 触发）
@@ -961,7 +1244,6 @@ class PowerSyncController:
             rs = self.physics.build_render_state()
             self.ui.render_visuals(rs)
         except Exception:
-            import traceback
             traceback.print_exc()
 
 

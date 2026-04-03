@@ -259,6 +259,7 @@ elif fc.scenario_id == 'E02': show_e02_accident_dialog()
 ### 流程模式策略（teaching / engineering / assessment）
 
 - 控制器在 [app/main.py](/abs/path/c:/Users/AW57P/Documents/ThreePhase_entier/app/main.py) 统一维护 `FLOW_MODE_POLICIES`，`test_flow_mode` 不再只代表一个模式名，而是映射到一组流程规则。
+- `FLOW_MODE_POLICIES` 的值已类型化为 `FlowModePolicy`，控制器通过属性访问读取策略，避免策略键名拼错后静默回落到 `False`。
 - 业务层与 UI 不再直接散落写“教学 / 工程 / 考核”判断，改为读取控制器语义接口，如 `can_advance_with_fault()`、`should_block_step5_until_blackbox_fixed()`、`should_show_fault_detected_banner()`、`should_record_assessment_metrics()`。
 - 三种模式的核心差异：
   - `teaching`：允许带异常完成当前步骤并继续收集故障证据
@@ -407,7 +408,12 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - 每步控制台由 `_build_step1~5` 构建，`_refresh_tp_step1~5` 每帧刷新
 - **管理员模式**：开启后 Tab 2～6 可见，步骤可手动跳转
 - **第二步 PT 变比控制台**：PT1 / PT3 / PT2 分三行独立显示，`_tp_s2_ratio_rows` 字典挂在 `self.ui`（非 `self.ui.test_panel`）上
-- **第四步管理员快捷按钮** `⚡ 快捷记录全部 18 组`：仅管理员模式显示，调用 `record_all_pt_measurements_quick()`，跳过逐组表笔测量直接写入 Gen1 + Gen2 共 18 组压差
+- **第四步快捷按钮** `⚡ 快捷记录全部 18 组`：管理员模式与考核模式均可显示，调用 `record_all_pt_measurements_quick()`，跳过逐组表笔测量直接写入 Gen1 + Gen2 共 18 组压差
+- **现阶段重构收敛**：
+  - 第四步后进入第五步前的黑盒门禁判断已下沉到控制器 `get_test_progress_snapshot()`
+  - 考核模式第四步闭环后的自动结算已下沉到控制器 `finish_assessment_session_if_ready()`
+  - 黑盒确认修复后的运行态写回、事件记录、自动清故障判断已下沉到控制器 `apply_blackbox_repair_attempt()`
+  - `test_panel.py` 继续负责 UI 输入与显示，但不再直接承担这三类核心业务编排
 
 ### 第一步回路测试 UI 变更
 
@@ -442,6 +448,5 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - **已完成并验证**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
 - **已实现待验证**：E03 步骤 5；E04 步骤 2；E05–E14 物理注入；物理接线黑盒检查交互修复（第 1～4 步均显示，渐进式逐组件修复）
 - **最新修复**：E01 double-swap bug；黑盒 params 键名统一（`g1_blackbox_order` / `p1_pri_blackbox_order` / `pt2_sec_blackbox_order` / `g2_blackbox_order`）；PT1 一次侧/二次侧独立修复；Gen2 机端接线黑盒改为终端接线级可交互修复；黑盒对话框运行态回显修复；`teaching / engineering / assessment` 三模式差异已收敛到 `FLOW_MODE_POLICIES`；考核模式事件流与自动评分已接入
+- **现阶段重构**：`FlowModePolicy` 已类型化；`loop_test_service.py` 与 `pt_phase_check_service.py` 已先改为通过控制器语义方法写回状态；控制器已新增 `get_test_progress_snapshot()`、`get_blackbox_runtime_state()`、`finish_assessment_session_if_ready()`、`apply_blackbox_repair_attempt()` 作为最小只读/编排接口，用于收敛 `test_panel.py` 的业务判断
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）
-
-
