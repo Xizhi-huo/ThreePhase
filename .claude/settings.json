@@ -13,7 +13,11 @@
       "Bash(grep -n \"\\\\.completed = True\" /Users/promise/Downloads/3/Intership/ThreePhase/services/*.py)",
       "Bash(grep -n \"def _render_pt_phase_check\" /Users/promise/Downloads/3/Intership/ThreePhase/ui/tabs/*.py)",
       "Bash(grep -n \"set_freq\" /Users/promise/Downloads/3/Intership/ThreePhase/ui/tabs/*.py)",
-      "Bash(python3 -c \"import py_compile; py_compile.compile\\(''ui/test_panel.py'', doraise=True\\); print\\(''OK''\\)\")"
+      "Bash(python3 -c \"import py_compile; py_compile.compile\\(''ui/test_panel.py'', doraise=True\\); print\\(''OK''\\)\")",
+      "Bash(python3 -m py_compile app/main.py)",
+      "Bash(python3 -m py_compile app/main.py domain/fault_scenarios.py domain/models.py services/loop_test_service.py services/pt_voltage_check_service.py services/pt_phase_check_service.py services/pt_exam_service.py services/sync_test_service.py)",
+      "Bash(sed -n '655,663p' /Users/promise/Downloads/3/Intership/ThreePhase_entier/ThreePhase/app/main.py)",
+      "Bash(sed -n '268,274p' /Users/promise/Downloads/3/Intership/ThreePhase_entier/ThreePhase/app/main.py)"
     ]
   }
 }

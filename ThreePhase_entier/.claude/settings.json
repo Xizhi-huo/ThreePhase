@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \":*)",
+      "Bash(find /Users/promise/Downloads/3/Intership/ThreePhase -type f -name *.py)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''ui/test_panel.py''\\).read\\(\\)\\); print\\(''syntax OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''ui/main_window.py''\\).read\\(\\)\\); print\\(''main_window OK''\\); ast.parse\\(open\\(''ui/panels/control_panel.py''\\).read\\(\\)\\); print\\(''control_panel OK''\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''ui/test_panel.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(grep -n \"records\\\\|voltage_records\\\\|pt_diff\\\\|measurements\\\\|pt_exam\" /Users/promise/Downloads/3/Intership/ThreePhase/domain/services/*.py)",
+      "Bash(grep -n \"mode.*auto\\\\|auto.*mode\\\\|gen.mode\\\\|arbitrator_enabled\\\\|enable_arbitrator\" /Users/promise/Downloads/3/Intership/ThreePhase/domain/*.py)",
+      "WebSearch",
+      "Bash(ls /Users/promise/Downloads/3/Intership/ThreePhase/services/pt_phase*)",
+      "Bash(grep -n \"\\\\.completed = True\" /Users/promise/Downloads/3/Intership/ThreePhase/services/*.py)",
+      "Bash(grep -n \"def _render_pt_phase_check\" /Users/promise/Downloads/3/Intership/ThreePhase/ui/tabs/*.py)",
+      "Bash(grep -n \"set_freq\" /Users/promise/Downloads/3/Intership/ThreePhase/ui/tabs/*.py)",
+      "Bash(python3 -c \"import py_compile; py_compile.compile\\(''ui/test_panel.py'', doraise=True\\); print\\(''OK''\\)\")"
+    ]
+  }
+}
