@@ -445,68 +445,83 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）
 
 
-
 ‘’‘
-2. _lock_amp 死变量 — services/_physics_arbitration.py:20-35
+架构层面的核心问题
+1. PowerSyncController 是一个 God Object
+app/main.py 985行，这个类承担了以下所有职责：
 
-E05 暂时禁用：幅值锁定逻辑注释掉
-fc = sim.fault_config
-_lock_amp = (fc.active and not fc.repaired ...)
-_lock_amp = False          # ← 恒为 False
+持有唯一数据源 sim_state
+拥有 5 个 service 实例的引用
+拥有 physics 和 ui 的引用
+直接持有大量中间业务状态（pt_phase_orders, g1_blackbox_order, pt1_pri/sec_blackbox_order, test_flow_mode, pt_blackbox_mode_val, assessment_session, _last_fault_detected）
+实现了 inject_fault, repair_fault, reset_for_scenario, toggle_breaker, toggle_engine, instant_sync, resolve_pt_node_plot_key...
+这些"黑盒接线状态"和"故障注入逻辑"本应属于领域层，现在全部裸露在控制器上，任何人都可以直接读写。
 
-if not _lock_amp:          # ← 条件永远为真，分支无效
-    err_a = target_amp - generator.amp
+2. Services 通过 ctrl 回写状态 — 依赖方向反转
+所有 service 都持有 self._ctrl 反向引用，直接写 controller 的字段：
+
+
+# loop_test_service.py
+self._ctrl.loop_test_state.feedback = message
+# pt_exam_service.py  
+self._ctrl.pt_exam_states[1].records[...] = ...
+# assessment_service.py
+self._ctrl.assessment_session = new_session
+这意味着 service 不是独立的业务逻辑单元，而是 controller 的"延伸函数"。无法单独测试任何一个 service，也无法替换 controller 的接口。正确的方向应该是 service 接收状态对象作为参数并返回结果，controller 负责分派。
+
+3. UI Mixin 对 ctrl 的直接耦合（248处引用）
+PowerSyncUI 通过 9 个 Mixin 组合，每个 Mixin 都直接访问 self.ctrl.sim_state、self.ctrl.pt_phase_orders、self.ctrl.loop_test_state 等：
+
+
+ui/ 层对 self.ctrl. 的引用：248 处
+services/ 层对 self._ctrl. 的引用：174 处
+架构文档声称 UI 只消费 RenderState 快照，但实际 UI 既消费 RenderState 又直接穿透读取 ctrl 内部状态。RenderState 没有起到隔离作用。
+
+4. test_panel.py 2588 行，混合了业务逻辑和 UI
+ui/test_panel.py 是整个项目最大的文件，包含：
+
+黑盒修复的确认逻辑（_on_confirm()，判断何时触发 repair_fault()）
+考核评分的触发时机判断
+PT 接线矩阵的 UI 交互与 ctrl 写回
+这些业务决策散落在 UI Mixin 里，无法复用、无法测试。
+
+5. PhysicsEngine 同时是"计算引擎"和"状态存储"
+PhysicsEngine 把中间计算结果存为实例属性（self.bus_live, self.pt1_v, self.relay_msg...），再由 build_render_state() 打包。问题：
+
+update_physics() 里 _update_bus_reference() 被调用了两次（physics_engine.py:81, 89），第二次是为了重新同步仲裁后的母线状态，但这意味着同一帧内母线状态被计算两遍
+引擎内部状态（relay_msg、arb_color 等显示文本）属于 UI 关切而非物理量，不应存在于引擎层
+6. FLOW_MODE_POLICIES 是裸字典，键名无类型保障
+
+# app/main.py
+FLOW_MODE_POLICIES = {
+    'teaching': { 'allow_blackbox_repair': True, ... },
     ...
-fc = sim.fault_config 这行的唯一用途是供已注释代码使用，现在也成了死代码。if not _lock_amp: 分支永远执行，整个 _lock_amp 变量没有意义。
+}
 
-3. except Exception: pass 吞掉所有异常 — app/main.py:941-944
+def flow_policy_flag(self, name: str):
+    return bool(self.flow_policy().get(name, False))  # typo → 静默返回 False
+任何地方拼错 key（如 'allow_blackbox_repiar'）都会静默返回 False，不会报错。这种策略系统应该用 @dataclass 或 TypedDict 来定义，让 IDE 和静态分析能够捕捉到错误。
 
-try:
-    self.rebuild_circuit_view()
-except Exception:
-    pass   # ← 静默丢弃所有异常，包括真实 bug
-电路图重建失败时没有任何反馈，会导致 UI 静默残留旧状态、bug 无法定位。
-
-4. E15 注释残留死代码 — app/main.py:867-871
-
-E15 暂时禁用（原E05）
-elif scenario_id == 'E15':
-     gen2_amp = fc.params.get('gen2_amp', 13000.0)
-     self.sim_state.gen2.amp = gen2_amp
-     self.sim_state.gen2.actual_amp = gen2_amp
-连同 services/_physics_arbitration.py:20-25 的 E05 注释，都是 E15/E16 禁用期间遗留的死代码。
-
-5. 参数键名不一致（命名歧义）— app/main.py:845-846 vs domain/fault_scenarios.py
-fault_scenarios.py 中的 params 键名：
-
-p1_pri_blackbox_order（PT1 一次侧）
-pt2_sec_blackbox_order（PT1 二次侧）
-但 controller 实例变量名为：
-
-self.pt1_pri_blackbox_order
-self.pt1_sec_blackbox_order
-这是故意的（README 也记录了此约定），但非常容易误导——pt2_sec_blackbox_order 字面像是 PT2 的键，实际上对应 PT1 二次侧。assessment_service.py:390 里也明确使用了这两个 key 名。建议在 fault_scenarios.py 的注释中明确说明此命名约定，防止以后添加 E15+ 时用错键名。
-
-6. resolve_pt_node_plot_key 潜在 ValueError — app/main.py:318
-
-def resolve_pt_node_plot_key(self, node_name):
-    pt_name, terminal = node_name.split('_', 1)
-    terminal_index = ('A', 'B', 'C').index(terminal)  # ← 若 terminal 不是 A/B/C 则抛 ValueError
-若将来节点命名约定变更（如 PT1_N 中性点），会直接崩溃，没有守卫。
-
-7. 内嵌 import — services/pt_exam_service.py:299
-
-def record_all_pt_measurements_quick(self):
-    import numpy as np   # ← 应移至文件顶部
-    ...
-每次调用时重复 import（虽然 Python 有缓存，但代码风格不规范，IDE 无法索引）。
-
-8. _BoolProxy 每次访问重新实例化 — app/main.py:181-183
-
-@property
-def pt_blackbox_mode(self):
-    return self._BoolProxy(self)   # ← 每次 .get()/.set() 都 new 一个对象
-功能上无 bug，但每帧渲染时 circuit_tab.py 调用 ctrl.pt_blackbox_mode.get() 会反复创建临时对象。可在 __init__ 中创建一次并缓存。
+7. RenderState 字段类型不准确
+adapters/render_state.py 中有 4 个字段类型为 object：
 
 
+fixed_deg: object = None          # 实际是 np.ndarray
+bus_source: object = None         # 实际是 GeneratorState | None
+bus_reference_gen: object = None  # 实际是 GeneratorState | None
+meter_nodes: object = None        # 实际是 tuple[str, str] | None
+RenderState 本应作为 UI 与 Engine 之间的稳定协议，却有模糊类型，降低了其作为隔离边界的可信度。
+
+总结
+
+表面架构（文档描述）：
+  Controller → PhysicsEngine → RenderState → UI
+
+实际耦合图：
+  UI ←→ ctrl (248处) ←→ services (174处)
+         ↕
+      PhysicsEngine
+最核心的问题：PowerSyncController 既是数据源、又是业务编排层、又是故障注入层，各层通过 ctrl 引用互相穿透，RenderState 只覆盖了物理渲染部分，没有覆盖大量测试步骤状态，所以并没有真正实现 View 和 Model 的隔离。
+
+对于教学仿真系统的当前规模（~5000 行有效代码），这个耦合程度尚在可控范围内，但如果继续扩展（比如 E15/E16，或新增步骤），会变得越来越难以维护。
 ’‘’
