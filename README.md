@@ -443,3 +443,70 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - **已实现待验证**：E03 步骤 5；E04 步骤 2；E05–E14 物理注入；物理接线黑盒检查交互修复（第 1～4 步均显示，渐进式逐组件修复）
 - **最新修复**：E01 double-swap bug；黑盒 params 键名统一（`g1_blackbox_order` / `p1_pri_blackbox_order` / `pt2_sec_blackbox_order` / `g2_blackbox_order`）；PT1 一次侧/二次侧独立修复；Gen2 机端接线黑盒改为终端接线级可交互修复；黑盒对话框运行态回显修复；`teaching / engineering / assessment` 三模式差异已收敛到 `FLOW_MODE_POLICIES`；考核模式事件流与自动评分已接入
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）
+
+
+
+‘’‘
+2. _lock_amp 死变量 — services/_physics_arbitration.py:20-35
+
+# E05 暂时禁用：幅值锁定逻辑注释掉
+fc = sim.fault_config
+# _lock_amp = (fc.active and not fc.repaired ...)
+_lock_amp = False          # ← 恒为 False
+
+if not _lock_amp:          # ← 条件永远为真，分支无效
+    err_a = target_amp - generator.amp
+    ...
+fc = sim.fault_config 这行的唯一用途是供已注释代码使用，现在也成了死代码。if not _lock_amp: 分支永远执行，整个 _lock_amp 变量没有意义。
+
+3. except Exception: pass 吞掉所有异常 — app/main.py:941-944
+
+try:
+    self.rebuild_circuit_view()
+except Exception:
+    pass   # ← 静默丢弃所有异常，包括真实 bug
+电路图重建失败时没有任何反馈，会导致 UI 静默残留旧状态、bug 无法定位。
+
+4. E15 注释残留死代码 — app/main.py:867-871
+
+# E15 暂时禁用（原E05）
+# elif scenario_id == 'E15':
+#     gen2_amp = fc.params.get('gen2_amp', 13000.0)
+#     self.sim_state.gen2.amp = gen2_amp
+#     self.sim_state.gen2.actual_amp = gen2_amp
+连同 services/_physics_arbitration.py:20-25 的 E05 注释，都是 E15/E16 禁用期间遗留的死代码。
+
+5. 参数键名不一致（命名歧义）— app/main.py:845-846 vs domain/fault_scenarios.py
+fault_scenarios.py 中的 params 键名：
+
+p1_pri_blackbox_order（PT1 一次侧）
+pt2_sec_blackbox_order（PT1 二次侧）
+但 controller 实例变量名为：
+
+self.pt1_pri_blackbox_order
+self.pt1_sec_blackbox_order
+这是故意的（README 也记录了此约定），但非常容易误导——pt2_sec_blackbox_order 字面像是 PT2 的键，实际上对应 PT1 二次侧。assessment_service.py:390 里也明确使用了这两个 key 名。建议在 fault_scenarios.py 的注释中明确说明此命名约定，防止以后添加 E15+ 时用错键名。
+
+6. resolve_pt_node_plot_key 潜在 ValueError — app/main.py:318
+
+def resolve_pt_node_plot_key(self, node_name):
+    pt_name, terminal = node_name.split('_', 1)
+    terminal_index = ('A', 'B', 'C').index(terminal)  # ← 若 terminal 不是 A/B/C 则抛 ValueError
+若将来节点命名约定变更（如 PT1_N 中性点），会直接崩溃，没有守卫。
+
+7. 内嵌 import — services/pt_exam_service.py:299
+
+def record_all_pt_measurements_quick(self):
+    import numpy as np   # ← 应移至文件顶部
+    ...
+每次调用时重复 import（虽然 Python 有缓存，但代码风格不规范，IDE 无法索引）。
+
+8. _BoolProxy 每次访问重新实例化 — app/main.py:181-183
+
+@property
+def pt_blackbox_mode(self):
+    return self._BoolProxy(self)   # ← 每次 .get()/.set() 都 new 一个对象
+功能上无 bug，但每帧渲染时 circuit_tab.py 调用 ctrl.pt_blackbox_mode.get() 会反复创建临时对象。可在 __init__ 中创建一次并缓存。
+
+
+’‘’
