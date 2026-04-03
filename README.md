@@ -449,9 +449,9 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 ‘’‘
 2. _lock_amp 死变量 — services/_physics_arbitration.py:20-35
 
-# E05 暂时禁用：幅值锁定逻辑注释掉
+E05 暂时禁用：幅值锁定逻辑注释掉
 fc = sim.fault_config
-# _lock_amp = (fc.active and not fc.repaired ...)
+_lock_amp = (fc.active and not fc.repaired ...)
 _lock_amp = False          # ← 恒为 False
 
 if not _lock_amp:          # ← 条件永远为真，分支无效
@@ -469,11 +469,11 @@ except Exception:
 
 4. E15 注释残留死代码 — app/main.py:867-871
 
-# E15 暂时禁用（原E05）
-# elif scenario_id == 'E15':
-#     gen2_amp = fc.params.get('gen2_amp', 13000.0)
-#     self.sim_state.gen2.amp = gen2_amp
-#     self.sim_state.gen2.actual_amp = gen2_amp
+E15 暂时禁用（原E05）
+elif scenario_id == 'E15':
+     gen2_amp = fc.params.get('gen2_amp', 13000.0)
+     self.sim_state.gen2.amp = gen2_amp
+     self.sim_state.gen2.actual_amp = gen2_amp
 连同 services/_physics_arbitration.py:20-25 的 E05 注释，都是 E15/E16 禁用期间遗留的死代码。
 
 5. 参数键名不一致（命名歧义）— app/main.py:845-846 vs domain/fault_scenarios.py
