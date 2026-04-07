@@ -462,3 +462,159 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - **最新修复**：E01 double-swap bug；黑盒 params 键名统一（`g1_blackbox_order` / `p1_pri_blackbox_order` / `pt2_sec_blackbox_order` / `g2_blackbox_order`）；PT1 一次侧/二次侧独立修复；Gen2 机端接线黑盒改为终端接线级可交互修复；黑盒对话框运行态回显修复；`teaching / engineering / assessment` 三模式差异已收敛到 `FLOW_MODE_POLICIES`；考核模式事件流与自动评分已接入
 - **现阶段重构**：`FlowModePolicy` 已类型化；`loop_test_service.py` 与 `pt_phase_check_service.py` 已先改为通过控制器语义方法写回状态；控制器已新增 `get_test_progress_snapshot()`、`get_blackbox_runtime_state()`、`finish_assessment_session_if_ready()`、`apply_blackbox_repair_attempt()` 作为最小只读/编排接口，用于收敛 `test_panel.py` 的业务判断
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）
+
+
+‘’‘
+
+全量代码审查报告
+1. Bug 与潜在缺陷
+🔴 严重 — _on_record_psm() 71 行不可达死代码
+文件：ui/test_panel.py:1406-1477
+
+
+1405:        self._tp_s3_rec_btns[pt_name].setEnabled(False)
+1406:    return                    # ← 此处提前返回
+1407:    # 把相序仪结果写入 pt_phase_check_state（逐相批量写入）
+1408:    state = self.ctrl.pt_phase_check_state
+       ...                       # ← 以下 71 行全部不可达
+1477:        self._tp_s3_rec_btns[pt_name].setEnabled(False)
+原因是该逻辑已被重构到 record_phase_sequence() 服务方法中，但旧代码未清理，留下了一个 return 和整段残留逻辑。
+
+修复：删除 1406 行的 return 以及 1407-1477 的全部残留代码。
+
+🟡 警告 — _UI_NODES[n1] 无防御性守卫
+文件：services/_physics_measurement.py:144
+
+
+if n1 and n2:
+    info1, info2 = _UI_NODES[n1], _UI_NODES[n2]   # KeyError 风险
+n1/n2 来自 sim.probe1_node/probe2_node，正常情况下由 UI 点击事件设置为合法 NODES 键。但若有外部代码设置非法值，将直接抛 KeyError。
+
+修复：
+
+
+if n1 and n2 and n1 in _UI_NODES and n2 in _UI_NODES:
+🟡 警告 — _resolve_terminal_actual_phase() 无守卫的 .index()
+文件：services/_physics_measurement.py:101
+
+
+idx = ('A', 'B', 'C').index(terminal)   # terminal 不是 A/B/C 时 ValueError
+此方法被 _update_multimeter() 和 record_all_pt_measurements_quick() 间接调用，调用链上没有对 terminal 做前置校验。虽然目前数据流上不会出错，但该函数是公共接口，缺乏防御。
+
+修复：
+
+
+if terminal not in ('A', 'B', 'C'):
+    return terminal   # 或 raise ValueError
+idx = ('A', 'B', 'C').index(terminal)
+🟡 警告 — 4 处 except Exception: pass 静默吞异常
+文件：ui/test_panel.py:1292-1295、1371-1374、1383-1386
+
+
+try:
+    self.connect_phase_seq_meter(pt_name)   # Mixin 方法，可能不存在
+except Exception:
+    pass   # 完全静默——如果是 MRO 问题之外的 bug 也会被吞掉
+这些是跨 Mixin 调用相序仪的防御代码。问题在于 Exception 过于宽泛——不仅捕获 AttributeError（Mixin 不存在），也捕获了所有运行时异常。
+
+修复：缩窄为 except AttributeError: 或至少添加 traceback.print_exc()。
+
+🟡 警告 — _resolve_terminal_actual_phase 私有属性访问
+文件：ui/test_panel.py:1393-1396
+
+
+try:
+    seq = self.phase_seq_meter._sequence
+except Exception:
+    seq = 'unknown'
+直接访问 _sequence 私有属性，且用异常捕获代替存在性检查。
+
+修复：seq = getattr(self.phase_seq_meter, '_sequence', 'unknown')
+
+2. 代码一致性与规范
+🟡 警告 — domain/constants.py 在领域层执行 matplotlib 副作用
+文件：domain/constants.py:1-16
+
+
+import matplotlib
+import matplotlib.pyplot as plt
+
+plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', ...]
+plt.rcParams['axes.unicode_minus'] = False
+plt.rcParams['figure.dpi'] = 100
+...
+domain/ 是纯领域层，不应有任何 UI 依赖。所有 matplotlib 配置应移到 ui/ 层（如 ui/styles.py 或 ui/__init__.py）。这也意味着未来迁移到 React+Tauri 时 domain/ 层无法被干净地复用。
+
+🟡 警告 — params 键名与实例变量名不一致
+文件：domain/fault_scenarios.py:17-21 ↔ app/main.py:175-176
+
+params 键（fault_scenarios.py）	实例变量名（app/main.py）	含义
+p1_pri_blackbox_order	pt1_pri_blackbox_order	PT1 一次侧
+pt2_sec_blackbox_order	pt1_sec_blackbox_order	PT1 二次侧
+虽然已在文件头部加了命名约定注释，但 pt2_sec 在字面上仍然像是 PT2 的键。未来增加 E15+ 场景时极易用错。
+
+🟢 建议 — E15/E16 注释代码块未清理
+文件：
+
+domain/fault_scenarios.py:520-577（58 行注释代码）
+services/_physics_arbitration.py:274-277（4 行）
+services/_physics_measurement.py:251-256, 322-344（散落 E05 残留判断）
+ui/tabs/circuit_tab.py:770-778（回路动画被注释禁用）
+应该移到独立的 feature 分支，或在注释中注明跟踪 issue 编号。
+
+3. 架构与设计
+🟡 警告 — _update_multimeter() 271 行巨型函数
+文件：services/_physics_measurement.py:124-395
+
+此函数内含三大分支（回路测量 / PT 内线电压 / PT 间压差），每个分支约 80-90 行。应拆分为：
+
+_handle_loop_measurement()
+_handle_intra_pt_measurement()
+_handle_cross_pt_measurement()
+🟡 警告 — UI 层直接修改 sim_state
+文件：ui/test_panel.py ~880-886
+
+
+def _update_ratio(...):
+    ratio = pri / sec           # 业务计算
+    setattr(self.ctrl.sim_state, _a, ratio)   # UI 直接写 sim_state
+PT 变比计算和写入应委托给 controller 方法，保持 UI → Controller → State 的单向数据流。
+
+🟢 建议 — domain/constants.py 底部反向导入
+文件：domain/constants.py:36-38
+
+
+from domain.enums import SystemMode
+AVAILABLE_MODES = [SystemMode.ISOLATED_BUS, ...]
+constants.py 导入 enums.py 中的类，这在当前单向依赖下可以工作，但若 enums.py 未来需要引用常量，会形成循环导入。AVAILABLE_MODES 更适合放在 enums.py 中。
+
+4. 可维护性
+🟢 建议 — _physics_arbitration.py 中的 pass 语句
+文件：services/_physics_arbitration.py ~48-59
+
+
+elif self.bus_reference_gen == 1 and g1_on_bus:
+    pass                       # ← 功能上正确但增加理解成本
+elif self.bus_reference_gen == 2 and g2_on_bus:
+    pass
+这两个 pass 分支的含义是"保持当前引用不变"。加一行注释就能消除歧义：
+
+
+elif self.bus_reference_gen == 1 and g1_on_bus:
+    pass   # 基准不变，保持 Gen1
+5. 回归风险
+🟡 警告 — inject_fault() 中场景排除列表手动维护
+文件：app/main.py:1233
+
+
+if scenario_id.startswith('E0') and scenario_id not in ('', 'E01', 'E02', 'E03', 'E04'):
+    self.sync_pt1_blackbox_to_phase_orders()
+未来增加新场景时，开发者必须记住手动更新这个排除列表。如果遗漏，新场景可能错误地触发 PT1 同步。
+
+修复建议：改为正向匹配（检查 params 中是否含有特定键）代替反向排除。
+
+
+
+’‘’
+
+
