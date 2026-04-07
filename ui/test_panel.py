@@ -10,15 +10,15 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 from domain.enums import BreakerPosition
 
 # ── 主题色常量（清新工业教学风）────────────────────────────────────────────
-_PANEL_BG   = "#f1f5f9"
+_PANEL_BG   = "#eef3f9"
 _TITLE_BG   = "#ffffff"
-_SECTION_BG = "#f8fafc"
-_BTN        = "font-size:12px; padding:3px 8px; border-radius:3px;"
+_SECTION_BG = "#ffffff"
+_BTN        = "font-size:12px; font-weight:bold; padding:6px 12px; border-radius:8px;"
 _GRP_STYLE  = (
-    "QGroupBox{{background:{bg}; color:#1d4ed8; font-size:12px; font-weight:bold;"
-    " border:1px solid #e2e8f0; border-radius:6px; margin-top:8px; padding-top:8px;}}"
+    "QGroupBox{{background:{bg}; color:#0f172a; font-size:13px; font-weight:bold;"
+    " border:1px solid #dbe4f0; border-radius:12px; margin-top:12px; padding-top:14px;}}"
     "QGroupBox::title{{subcontrol-origin:margin; left:10px;"
-    " background:{bg}; color:#1d4ed8;}}"
+    " background:{bg}; color:#1e293b; padding:0 6px;}}"
     "QGroupBox *{{font-size:12px; color:#334155; font-weight:normal;}}"
 )
 
@@ -427,7 +427,7 @@ class TestPanelMixin:
         # ── 外层容器（与 ctrl_container 同宽，初始隐藏）────────────────
         self.test_panel = QtWidgets.QWidget()
         self.test_panel.setFixedWidth(520)
-        self.test_panel.setStyleSheet(f"background:{_PANEL_BG};")
+        self._set_props(self.test_panel, testPanelRoot=True, panelSurface=True)
         self.test_panel.setVisible(False)
 
         tl = QtWidgets.QVBoxLayout(self.test_panel)
@@ -436,35 +436,26 @@ class TestPanelMixin:
 
         # ── 顶部标题栏 ────────────────────────────────────────────────
         top = QtWidgets.QWidget()
-        top.setStyleSheet(
-            f"background:{_TITLE_BG}; border-bottom:2px solid #e2e8f0;")
+        self._set_props(top, testPanelBar=True)
         top.setFixedHeight(44)
         trow = QtWidgets.QHBoxLayout(top)
         trow.setContentsMargins(8, 4, 8, 4)
 
         title = QtWidgets.QLabel("🔬 合闸前测试模式")
-        title.setStyleSheet(
-            "color:#1d4ed8; font-weight:bold; font-size:14px; border:none;")
+        self._set_props(title, testPanelTitle=True)
 
         self.tp_btn_reset = QtWidgets.QPushButton("⚠️ 重置本步")
-        self.tp_btn_reset.setStyleSheet(
-            "background:#dc2626; color:white; font-weight:bold;"
-            " font-size:12px; padding:2px 10px; border-radius:3px;")
         self.tp_btn_reset.clicked.connect(self._on_tp_reset_step)
+        self._apply_button_tone(self.tp_btn_reset, "danger")
 
         btn_exit = QtWidgets.QPushButton("退出测试")
-        btn_exit.setStyleSheet(
-            "background:#e2e8f0; color:#475569; font-size:12px;"
-            " padding:2px 10px; border-radius:3px;")
         btn_exit.clicked.connect(self.exit_test_mode)
+        self._apply_button_tone(btn_exit, "primary", secondary=True)
 
         self._tp_admin_mode = False
         self.tp_btn_admin = QtWidgets.QPushButton("🔧 管理员")
         self.tp_btn_admin.setCheckable(True)
-        self.tp_btn_admin.setStyleSheet(
-            "QPushButton{background:#7c3aed; color:white; font-size:12px;"
-            " padding:2px 8px; border-radius:3px;}"
-            "QPushButton:checked{background:#4c1d95;}")
+        self._set_props(self.tp_btn_admin, adminButton=True)
         self.tp_btn_admin.clicked.connect(self._on_tp_toggle_admin)
 
         trow.addWidget(title, 1)
@@ -476,8 +467,7 @@ class TestPanelMixin:
         # ── 步骤进度点（管理员模式下变为可点击按钮）─────────────────────
         self._tp_forced_step: int | None = None   # None = 自动推算
         step_bar = QtWidgets.QWidget()
-        step_bar.setStyleSheet(
-            f"background:{_TITLE_BG}; border-bottom:1px solid #e2e8f0;")
+        self._set_props(step_bar, testPanelBar=True)
         step_bar.setFixedHeight(52)
         srow = QtWidgets.QHBoxLayout(step_bar)
         srow.setContentsMargins(8, 6, 8, 6)
@@ -500,20 +490,15 @@ class TestPanelMixin:
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(
-            f"QScrollArea{{border:none; background:{_PANEL_BG};}}")
-
         content = QtWidgets.QWidget()
-        content.setStyleSheet(f"background:{_PANEL_BG};")
+        self._set_props(content, testPanelRoot=True)
         cl = QtWidgets.QVBoxLayout(content)
         cl.setContentsMargins(8, 6, 8, 6)
         cl.setSpacing(6)
 
         # 故障训练场景横幅（有故障时显示）
         self._tp_fault_banner = QtWidgets.QLabel("")
-        self._tp_fault_banner.setStyleSheet(
-            "background:#fef2f2; color:#991b1b; font-weight:bold; font-size:11px;"
-            " padding:4px 8px; border-radius:4px; border:1px solid #fca5a5;")
+        self._set_props(self._tp_fault_banner, stepBanner=True, tone="danger")
         self._tp_fault_banner.setAlignment(QtCore.Qt.AlignCenter)
         self._tp_fault_banner.setWordWrap(True)
         self._tp_fault_banner.setMinimumHeight(40)
@@ -522,26 +507,19 @@ class TestPanelMixin:
 
         # 全步骤共用：母排状态 + 万用表
         self.tp_bus_lbl = QtWidgets.QLabel("母排: --")
-        self.tp_bus_lbl.setStyleSheet(
-            f"background:#fef3c7; color:#92400e; font-weight:bold;"
-            " font-size:12px; padding:4px; border-radius:4px;"
-            " border:1px solid #fcd34d;")
         self.tp_bus_lbl.setAlignment(QtCore.Qt.AlignCenter)
+        self._apply_badge_tone(self.tp_bus_lbl, "warning")
         cl.addWidget(self.tp_bus_lbl)
 
         self._tp_mm_btn = QtWidgets.QPushButton("🔌 开启 / 关闭万用表")
-        self._tp_mm_btn.setStyleSheet(
-            "background:#fefce8; color:#854d0e; font-weight:bold;"
-            " font-size:12px; padding:3px 8px; border-radius:3px;"
-            " border:1px solid #fde68a;")
         self._tp_mm_btn.clicked.connect(
             lambda: self.multimeter_cb.setChecked(
                 not self.multimeter_cb.isChecked()))
+        self._apply_button_tone(self._tp_mm_btn, "warning")
         cl.addWidget(self._tp_mm_btn)
 
         self.tp_meter_lbl = QtWidgets.QLabel("万用表: 关闭")
-        self.tp_meter_lbl.setStyleSheet(
-            "color:#94a3b8; font-size:12px; padding:2px;")
+        self._set_props(self.tp_meter_lbl, stepStatus=True, mutedText=True)
         self.tp_meter_lbl.setWordWrap(True)
         self.tp_meter_lbl.setMaximumWidth(320)
         self.tp_meter_lbl.setMinimumHeight(36)
@@ -562,23 +540,18 @@ class TestPanelMixin:
 
         # ── 底部操作按钮 ──────────────────────────────────────────────
         bottom = QtWidgets.QWidget()
-        bottom.setStyleSheet(
-            f"background:{_TITLE_BG}; border-top:2px solid #e2e8f0;")
+        self._set_props(bottom, testPanelBar=True, barRole="footer")
         brow = QtWidgets.QHBoxLayout(bottom)
         brow.setContentsMargins(8, 6, 8, 6)
         brow.setSpacing(6)
 
         self.tp_btn_start = QtWidgets.QPushButton("开始测试")
-        self.tp_btn_start.setStyleSheet(
-            "background:#d97706; color:white; font-weight:bold;"
-            " font-size:13px; padding:6px; border-radius:4px;")
         self.tp_btn_start.clicked.connect(self._on_tp_start_step)
+        self._apply_button_tone(self.tp_btn_start, "warning", hero=True)
 
         self.tp_btn_complete = QtWidgets.QPushButton("完成本步 ✓")
-        self.tp_btn_complete.setStyleSheet(
-            "background:#16a34a; color:white; font-weight:bold;"
-            " font-size:13px; padding:6px; border-radius:4px;")
         self.tp_btn_complete.clicked.connect(self._on_tp_complete_step)
+        self._apply_button_tone(self.tp_btn_complete, "success", hero=True)
 
         brow.addWidget(self.tp_btn_start, 1)
         brow.addWidget(self.tp_btn_complete, 1)
@@ -589,13 +562,64 @@ class TestPanelMixin:
     # ════════════════════════════════════════════════════════════════════
     def _make_grp(self, title, bg=_SECTION_BG):
         grp = QtWidgets.QGroupBox(title)
-        grp.setStyleSheet(_GRP_STYLE.format(bg=bg))
+        if bg != _SECTION_BG:
+            grp.setStyleSheet(_GRP_STYLE.format(bg=bg))
         return grp
 
     def _make_btn(self, text, bg="#1d4ed8"):
         btn = QtWidgets.QPushButton(text)
-        btn.setStyleSheet(f"background:{bg}; color:white; {_BTN}")
+        if bg == "#64748b":
+            self._apply_button_tone(btn, "primary", secondary=True)
+            return btn
+        tone = {
+            "#16a34a": "success",
+            "#dc2626": "danger",
+            "#7c3aed": "primary",
+        }.get(bg, "warning" if bg in {"#d97706", "#92400e"} else "primary")
+        self._apply_button_tone(btn, tone)
         return btn
+
+    @staticmethod
+    def _tone_from_color(color) -> str:
+        raw = str(color or "").lower()
+        if raw in {"#15803d", "#16a34a", "green", "darkgreen"}:
+            return "success"
+        if raw in {"#dc2626", "#b91c1c", "#991b1b", "red", "darkred"}:
+            return "danger"
+        if raw in {"#1d4ed8", "#2563eb", "blue"}:
+            return "info"
+        if raw in {"#d97706", "#b45309", "#92400e", "orange", "yellow"}:
+            return "warning"
+        return "neutral"
+
+    def _make_note_label(self, text, tone="neutral", *, italic=False):
+        lbl = QtWidgets.QLabel(text)
+        self._set_props(lbl, noteText=True, tone=tone)
+        if italic:
+            font = lbl.font()
+            font.setItalic(True)
+            lbl.setFont(font)
+        return lbl
+
+    def _make_inline_row(self):
+        row = QtWidgets.QWidget()
+        self._set_props(row, inlineRow=True)
+        return row
+
+    def _make_feedback_label(self, text):
+        lbl = QtWidgets.QLabel(text)
+        lbl.setWordWrap(True)
+        self._set_props(lbl, feedbackText=True, tone="success")
+        return lbl
+
+    def _set_feedback_label(self, label, text, color):
+        label.setText(text)
+        self._set_props(label, feedbackText=True, tone=self._tone_from_color(color))
+
+    def _set_step_list_label(self, label, text, done, in_mode):
+        label.setText(f"{'✓' if done else '□'} {text}")
+        tone = "success" if done else ("active" if in_mode else "muted")
+        self._set_props(label, stepListItem=True, tone=tone)
 
     def _make_step_list(self, parent_lay, n_steps):
         """Add a checklist widget; return list of QLabel."""
@@ -606,7 +630,7 @@ class TestPanelMixin:
         for _ in range(n_steps):
             lbl = QtWidgets.QLabel("")
             lbl.setWordWrap(True)
-            lbl.setStyleSheet("font-size:11px; color:#94a3b8;")
+            self._set_props(lbl, stepListItem=True)
             lay.addWidget(lbl)
             labels.append(lbl)
         parent_lay.addWidget(grp)
@@ -625,33 +649,29 @@ class TestPanelMixin:
         gen = self.ctrl.sim_state.gen1 if gen_id == 1 else self.ctrl.sim_state.gen2
 
         inner = QtWidgets.QGroupBox(f"Gen {gen_id}")
-        inner.setStyleSheet(_GRP_STYLE.format(bg="#ffffff"))
         ilay = QtWidgets.QVBoxLayout(inner)
         ilay.setSpacing(2)
         ilay.setContentsMargins(4, 4, 4, 4)
 
         # Status label
         brk_lbl = QtWidgets.QLabel("--")
-        brk_lbl.setStyleSheet(
-            "color:#64748b; font-size:11px; background:transparent;")
+        self._apply_badge_tone(brk_lbl, "neutral")
         brk_lbl.setAlignment(QtCore.Qt.AlignCenter)
         ilay.addWidget(brk_lbl)
 
         # Mode radio buttons (optional)
         mode_rbs: dict = {}
         if mode_options:
-            _pcc_lbl = QtWidgets.QLabel("PCC 模式:")
-            _pcc_lbl.setStyleSheet("color:#64748b; font-size:10px; background:#f8fafc;")
+            _pcc_lbl = self._make_note_label("PCC 模式:")
             ilay.addWidget(_pcc_lbl)
-            mr = QtWidgets.QWidget()
-            mr.setStyleSheet("background:#f8fafc;")
+            mr = self._make_inline_row()
             mh = QtWidgets.QHBoxLayout(mr)
             mh.setContentsMargins(0, 0, 0, 0)
             mh.setSpacing(4)
             bg_mode = QtWidgets.QButtonGroup(self)
             for txt, val in mode_options:
                 rb = QtWidgets.QRadioButton(txt)
-                rb.setStyleSheet("color:#334155; background:#f8fafc;")
+                self._set_props(rb, inlineRadio=True)
                 rb.setChecked(gen.mode == val)
                 rb.toggled.connect(
                     lambda chk, v=val, gid=gen_id: self._on_gen_mode(gid, v, chk))
@@ -662,11 +682,9 @@ class TestPanelMixin:
 
         # Position radio buttons (optional)
         if show_pos:
-            _cab_lbl = QtWidgets.QLabel("开关柜位置:")
-            _cab_lbl.setStyleSheet("color:#64748b; font-size:10px; background:#f8fafc;")
+            _cab_lbl = self._make_note_label("开关柜位置:")
             ilay.addWidget(_cab_lbl)
-            pr = QtWidgets.QWidget()
-            pr.setStyleSheet("background:#f8fafc;")
+            pr = self._make_inline_row()
             ph_row = QtWidgets.QHBoxLayout(pr)
             ph_row.setContentsMargins(0, 0, 0, 0)
             ph_row.setSpacing(4)
@@ -674,7 +692,7 @@ class TestPanelMixin:
             for txt, val in [("脱开", BreakerPosition.DISCONNECTED),
                               ("工作", BreakerPosition.WORKING)]:
                 rb = QtWidgets.QRadioButton(txt)
-                rb.setStyleSheet("color:#334155; background:#f8fafc;")
+                self._set_props(rb, inlineRadio=True)
                 rb.setChecked(gen.breaker_position == val)
                 rb.toggled.connect(
                     lambda chk, v=val, gid=gen_id: self._on_brk_pos(gid, v, chk))
@@ -684,7 +702,6 @@ class TestPanelMixin:
 
         # Engine + breaker buttons row
         btn_row = QtWidgets.QWidget()
-        btn_row.setStyleSheet("background:#ffffff;")
         br = QtWidgets.QHBoxLayout(btn_row)
         br.setContentsMargins(0, 0, 0, 0)
         br.setSpacing(4)
@@ -709,12 +726,10 @@ class TestPanelMixin:
 
     def _add_blackbox_section(self, lay):
         """在任意步骤组中插入四个物理接线黑盒检查按钮（可查看 + 交互修复）。"""
-        bb_lbl = QtWidgets.QLabel("物理接线检查 / 手动修复 (开盖查线):")
-        bb_lbl.setStyleSheet("color:#64748b; font-size:11px; margin-top:4px;")
+        bb_lbl = self._make_note_label("物理接线检查 / 手动修复 (开盖查线):")
         lay.addWidget(bb_lbl)
         allow_blackbox = self.ctrl.can_inspect_blackbox()
-        bb_row1 = QtWidgets.QWidget()
-        bb_row1.setStyleSheet(f"background:{_SECTION_BG};")
+        bb_row1 = self._make_inline_row()
         bb_h1 = QtWidgets.QHBoxLayout(bb_row1)
         bb_h1.setContentsMargins(0, 0, 0, 0)
         bb_h1.setSpacing(4)
@@ -727,8 +742,7 @@ class TestPanelMixin:
         bb_h1.addWidget(btn_g1)
         bb_h1.addWidget(btn_g2)
         lay.addWidget(bb_row1)
-        bb_row2 = QtWidgets.QWidget()
-        bb_row2.setStyleSheet(f"background:{_SECTION_BG};")
+        bb_row2 = self._make_inline_row()
         bb_h2 = QtWidgets.QHBoxLayout(bb_row2)
         bb_h2.setContentsMargins(0, 0, 0, 0)
         bb_h2.setSpacing(4)
@@ -750,18 +764,16 @@ class TestPanelMixin:
 
         self.tp_s1_step_lbls = self._make_step_list(lay, 7)
 
-        gnd_lbl = QtWidgets.QLabel("中性点接地:")
-        gnd_lbl.setStyleSheet("color:#64748b; font-size:11px;")
+        gnd_lbl = self._make_note_label("中性点接地:")
         lay.addWidget(gnd_lbl)
-        gnd_row = QtWidgets.QWidget()
-        gnd_row.setStyleSheet(f"background:{_SECTION_BG};")
+        gnd_row = self._make_inline_row()
         gnd_h = QtWidgets.QHBoxLayout(gnd_row)
         gnd_h.setContentsMargins(0, 0, 0, 0)
         self._tp_gnd_bg = QtWidgets.QButtonGroup(self)
         self._tp_gnd_rbs = {}
         for label, val in [("断开", "断开"), ("小电阻", "小电阻接地"), ("直接", "直接接地")]:
             rb = QtWidgets.QRadioButton(label)
-            rb.setStyleSheet(f"color:#334155; background:{_SECTION_BG};")
+            self._set_props(rb, inlineRadio=True)
             rb.setChecked(self.ctrl.sim_state.grounding_mode == val)
             rb.toggled.connect(
                 lambda chk, v=val: (
@@ -771,9 +783,7 @@ class TestPanelMixin:
             self._tp_gnd_rbs[val] = rb
         lay.addWidget(gnd_row)
 
-        no_engine_note = QtWidgets.QLabel("⚠ 回路检查期间勿起机，仅合闸即可")
-        no_engine_note.setStyleSheet(
-            "color:#d97706; font-size:11px; font-style:italic;")
+        no_engine_note = self._make_note_label("⚠ 回路检查期间勿起机，仅合闸即可", "warning", italic=True)
         lay.addWidget(no_engine_note)
 
         self._make_gen_block(
@@ -789,11 +799,9 @@ class TestPanelMixin:
             show_engine=False,
         )
 
-        rlbl = QtWidgets.QLabel("回路测试快速记录（需先开启万用表）:")
-        rlbl.setStyleSheet("color:#64748b; font-size:11px;")
+        rlbl = self._make_note_label("回路测试快速记录（需先开启万用表）:")
         lay.addWidget(rlbl)
-        rrow = QtWidgets.QWidget()
-        rrow.setStyleSheet(f"background:{_SECTION_BG};")
+        rrow = self._make_inline_row()
         rh = QtWidgets.QHBoxLayout(rrow)
         rh.setContentsMargins(0, 0, 0, 0)
         rh.setSpacing(4)
@@ -808,9 +816,7 @@ class TestPanelMixin:
 
         self._add_blackbox_section(lay)
 
-        self.tp_s1_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
-        self.tp_s1_fb_lbl.setWordWrap(True)
-        self.tp_s1_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
+        self.tp_s1_fb_lbl = self._make_feedback_label("请按步骤列表操作")
         lay.addWidget(self.tp_s1_fb_lbl)
 
         cl.addWidget(grp)
@@ -839,13 +845,11 @@ class TestPanelMixin:
             ("PT2 (母排侧)", "pt_bus_ratio", 10500, 105),
         ]:
             # 行标题
-            hdr = QtWidgets.QLabel(row_label)
-            hdr.setStyleSheet("font-size:11px; color:#1d4ed8; font-weight:bold;")
+            hdr = self._make_note_label(row_label, "primary")
             pt_ratio_lay.addWidget(hdr)
 
             # 三值行：一次侧 V  :  二次侧 V  =  变比
-            rw = QtWidgets.QWidget()
-            rw.setStyleSheet("background:#ffffff;")
+            rw = self._make_inline_row()
             rh = QtWidgets.QHBoxLayout(rw)
             rh.setContentsMargins(0, 0, 0, 0)
             rh.setSpacing(4)
@@ -855,26 +859,22 @@ class TestPanelMixin:
             pri_spin.setValue(pri_default)
             pri_spin.setSuffix(" V")
             pri_spin.setFixedWidth(90)
-            pri_spin.setStyleSheet("font-size:11px;")
+            self._set_props(pri_spin, compactInput=True)
 
-            colon_lbl = QtWidgets.QLabel(":")
-            colon_lbl.setStyleSheet("font-size:12px; color:#64748b; background:#ffffff;")
+            colon_lbl = self._make_note_label(":")
 
             sec_spin = QtWidgets.QSpinBox()
             sec_spin.setRange(1, 10000)
             sec_spin.setValue(sec_default)
             sec_spin.setSuffix(" V")
             sec_spin.setFixedWidth(78)
-            sec_spin.setStyleSheet("font-size:11px;")
+            self._set_props(sec_spin, compactInput=True)
 
-            eq_lbl = QtWidgets.QLabel("=")
-            eq_lbl.setStyleSheet("font-size:12px; color:#64748b; background:#ffffff;")
+            eq_lbl = self._make_note_label("=")
 
             ratio_lbl = QtWidgets.QLabel(f"{pri_default / sec_default:.2f}")
             ratio_lbl.setFixedWidth(52)
-            ratio_lbl.setStyleSheet(
-                "font-size:11px; color:#0f172a; font-weight:bold; background:#f1f5f9;"
-                " border:1px solid #e2e8f0; border-radius:3px; padding:1px 4px;")
+            self._set_props(ratio_lbl, valueChip=True)
             ratio_lbl.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
 
             def _update_ratio(_val=None, _p=pri_spin, _s=sec_spin, _l=ratio_lbl, _a=ratio_attr):
@@ -898,18 +898,16 @@ class TestPanelMixin:
         lay.addWidget(pt_ratio_grp)
 
         # 中性点接地（第二步需恢复小电阻接地）
-        gnd2_lbl = QtWidgets.QLabel("中性点接地（应恢复为小电阻接地）:")
-        gnd2_lbl.setStyleSheet("color:#64748b; font-size:11px;")
+        gnd2_lbl = self._make_note_label("中性点接地（应恢复为小电阻接地）:")
         lay.addWidget(gnd2_lbl)
-        gnd2_row = QtWidgets.QWidget()
-        gnd2_row.setStyleSheet(f"background:{_SECTION_BG};")
+        gnd2_row = self._make_inline_row()
         gnd2_h = QtWidgets.QHBoxLayout(gnd2_row)
         gnd2_h.setContentsMargins(0, 0, 0, 0)
         self._tp_s2_gnd_bg = QtWidgets.QButtonGroup(self)
         self._tp_s2_gnd_rbs = {}
         for label, val in [("断开", "断开"), ("小电阻", "小电阻接地"), ("直接", "直接接地")]:
             rb = QtWidgets.QRadioButton(label)
-            rb.setStyleSheet(f"color:#334155; background:{_SECTION_BG};")
+            self._set_props(rb, inlineRadio=True)
             rb.setChecked(self.ctrl.sim_state.grounding_mode == val)
             rb.toggled.connect(
                 lambda chk, v=val: (
@@ -921,20 +919,17 @@ class TestPanelMixin:
 
         self._make_gen_block(lay, 's2', 1, show_engine=True)
 
-        gen2_note = QtWidgets.QLabel("Gen2 起机后保持断路器断开（提供PT3参考）")
-        gen2_note.setStyleSheet("color:#d97706; font-size:11px; font-style:italic;")
+        gen2_note = self._make_note_label("Gen2 起机后保持断路器断开（提供PT3参考）", "warning", italic=True)
         lay.addWidget(gen2_note)
         self._make_gen_block(lay, 's2', 2, show_engine=True)
 
-        self.tp_s2_probe_lbl = QtWidgets.QLabel("当前表笔: 未放置")
-        self.tp_s2_probe_lbl.setStyleSheet("color:#854d0e; font-size:12px;")
+        self.tp_s2_probe_lbl = self._make_feedback_label("当前表笔: 未放置")
+        self._set_props(self.tp_s2_probe_lbl, feedbackText=True, tone="warning")
         lay.addWidget(self.tp_s2_probe_lbl)
 
-        rlbl = QtWidgets.QLabel("按相位快速记录（A→AB，B→BC，C→CA）:")
-        rlbl.setStyleSheet("color:#64748b; font-size:11px;")
+        rlbl = self._make_note_label("按相位快速记录（A→AB，B→BC，C→CA）:")
         lay.addWidget(rlbl)
-        rrow = QtWidgets.QWidget()
-        rrow.setStyleSheet(f"background:{_SECTION_BG};")
+        rrow = self._make_inline_row()
         rh = QtWidgets.QHBoxLayout(rrow)
         rh.setContentsMargins(0, 0, 0, 0)
         rh.setSpacing(4)
@@ -949,8 +944,7 @@ class TestPanelMixin:
         lay.addWidget(rrow)
 
         # ── Gen 频率/幅值/相位调节（让两台发电机电压调到同一水平）──────
-        adj_note = QtWidgets.QLabel("调节发电机使各 PT 一次侧线电压均达到 10.5 kV:")
-        adj_note.setStyleSheet("color:#1d4ed8; font-size:11px; font-weight:bold;")
+        adj_note = self._make_note_label("调节发电机使各 PT 一次侧线电压均达到 10.5 kV:", "primary")
         lay.addWidget(adj_note)
         self._tp_s2_fap = {}
         self._make_gen_fap_block(lay, '_tp_s2_fap', 1)
@@ -958,9 +952,7 @@ class TestPanelMixin:
 
         self._add_blackbox_section(lay)
 
-        self.tp_s2_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
-        self.tp_s2_fb_lbl.setWordWrap(True)
-        self.tp_s2_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
+        self.tp_s2_fb_lbl = self._make_feedback_label("请按步骤列表操作")
         lay.addWidget(self.tp_s2_fb_lbl)
 
         cl.addWidget(grp)
@@ -974,17 +966,14 @@ class TestPanelMixin:
 
         self.tp_s3_step_lbls = self._make_step_list(lay, 7)
 
-        gen2_note = QtWidgets.QLabel("Gen2 需起机，断路器保持断开")
-        gen2_note.setStyleSheet("color:#d97706; font-size:11px; font-style:italic;")
+        gen2_note = self._make_note_label("Gen2 需起机，断路器保持断开", "warning", italic=True)
         lay.addWidget(gen2_note)
         self._make_gen_block(lay, 's3', 2, show_engine=True)
 
         # ── 相序仪接入按钮 ────────────────────────────────────────────
-        psm_lbl = QtWidgets.QLabel("相序仪（在母排图右侧查看转盘与指示灯）:")
-        psm_lbl.setStyleSheet("color:#64748b; font-size:11px;")
+        psm_lbl = self._make_note_label("相序仪（在母排图右侧查看转盘与指示灯）:")
         lay.addWidget(psm_lbl)
-        psm_row = QtWidgets.QWidget()
-        psm_row.setStyleSheet(f"background:{_SECTION_BG};")
+        psm_row = self._make_inline_row()
         psm_h = QtWidgets.QHBoxLayout(psm_row)
         psm_h.setContentsMargins(0, 0, 0, 0)
         psm_h.setSpacing(6)
@@ -1000,11 +989,9 @@ class TestPanelMixin:
         lay.addWidget(psm_row)
 
         # 相序仪结果记录按钮（接入后方可点击）
-        rec_lbl = QtWidgets.QLabel("记录相序结果:")
-        rec_lbl.setStyleSheet("color:#64748b; font-size:11px;")
+        rec_lbl = self._make_note_label("记录相序结果:")
         lay.addWidget(rec_lbl)
-        rec_row = QtWidgets.QWidget()
-        rec_row.setStyleSheet(f"background:{_SECTION_BG};")
+        rec_row = self._make_inline_row()
         rec_h = QtWidgets.QHBoxLayout(rec_row)
         rec_h.setContentsMargins(0, 0, 0, 0)
         rec_h.setSpacing(6)
@@ -1020,9 +1007,8 @@ class TestPanelMixin:
 
         self._add_blackbox_section(lay)
 
-        self.tp_s3_fb_lbl = QtWidgets.QLabel("请先接入相序仪查看结果，再点击记录")
-        self.tp_s3_fb_lbl.setWordWrap(True)
-        self.tp_s3_fb_lbl.setStyleSheet("color:#64748b; font-size:12px;")
+        self.tp_s3_fb_lbl = self._make_feedback_label("请先接入相序仪查看结果，再点击记录")
+        self._set_props(self.tp_s3_fb_lbl, feedbackText=True, tone="neutral")
         lay.addWidget(self.tp_s3_fb_lbl)
 
         cl.addWidget(grp)
@@ -1039,30 +1025,26 @@ class TestPanelMixin:
         self._make_gen_block(lay, 's4', 1, show_engine=True)
         self._make_gen_block(lay, 's4', 2, show_engine=True)
 
-        adj_note = QtWidgets.QLabel("调节 Gen 2 频率/幅值使 PT 二次压差趋近于零:")
-        adj_note.setStyleSheet("color:#1d4ed8; font-size:11px; font-weight:bold;")
+        adj_note = self._make_note_label("调节 Gen 2 频率/幅值使 PT 二次压差趋近于零:", "primary")
         lay.addWidget(adj_note)
         self._tp_s4_fap = {}
         self._make_gen_fap_block(lay, '_tp_s4_fap', 2)
 
-        sel_lbl = QtWidgets.QLabel("测试对象:")
-        sel_lbl.setStyleSheet("color:#64748b; font-size:11px;")
+        sel_lbl = self._make_note_label("测试对象:")
         lay.addWidget(sel_lbl)
-        sel_row = QtWidgets.QWidget()
-        sel_row.setStyleSheet(f"background:{_SECTION_BG};")
+        sel_row = self._make_inline_row()
         sh = QtWidgets.QHBoxLayout(sel_row)
         sh.setContentsMargins(0, 0, 0, 0)
         self._tp_s4_bg = QtWidgets.QButtonGroup(self)
         for txt, val in [("Gen 1", 1), ("Gen 2", 2)]:
             rb = QtWidgets.QRadioButton(txt)
             rb.setChecked(val == 1)
-            rb.setStyleSheet(f"color:#334155; background:{_SECTION_BG};")
+            self._set_props(rb, inlineRadio=True)
             self._tp_s4_bg.addButton(rb, val)
             sh.addWidget(rb)
         lay.addWidget(sel_row)
 
-        rrow = QtWidgets.QWidget()
-        rrow.setStyleSheet(f"background:{_SECTION_BG};")
+        rrow = self._make_inline_row()
         rh = QtWidgets.QHBoxLayout(rrow)
         rh.setContentsMargins(0, 0, 0, 0)
         btn_rec = self._make_btn("记录当前表笔位置", "#16a34a")
@@ -1085,9 +1067,7 @@ class TestPanelMixin:
         self._tp_s4_quick_btn.setVisible(False)
         lay.addWidget(self._tp_s4_quick_btn)
 
-        self.tp_s4_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
-        self.tp_s4_fb_lbl.setWordWrap(True)
-        self.tp_s4_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
+        self.tp_s4_fb_lbl = self._make_feedback_label("请按步骤列表操作")
         lay.addWidget(self.tp_s4_fb_lbl)
 
         cl.addWidget(grp)
@@ -1102,17 +1082,13 @@ class TestPanelMixin:
         self.tp_s5_step_lbls = self._make_step_list(lay, 12)
 
         # ── 远程启动信号（自动模式必须打开才能让仲裁器控制发电机）──────
-        rs_row = QtWidgets.QWidget()
-        rs_row.setStyleSheet(f"background:{_SECTION_BG};")
+        rs_row = self._make_inline_row()
         rs_h = QtWidgets.QHBoxLayout(rs_row)
         rs_h.setContentsMargins(4, 2, 4, 2)
-        rs_lbl = QtWidgets.QLabel("远程启动信号:")
-        rs_lbl.setStyleSheet("color:#64748b; font-size:11px;")
+        rs_lbl = self._make_note_label("远程启动信号:")
         self.tp_s5_remote_btn = QtWidgets.QPushButton("⚡ 开启自动")
         self.tp_s5_remote_btn.setCheckable(True)
-        self.tp_s5_remote_btn.setStyleSheet(
-            "background:#e2e8f0; color:#475569; font-size:12px;"
-            " font-weight:bold; padding:3px 10px; border-radius:3px;")
+        self._apply_button_tone(self.tp_s5_remote_btn, "primary", secondary=True)
         self.tp_s5_remote_btn.clicked.connect(self._on_tp_s5_remote_toggle)
         rs_h.addWidget(rs_lbl)
         rs_h.addStretch()
@@ -1134,8 +1110,7 @@ class TestPanelMixin:
         )
         self._make_gen_fap_block(lay, '_tp_s5_fap', 2)
 
-        bar_hdr = QtWidgets.QLabel("同步误差监测（越低越好，趋近零可合闸）:")
-        bar_hdr.setStyleSheet("color:#475569; font-size:11px; font-weight:bold;")
+        bar_hdr = self._make_note_label("同步误差监测（越低越好，趋近零可合闸）:", "primary")
         lay.addWidget(bar_hdr)
 
         self.tp_s5_bars: dict = {}
@@ -1144,31 +1119,25 @@ class TestPanelMixin:
             ('amp',   '幅值差', 'V',   5000.0),
             ('phase', '相位差', '°',   180.0),
         ]:
-            rw = QtWidgets.QWidget()
-            rw.setStyleSheet(f"background:{_SECTION_BG};")
+            rw = self._make_inline_row()
             rh = QtWidgets.QHBoxLayout(rw)
             rh.setContentsMargins(4, 2, 4, 2)
             rh.setSpacing(4)
 
             lbl = QtWidgets.QLabel(f"{label}({unit})")
             lbl.setFixedWidth(72)
-            lbl.setStyleSheet("color:#64748b; font-size:11px;")
+            self._set_props(lbl, noteText=True)
 
             bar = QtWidgets.QProgressBar()
             bar.setRange(0, 1000)
             bar.setValue(0)
             bar.setTextVisible(False)
             bar.setFixedHeight(14)
-            bar.setStyleSheet(
-                "QProgressBar{background:#e2e8f0; border-radius:3px;}"
-                "QProgressBar::chunk{background:qlineargradient("
-                "x1:0,y1:0,x2:1,y2:0,"
-                "stop:0 #16a34a,stop:0.5 #d97706,stop:1 #dc2626);"
-                "border-radius:3px;}")
+            self._set_props(bar, metricBar=True)
 
             val_lbl = QtWidgets.QLabel("0.0")
             val_lbl.setFixedWidth(46)
-            val_lbl.setStyleSheet("color:#1e293b; font-size:11px;")
+            self._set_props(val_lbl, valueChip=True)
             val_lbl.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
 
             rh.addWidget(lbl)
@@ -1185,10 +1154,8 @@ class TestPanelMixin:
         btn_r2.clicked.connect(lambda: self.ctrl.record_sync_round(2))
         lay.addWidget(btn_r2)
 
-        self.tp_s5_fb_lbl = QtWidgets.QLabel("请按步骤列表操作")
-        self.tp_s5_fb_lbl.setWordWrap(True)
+        self.tp_s5_fb_lbl = self._make_feedback_label("请按步骤列表操作")
         self.tp_s5_fb_lbl.setMinimumHeight(48)
-        self.tp_s5_fb_lbl.setStyleSheet("color:#15803d; font-size:12px;")
         lay.addWidget(self.tp_s5_fb_lbl)
 
         cl.addWidget(grp)
@@ -1319,14 +1286,10 @@ class TestPanelMixin:
         self.ctrl.sim_state.remote_start_signal = checked
         if checked:
             self.tp_s5_remote_btn.setText("⚡ 关闭自动")
-            self.tp_s5_remote_btn.setStyleSheet(
-                "background:#16a34a; color:white; font-size:12px;"
-                " font-weight:bold; padding:3px 10px; border-radius:3px;")
+            self._apply_button_tone(self.tp_s5_remote_btn, "success")
         else:
             self.tp_s5_remote_btn.setText("⚡ 开启自动")
-            self.tp_s5_remote_btn.setStyleSheet(
-                "background:#e2e8f0; color:#475569; font-size:12px;"
-                " font-weight:bold; padding:3px 10px; border-radius:3px;")
+            self._apply_button_tone(self.tp_s5_remote_btn, "primary", secondary=True)
 
     def _tp_s2_record(self, phase, pair):
         sim = self.ctrl.sim_state
@@ -1387,17 +1350,17 @@ class TestPanelMixin:
         for btn in self._tp_s3_rec_btns.values():
             btn.setEnabled(False)
         self.tp_s3_fb_lbl.setText("相序仪已断开，可重新接入")
+        self._set_props(self.tp_s3_fb_lbl, feedbackText=True, tone="neutral")
 
     def _on_record_psm(self, pt_name: str):
         """根据当前相序仪示数记录相序结果到服务层。"""
         seq = getattr(self.phase_seq_meter, '_sequence', 'unknown')
         if seq == 'unknown':
-            self.tp_s3_fb_lbl.setText("请先接入相序仪，再记录结果。")
+            self._set_feedback_label(self.tp_s3_fb_lbl, "请先接入相序仪，再记录结果。", "orange")
             return
         ok = self.ctrl.record_phase_sequence(pt_name, seq)
         state = self.ctrl.pt_phase_check_state
-        self.tp_s3_fb_lbl.setText(state.feedback)
-        self.tp_s3_fb_lbl.setStyleSheet(f"color:{state.feedback_color};")
+        self._set_feedback_label(self.tp_s3_fb_lbl, state.feedback, state.feedback_color)
         if ok and pt_name in self._tp_s3_rec_btns:
             self._tp_s3_rec_btns[pt_name].setEnabled(False)
 
@@ -1435,9 +1398,7 @@ class TestPanelMixin:
         if fc.active and fc.scenario_id:
             if fc.repaired:
                 text = "✅ 故障已修复，请继续按正常流程完成剩余步骤"
-                self._tp_fault_banner.setStyleSheet(
-                    "background:#f0fdf4; color:#15803d; font-weight:bold; font-size:11px;"
-                    " padding:4px 8px; border-radius:4px; border:1px solid #86efac;")
+                self._set_props(self._tp_fault_banner, stepBanner=True, tone="success")
             elif fc.detected:
                 if self.ctrl.can_advance_with_fault():
                     text = ("🔍 已发现异常证据 | 请继续完成所有测试步骤，"
@@ -1445,14 +1406,10 @@ class TestPanelMixin:
                 else:
                     text = ("🔍 已发现异常证据 | 当前流程模式要求先排除故障并复测合格，"
                             "再继续后续步骤")
-                self._tp_fault_banner.setStyleSheet(
-                    "background:#fffbeb; color:#92400e; font-weight:bold; font-size:11px;"
-                    " padding:4px 8px; border-radius:4px; border:1px solid #fcd34d;")
+                self._set_props(self._tp_fault_banner, stepBanner=True, tone="warning")
             else:
                 text = "⚠ 故障训练模式已启用 | 请按正常流程测试，通过测量数据发现并定位异常"
-                self._tp_fault_banner.setStyleSheet(
-                    "background:#fef2f2; color:#991b1b; font-weight:bold; font-size:11px;"
-                    " padding:4px 8px; border-radius:4px; border:1px solid #fca5a5;")
+                self._set_props(self._tp_fault_banner, stepBanner=True, tone="danger")
             self._tp_fault_banner.setText(text)
             self._tp_fault_banner.setVisible(True)
         else:
@@ -1483,7 +1440,6 @@ class TestPanelMixin:
         gen = c.sim_state.gen1 if gen_id == 1 else c.sim_state.gen2
 
         grp = QtWidgets.QGroupBox(f"Gen {gen_id} 频率/幅值/相位")
-        grp.setStyleSheet(_GRP_STYLE.format(bg="#ffffff"))
         glay = QtWidgets.QVBoxLayout(grp)
         glay.setSpacing(2)
         glay.setContentsMargins(4, 4, 4, 4)
@@ -1495,15 +1451,14 @@ class TestPanelMixin:
         ]
         entry_map = {}
         for label, vmin, vmax, init, scale, attr, clo, chi in specs:
-            row_w = QtWidgets.QWidget()
-            row_w.setStyleSheet("background:#ffffff;")
+            row_w = self._make_inline_row()
             rh = QtWidgets.QHBoxLayout(row_w)
             rh.setContentsMargins(0, 0, 0, 0)
             rh.setSpacing(3)
 
             lbl = QtWidgets.QLabel(label)
             lbl.setFixedWidth(66)
-            lbl.setStyleSheet("font-size:11px; color:#64748b; background:#ffffff;")
+            self._set_props(lbl, noteText=True)
 
             sl = QtWidgets.QSlider(QtCore.Qt.Horizontal)
             sl.setRange(vmin, vmax)
@@ -1513,9 +1468,10 @@ class TestPanelMixin:
 
             entry = QtWidgets.QLineEdit(f"{getattr(gen, attr):.1f}")
             entry.setFixedWidth(56)
-            entry.setStyleSheet("font-size:11px;")
+            self._set_props(entry, compactInput=True)
             entry.setEnabled(not read_only)
             entry.setReadOnly(read_only)
+            self._set_props(entry, compactInput=True, readonlyTone=read_only)
 
             def _sl_ch(val, _a=attr, _sc=scale, _e=entry, _gid=gen_id):
                 v = round(val / _sc, 3)
@@ -1629,15 +1585,13 @@ class TestPanelMixin:
 
         def _make_info_card(title_text: str, body_text: str, accent: str = "#cbd5e1", body_size: int = 20):
             card = QtWidgets.QFrame()
-            card.setStyleSheet(
-                "QFrame{background:white; border:1px solid #dbe4f0; border-radius:14px;}"
-            )
+            self._set_props(card, dialogCard=True)
             card_lay = QtWidgets.QVBoxLayout(card)
             card_lay.setContentsMargins(14, 12, 14, 12)
             card_lay.setSpacing(6)
 
             title_lbl = QtWidgets.QLabel(title_text)
-            title_lbl.setStyleSheet("font-size:11px; color:#64748b; font-weight:bold; letter-spacing:0.5px;")
+            self._set_props(title_lbl, dialogCaption=True)
             card_lay.addWidget(title_lbl)
 
             bar = QtWidgets.QFrame()
@@ -1655,8 +1609,8 @@ class TestPanelMixin:
         dlg = QtWidgets.QDialog(self)
         dlg.setWindowTitle("考核成绩单")
         dlg.resize(760, 720)
+        self._set_props(dlg, themedDialog=True)
         dlg.setStyleSheet(
-            "QDialog{background:#f8fafc;}"
             "QLabel{color:#0f172a;}"
             "QHeaderView::section{background:#e2e8f0; color:#0f172a; padding:6px 8px; border:none; font-weight:bold;}"
             "QTableWidget{background:white; border:1px solid #dbe4f0; gridline-color:#eef2f7; border-radius:10px;}"
@@ -1682,30 +1636,29 @@ class TestPanelMixin:
         tag_bg = "#dcfce7" if result.passed else "#fee2e2"
         tag_fg = "#166534" if result.passed else "#991b1b"
         overview = QtWidgets.QFrame()
-        overview.setStyleSheet("background:#fffdf8; border:1px solid #e2e8f0; border-radius:18px;")
+        self._set_props(overview, dialogCard=True)
         overview_lay = QtWidgets.QHBoxLayout(overview)
         overview_lay.setContentsMargins(18, 16, 18, 16)
         overview_lay.setSpacing(14)
 
         hero = QtWidgets.QFrame()
-        hero.setStyleSheet("background:transparent; border:none;")
         hero_lay = QtWidgets.QVBoxLayout(hero)
         hero_lay.setContentsMargins(0, 0, 0, 0)
         hero_lay.setSpacing(8)
 
         kicker = QtWidgets.QLabel("考核结果报告")
-        kicker.setStyleSheet("font-size:11px; color:#b45309; font-weight:bold; letter-spacing:1px;")
+        self._set_props(kicker, dialogKicker=True)
         hero_lay.addWidget(kicker)
 
         title = QtWidgets.QLabel("考核成绩单")
-        title.setStyleSheet("font-size:28px; font-weight:bold; color:#0f172a;")
+        self._set_props(title, dialogTitle=True)
         hero_lay.addWidget(title)
 
         hero_info = QtWidgets.QLabel(
             f"场景：{result.scene_id or '正常模式'}    模式：考核模式\n"
             f"完成时间：{result.finished_at.replace('T', ' ')}"
         )
-        hero_info.setStyleSheet("font-size:12px; color:#475569;")
+        self._set_props(hero_info, dialogCaption=True)
         hero_lay.addWidget(hero_info)
 
         tag = QtWidgets.QLabel(result_tag)
@@ -1728,27 +1681,21 @@ class TestPanelMixin:
 
         summary = QtWidgets.QLabel(result.summary)
         summary.setWordWrap(True)
-        summary.setStyleSheet(
-            "background:white; border:1px solid #dbe4f0; border-radius:14px; "
-            "padding:14px; font-size:13px; color:#334155; line-height:1.5;"
-        )
+        self._set_props(summary, dialogCard=True)
+        summary.setContentsMargins(14, 14, 14, 14)
         content_lay.addWidget(summary)
 
         if result.veto_reason:
             veto = QtWidgets.QLabel(f"否决原因：{result.veto_reason}")
             veto.setWordWrap(True)
-            veto.setStyleSheet(
-                "background:#fff1f2; border:1px solid #fecdd3; border-radius:14px; "
-                "padding:12px; font-size:12px; color:#9f1239; font-weight:bold;"
-            )
+            self._set_props(veto, stepBanner=True, tone="danger")
             content_lay.addWidget(veto)
 
         section1 = QtWidgets.QLabel("分项汇总")
-        section1.setStyleSheet("font-size:16px; font-weight:bold; color:#0f172a; padding-top:4px;")
+        self._set_props(section1, dialogSection=True)
         content_lay.addWidget(section1)
 
         summary_grid_wrap = QtWidgets.QFrame()
-        summary_grid_wrap.setStyleSheet("background:transparent; border:none;")
         summary_grid = QtWidgets.QGridLayout(summary_grid_wrap)
         summary_grid.setContentsMargins(0, 0, 0, 0)
         summary_grid.setHorizontalSpacing(10)
@@ -1767,7 +1714,8 @@ class TestPanelMixin:
             card_lay.setSpacing(4)
 
             name_lbl = QtWidgets.QLabel(score_labels.get(key, key))
-            name_lbl.setStyleSheet(f"font-size:12px; color:{fg}; font-weight:bold;")
+            self._set_props(name_lbl, dialogCaption=True)
+            name_lbl.setStyleSheet(f"color:{fg}; font-weight:bold;")
             card_lay.addWidget(name_lbl)
 
             score_lbl = QtWidgets.QLabel(f"{value} / {max_value}")
@@ -1781,18 +1729,18 @@ class TestPanelMixin:
             else:
                 note = "存在扣分项"
             note_lbl = QtWidgets.QLabel(note)
-            note_lbl.setStyleSheet("font-size:11px; color:#475569;")
+            self._set_props(note_lbl, dialogCaption=True)
             card_lay.addWidget(note_lbl)
 
             summary_grid.addWidget(card, idx // 2, idx % 2)
         content_lay.addWidget(summary_grid_wrap)
 
         section2 = QtWidgets.QLabel("详细计分点")
-        section2.setStyleSheet("font-size:16px; font-weight:bold; color:#0f172a; padding-top:6px;")
+        self._set_props(section2, dialogSection=True)
         content_lay.addWidget(section2)
 
         detail_hint = QtWidgets.QLabel("以下表格列出每个计分点的通过情况、得分与具体说明。")
-        detail_hint.setStyleSheet("font-size:11px; color:#64748b;")
+        self._set_props(detail_hint, dialogCaption=True)
         content_lay.addWidget(detail_hint)
 
         detail_table = QtWidgets.QTableWidget(len(result.score_items), 8)
@@ -1832,7 +1780,7 @@ class TestPanelMixin:
         content_lay.addWidget(detail_table)
 
         section3 = QtWidgets.QLabel("过程统计")
-        section3.setStyleSheet("font-size:16px; font-weight:bold; color:#0f172a; padding-top:6px;")
+        self._set_props(section3, dialogSection=True)
         content_lay.addWidget(section3)
 
         metric_rows = []
@@ -1844,7 +1792,6 @@ class TestPanelMixin:
             metric_rows.append((metric_labels.get(key, key), value_text))
 
         metrics_wrap = QtWidgets.QFrame()
-        metrics_wrap.setStyleSheet("background:transparent; border:none;")
         metrics_grid = QtWidgets.QGridLayout(metrics_wrap)
         metrics_grid.setContentsMargins(0, 0, 0, 0)
         metrics_grid.setHorizontalSpacing(10)
@@ -1857,7 +1804,7 @@ class TestPanelMixin:
             card_lay.setSpacing(4)
 
             label_lbl = QtWidgets.QLabel(label)
-            label_lbl.setStyleSheet("font-size:11px; color:#64748b; font-weight:bold;")
+            self._set_props(label_lbl, dialogCaption=True)
             card_lay.addWidget(label_lbl)
 
             value_lbl = QtWidgets.QLabel(value_text)
@@ -1871,10 +1818,7 @@ class TestPanelMixin:
         btn_row = QtWidgets.QHBoxLayout()
         btn_row.addStretch()
         btn_close = QtWidgets.QPushButton("关闭")
-        btn_close.setStyleSheet(
-            "background:#334155; color:white; font-size:12px; font-weight:bold; "
-            "padding:6px 18px; border-radius:6px;"
-        )
+        self._apply_button_tone(btn_close, "primary")
         btn_close.clicked.connect(dlg.accept)
         btn_row.addWidget(btn_close)
         lay.addLayout(btn_row)
@@ -1934,15 +1878,9 @@ class TestPanelMixin:
         self.tp_bus_lbl.setText(msg)
         bus_live = getattr(self.ctrl.physics, 'bus_live', False)
         if bus_live:
-            self.tp_bus_lbl.setStyleSheet(
-                "background:#dcfce7; color:#15803d; font-weight:bold;"
-                " font-size:12px; padding:4px; border-radius:4px;"
-                " border:1px solid #86efac;")
+            self._apply_badge_tone(self.tp_bus_lbl, "success")
         else:
-            self.tp_bus_lbl.setStyleSheet(
-                "background:#fef3c7; color:#92400e; font-weight:bold;"
-                " font-size:12px; padding:4px; border-radius:4px;"
-                " border:1px solid #fcd34d;")
+            self._apply_badge_tone(self.tp_bus_lbl, "warning")
 
         # ── Fault banner update ───────────────────────────────────────
         self._update_fault_banner()
@@ -1975,10 +1913,10 @@ class TestPanelMixin:
         if sim.multimeter_mode:
             reading = getattr(self.ctrl.physics, 'meter_reading', '--')
             self.tp_meter_lbl.setText(f"万用表: {reading}")
-            self.tp_meter_lbl.setStyleSheet("color:#854d0e; font-size:12px;")
+            self._set_props(self.tp_meter_lbl, stepStatus=True, mutedText=False)
         else:
             self.tp_meter_lbl.setText("万用表: 关闭")
-            self.tp_meter_lbl.setStyleSheet("color:#94a3b8; font-size:12px;")
+            self._set_props(self.tp_meter_lbl, stepStatus=True, mutedText=True)
 
         # ── Gen control buttons ───────────────────────────────────────
         self._refresh_tp_gen_refs(sim, step)
@@ -2018,23 +1956,18 @@ class TestPanelMixin:
             run_str = "运行" if gen.running else "停机"
             cls_str = "合闸" if gen.breaker_closed else "断路"
             brk_lbl.setText(f"{run_str} | {pos_str} | {cls_str}")
-            brk_lbl.setStyleSheet(
-                f"color:{'#15803d' if gen.breaker_closed else '#dc2626'};"
-                " font-size:11px; background:transparent;")
+            self._apply_badge_tone(brk_lbl, "success" if gen.breaker_closed else "danger")
 
             if eng_btn is not None:
                 allow_engine_toggle = gen.running or gen.mode == "manual"
                 eng_btn.setEnabled(allow_engine_toggle)
                 eng_btn.setText("停机" if gen.running else "起机")
                 if gen.running:
-                    eng_btn.setStyleSheet(
-                        f"background:#16a34a; color:white; {_BTN}")
+                    self._apply_button_tone(eng_btn, "warning")
                 elif allow_engine_toggle:
-                    eng_btn.setStyleSheet(
-                        f"background:#e2e8f0; color:#475569; {_BTN}")
+                    self._apply_button_tone(eng_btn, "success")
                 else:
-                    eng_btn.setStyleSheet(
-                        f"background:#f1f5f9; color:#94a3b8; {_BTN}")
+                    self._apply_button_tone(eng_btn, "primary", muted=True)
 
             # 合/分闸按钮
             if gen.breaker_closed:
@@ -2047,7 +1980,7 @@ class TestPanelMixin:
                 close_label = "合闸"
                 brk_bg = "#1d4ed8"
             brk_btn.setText(close_label)
-            brk_btn.setStyleSheet(f"background:{brk_bg}; color:white; {_BTN}")
+            self._apply_button_tone(brk_btn, "danger" if brk_bg == "#dc2626" else "primary")
 
             # Sync mode radio buttons
             for val, rb in mode_rbs.items():
@@ -2075,24 +2008,16 @@ class TestPanelMixin:
 
         if started:
             self.tp_btn_start.setText(f"退出{name}")
-            self.tp_btn_start.setStyleSheet(
-                "background:#dc2626; color:white; font-weight:bold;"
-                " font-size:13px; padding:6px; border-radius:4px;")
+            self._apply_button_tone(self.tp_btn_start, "danger", hero=True)
         else:
             self.tp_btn_start.setText(f"开始{name}")
-            self.tp_btn_start.setStyleSheet(
-                "background:#d97706; color:white; font-weight:bold;"
-                " font-size:13px; padding:6px; border-radius:4px;")
+            self._apply_button_tone(self.tp_btn_start, "warning", hero=True)
 
     def _refresh_tp_step1(self, sim):
         in_mode = sim.loop_test_mode
         steps = self.ctrl.get_loop_test_steps()
         for lbl, (text, done) in zip(self.tp_s1_step_lbls, steps):
-            marker = "✓" if done else "□"
-            lbl.setText(f"{marker} {text}")
-            lbl.setStyleSheet(
-                f"font-size:11px; color:"
-                f"{'#15803d' if done else ('#1e293b' if in_mode else '#94a3b8')};")
+            self._set_step_list_label(lbl, text, done, in_mode)
 
         for val, rb in self._tp_gnd_rbs.items():
             rb.blockSignals(True)
@@ -2104,19 +2029,13 @@ class TestPanelMixin:
             btn.setEnabled(active)
 
         state = self.ctrl.loop_test_state
-        self.tp_s1_fb_lbl.setText(state.feedback)
-        self.tp_s1_fb_lbl.setStyleSheet(
-            f"color:{state.feedback_color}; font-size:12px;")
+        self._set_feedback_label(self.tp_s1_fb_lbl, state.feedback, state.feedback_color)
 
     def _refresh_tp_step2(self, sim):
         in_mode = self.ctrl.pt_voltage_check_state.started
         steps = self.ctrl.get_pt_voltage_check_steps()
         for lbl, (text, done) in zip(self.tp_s2_step_lbls, steps):
-            marker = "✓" if done else "□"
-            lbl.setText(f"{marker} {text}")
-            lbl.setStyleSheet(
-                f"font-size:11px; color:"
-                f"{'#15803d' if done else ('#1e293b' if in_mode else '#94a3b8')};")
+            self._set_step_list_label(lbl, text, done, in_mode)
 
         # 同步接地 radio 状态
         for val, rb in self._tp_s2_gnd_rbs.items():
@@ -2127,8 +2046,10 @@ class TestPanelMixin:
         n1, n2 = sim.probe1_node, sim.probe2_node
         if n1 and n2:
             self.tp_s2_probe_lbl.setText(f"当前表笔: {n1} ↔ {n2}")
+            self._set_props(self.tp_s2_probe_lbl, feedbackText=True, tone="info")
         else:
             self.tp_s2_probe_lbl.setText("当前表笔: 未放置")
+            self._set_props(self.tp_s2_probe_lbl, feedbackText=True, tone="warning")
 
         # 同步 PT 变比三值行（发电机运行时锁定输入）
         any_running = sim.gen1.running or sim.gen2.running
@@ -2153,24 +2074,16 @@ class TestPanelMixin:
                     entry.setText(f"{getattr(gen, attr):.1f}")
 
         state = self.ctrl.pt_voltage_check_state
-        self.tp_s2_fb_lbl.setText(state.feedback)
-        self.tp_s2_fb_lbl.setStyleSheet(
-            f"color:{state.feedback_color}; font-size:12px;")
+        self._set_feedback_label(self.tp_s2_fb_lbl, state.feedback, state.feedback_color)
 
     def _refresh_tp_step3(self):
         in_mode = self.ctrl.pt_phase_check_state.started
         steps = self.ctrl.get_pt_phase_check_steps()
         for lbl, (text, done) in zip(self.tp_s3_step_lbls, steps):
-            marker = "✓" if done else "□"
-            lbl.setText(f"{marker} {text}")
-            lbl.setStyleSheet(
-                f"font-size:11px; color:"
-                f"{'#15803d' if done else ('#1e293b' if in_mode else '#94a3b8')};")
+            self._set_step_list_label(lbl, text, done, in_mode)
 
         state = self.ctrl.pt_phase_check_state
-        self.tp_s3_fb_lbl.setText(state.feedback)
-        self.tp_s3_fb_lbl.setStyleSheet(
-            f"color:{state.feedback_color}; font-size:12px;")
+        self._set_feedback_label(self.tp_s3_fb_lbl, state.feedback, state.feedback_color)
 
     def _refresh_tp_step4(self):
         sim = self.ctrl.sim_state
@@ -2179,11 +2092,7 @@ class TestPanelMixin:
                    self.ctrl.pt_exam_states[2].started)
         steps = self.ctrl.get_pt_exam_steps(gen_id)
         for lbl, (text, done) in zip(self.tp_s4_step_lbls, steps):
-            marker = "✓" if done else "□"
-            lbl.setText(f"{marker} {text}")
-            lbl.setStyleSheet(
-                f"font-size:11px; color:"
-                f"{'#15803d' if done else ('#1e293b' if in_mode else '#94a3b8')};")
+            self._set_step_list_label(lbl, text, done, in_mode)
 
         # 同步 Gen2 fap 滑块/输入框
         for gid, entry_map in getattr(self, '_tp_s4_fap', {}).items():
@@ -2197,9 +2106,7 @@ class TestPanelMixin:
                     entry.setText(f"{getattr(gen, attr):.1f}")
 
         state = self.ctrl.pt_exam_states[gen_id]
-        self.tp_s4_fb_lbl.setText(state.feedback)
-        self.tp_s4_fb_lbl.setStyleSheet(
-            f"color:{state.feedback_color}; font-size:12px;")
+        self._set_feedback_label(self.tp_s4_fb_lbl, state.feedback, state.feedback_color)
 
     def _show_blackbox_dialog(self, target):
         """打开物理接线黑盒检查对话框（图形化 + 交互修复）。target: 'G1'|'G2'|'PT1'|'PT3'
@@ -2216,7 +2123,7 @@ class TestPanelMixin:
         fault_active = blackbox_state['fault_active']
 
         dlg = QtWidgets.QDialog(self)
-        dlg.setStyleSheet("background:#f1f5f9;")
+        self._set_props(dlg, themedDialog=True)
         dlg.setFixedWidth(310)
         vlay = QtWidgets.QVBoxLayout(dlg)
         vlay.setSpacing(6)
@@ -2238,7 +2145,7 @@ class TestPanelMixin:
             sub_txt = ("上方绕组（A黄/B绿/C红）→ 下方接线柱（U/V/W）"
                        + (" [可交互修复]" if interactive else " [仅查看]"))
             sub = QtWidgets.QLabel(sub_txt)
-            sub.setStyleSheet("color:#64748b; font-size:10px;")
+            self._set_props(sub, dialogCaption=True)
             vlay.addWidget(sub)
             widget = _GenWiringWidget(mapping, interactive=interactive)
             initial_order = widget.get_order()
@@ -2257,7 +2164,7 @@ class TestPanelMixin:
                 if allow_repair else
                 "PT1 接线按当前物理状态绘制：当前流程模式仅允许查看，不允许直接修复。"
             )
-            sub.setStyleSheet("color:#64748b; font-size:10px;")
+            self._set_props(sub, dialogCaption=True)
             vlay.addWidget(sub)
             widget = _PTWiringWidget(
                 pri_order,
@@ -2284,7 +2191,7 @@ class TestPanelMixin:
                 if allow_repair else
                 "上: 二次侧输出→测量端口 [只读]  |  下: 一次侧输入←Gen2 [只读]"
             )
-            sub.setStyleSheet("color:#64748b; font-size:10px;")
+            self._set_props(sub, dialogCaption=True)
             vlay.addWidget(sub)
             widget = _PTWiringWidget(
                 pri_order,
@@ -2298,22 +2205,19 @@ class TestPanelMixin:
             repair_target = blackbox_state['repair_target']
             if fault_active and fc.scenario_id == 'E03':
                 note = QtWidgets.QLabel("⚠ A 相极性反接：A1 正负极颠倒（a2 输出反相）")
-                note.setStyleSheet(
-                    "color:#c2410c; font-size:11px; font-weight:bold;"
-                    " background:#fff7ed; border-radius:4px; padding:4px 6px;")
+                self._set_props(note, stepBanner=True, tone="warning")
                 note.setWordWrap(True)
                 vlay.addWidget(note)
 
         # ── 反馈标签 ────────────────────────────────────────────────────
         fb_lbl = QtWidgets.QLabel("")
         fb_lbl.setWordWrap(True)
-        fb_lbl.setStyleSheet("font-size:11px;")
+        self._set_props(fb_lbl, feedbackText=True, tone="neutral")
         fb_lbl.setVisible(False)
         vlay.addWidget(fb_lbl)
 
         # ── 底部按钮行 ───────────────────────────────────────────────────
         btn_row = QtWidgets.QWidget()
-        btn_row.setStyleSheet("background:transparent;")
         bh = QtWidgets.QHBoxLayout(btn_row)
         bh.setContentsMargins(0, 0, 0, 0)
         bh.setSpacing(6)
@@ -2335,23 +2239,22 @@ class TestPanelMixin:
                     new_sec_order=new_sec,
                 )
                 fb_lbl.setText(outcome.message)
-                fb_lbl.setStyleSheet(
-                    f"color:{outcome.message_color}; font-size:11px; font-weight:bold;")
+                self._set_props(
+                    fb_lbl,
+                    feedbackText=True,
+                    tone=self._tone_from_color(outcome.message_color),
+                )
                 if outcome.disable_repair_button:
                     btn_repair.setEnabled(False)
                 fb_lbl.setVisible(True)
 
             btn_repair = QtWidgets.QPushButton("确认修复 ✓")
-            btn_repair.setStyleSheet(
-                "background:#16a34a; color:white; font-weight:bold;"
-                " padding:5px 12px; border-radius:4px; font-size:12px;")
+            self._apply_button_tone(btn_repair, "success")
             btn_repair.clicked.connect(_on_confirm)
             bh.addWidget(btn_repair, 1)
 
         btn_ok = QtWidgets.QPushButton("关闭")
-        btn_ok.setStyleSheet(
-            "background:#334155; color:#f1f5f9; border:none;"
-            " padding:5px 18px; border-radius:4px; font-size:12px;")
+        self._apply_button_tone(btn_ok, "primary")
         btn_ok.clicked.connect(dlg.accept)
         bh.addWidget(btn_ok)
         vlay.addWidget(btn_row)
@@ -2362,11 +2265,7 @@ class TestPanelMixin:
         in_mode = state.started
         steps = self.ctrl.get_sync_test_steps()
         for lbl, (text, done) in zip(self.tp_s5_step_lbls, steps):
-            marker = "✓" if done else "□"
-            lbl.setText(f"{marker} {text}")
-            lbl.setStyleSheet(
-                f"font-size:11px; color:"
-                f"{'#15803d' if done else ('#1e293b' if in_mode else '#94a3b8')};")
+            self._set_step_list_label(lbl, text, done, in_mode)
 
         # 同步远程启动按钮状态
         rs = sim.remote_start_signal
@@ -2375,14 +2274,10 @@ class TestPanelMixin:
         self.tp_s5_remote_btn.blockSignals(False)
         if rs:
             self.tp_s5_remote_btn.setText("⚡ 关闭自动")
-            self.tp_s5_remote_btn.setStyleSheet(
-                "background:#16a34a; color:white; font-size:12px;"
-                " font-weight:bold; padding:3px 10px; border-radius:3px;")
+            self._apply_button_tone(self.tp_s5_remote_btn, "success")
         else:
             self.tp_s5_remote_btn.setText("⚡ 开启自动")
-            self.tp_s5_remote_btn.setStyleSheet(
-                "background:#e2e8f0; color:#475569; font-size:12px;"
-                " font-weight:bold; padding:3px 10px; border-radius:3px;")
+            self._apply_button_tone(self.tp_s5_remote_btn, "primary", secondary=True)
 
         # Gen fap 控件：auto 模式下只显示，不可调
         for gid, entry_map in getattr(self, '_tp_s5_fap', {}).items():
@@ -2397,8 +2292,7 @@ class TestPanelMixin:
                 if not entry.hasFocus():
                     entry.setText(f"{getattr(gen, attr):.1f}")
                 entry.setReadOnly(is_auto)
-                entry.setStyleSheet(
-                    f"font-size:11px; background:{'#f1f5f9' if is_auto else '#ffffff'};")
+                self._set_props(entry, compactInput=True, readonlyTone=is_auto)
 
         gen1, gen2 = sim.gen1, sim.gen2
         freq_diff  = abs(gen1.freq - gen2.freq)
@@ -2413,5 +2307,4 @@ class TestPanelMixin:
             val_lbl.setText(f"{diff:.1f}")
 
         self.tp_s5_fb_lbl.setText(state.feedback)
-        self.tp_s5_fb_lbl.setStyleSheet(
-            f"color:{state.feedback_color}; font-size:12px;")
+        self._set_feedback_label(self.tp_s5_fb_lbl, state.feedback, state.feedback_color)

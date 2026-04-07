@@ -6,6 +6,7 @@ ui/tabs/sync_test_tab.py
 from PyQt5 import QtWidgets
 
 from ui.tabs.circuit_tab import _qs
+from ui.tabs._step_style import apply_button_tone, apply_step_shell, set_props
 
 _BTN      = "font-size:14px; padding:4px 8px;"
 _BTN_BOLD = "font-size:14px; font-weight:bold; padding:4px 8px;"
@@ -23,10 +24,7 @@ class SyncTestTabMixin:
         _tlay = QtWidgets.QVBoxLayout(tab_outer)
         _tlay.setContentsMargins(0, 0, 0, 0)
         _scroll = QtWidgets.QScrollArea()
-        _scroll.setWidgetResizable(True)
-        _scroll.setStyleSheet("QScrollArea{border:none;background:#fffbf0;}")
         tab = QtWidgets.QWidget()
-        tab.setStyleSheet("background:#fffbf0;")
         _scroll.setWidget(tab)
         _tlay.addWidget(_scroll)
 
@@ -35,7 +33,6 @@ class SyncTestTabMixin:
         outer.setSpacing(8)
 
         hdr = QtWidgets.QLabel("隔离母排合闸前 - 第五步：同步功能测试")
-        hdr.setStyleSheet("font-size:18px; font-weight:bold; color:#7a4f00;")
         outer.addWidget(hdr)
 
         desc = QtWidgets.QLabel(
@@ -44,7 +41,6 @@ class SyncTestTabMixin:
             "两轮均记录后测试完成。"
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color:#5a3a00; font-size:15px;")
         outer.addWidget(desc)
 
         # ── 测试进行中横幅 ────────────────────────────────────────────────
@@ -52,34 +48,39 @@ class SyncTestTabMixin:
             "⚡ 第五步测试进行中 — 请按两轮步骤完成同步功能验证"
         )
         self.sync_test_mode_banner.setWordWrap(True)
-        self.sync_test_mode_banner.setStyleSheet(
-            "background:#fff3cd; color:#7a4f00; font-size:14px; "
-            "font-weight:bold; padding:6px; border:1px solid #e6b800; border-radius:4px;"
-        )
         self.sync_test_mode_banner.setVisible(False)
         outer.addWidget(self.sync_test_mode_banner)
+        apply_step_shell(
+            tab_outer,
+            _scroll,
+            tab,
+            hdr,
+            desc,
+            self.sync_test_mode_banner,
+            banner_tone="warning",
+        )
 
         # ── 操作按钮 ──────────────────────────────────────────────────────
         act_row = QtWidgets.QWidget()
-        act_row.setStyleSheet("background:#fffbf0;")
         ar = QtWidgets.QHBoxLayout(act_row)
         ar.setContentsMargins(0, 0, 0, 0)
+        set_props(act_row, actionRow=True)
 
         self.btn_sync_test_start = QtWidgets.QPushButton("开始第五步测试")
-        self.btn_sync_test_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
         self.btn_sync_test_start.clicked.connect(self._on_toggle_sync_test_mode)
+        apply_button_tone(self, self.btn_sync_test_start, "warning", hero=True)
 
         btn_wave = QtWidgets.QPushButton("打开波形/相量页")
-        btn_wave.setStyleSheet(f"background:#d9ecff; {_BTN}")
         btn_wave.clicked.connect(lambda: self.tab_widget.setCurrentIndex(0))
+        apply_button_tone(self, btn_wave, "primary", secondary=True)
 
         btn_reset = QtWidgets.QPushButton("重置同步测试")
-        btn_reset.setStyleSheet(f"background:#ffd6d6; {_BTN}")
         btn_reset.clicked.connect(lambda: self.ctrl.reset_sync_test())
+        apply_button_tone(self, btn_reset, "danger")
 
         btn_done = QtWidgets.QPushButton("完成第五步测试")
-        btn_done.setStyleSheet(f"background:#cdeccf; {_BTN_BOLD}")
         btn_done.clicked.connect(lambda: self.ctrl.finalize_sync_test())
+        apply_button_tone(self, btn_done, "success", hero=True)
 
         ar.addWidget(self.btn_sync_test_start)
         ar.addWidget(btn_wave)
@@ -89,11 +90,6 @@ class SyncTestTabMixin:
 
         # ── 实时状态 ──────────────────────────────────────────────────────
         status_grp = QtWidgets.QGroupBox("实时同步状态")
-        status_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:15px;}"
-            "QGroupBox::title{font-weight:bold;}"
-            "QGroupBox *{font-weight:normal; font-size:12px;}"
-        )
         sg_lay = QtWidgets.QVBoxLayout(status_grp)
 
         self.sync_test_summary_lbl = QtWidgets.QLabel("")
@@ -115,53 +111,43 @@ class SyncTestTabMixin:
 
         # ── 步骤列表 ──────────────────────────────────────────────────────
         steps_grp = QtWidgets.QGroupBox("测试步骤（共两轮，需按顺序完成）")
-        steps_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:15px;}"
-            "QGroupBox::title{font-weight:bold;}"
-            "QGroupBox *{font-weight:normal; font-size:12px;}"
-        )
         sl_lay = QtWidgets.QVBoxLayout(steps_grp)
         self.sync_test_step_labels = []
         for _ in range(12):
             lbl = QtWidgets.QLabel("")
-            lbl.setStyleSheet("font-size:15px; color:#666666;")
+            set_props(lbl, stepListItem=True)
             sl_lay.addWidget(lbl)
             self.sync_test_step_labels.append(lbl)
         outer.addWidget(steps_grp)
 
         # ── 记录按钮 ──────────────────────────────────────────────────────
         rec_grp = QtWidgets.QGroupBox("记录测试结果")
-        rec_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:15px;}"
-            "QGroupBox::title{font-weight:bold;}"
-            "QGroupBox *{font-weight:normal; font-size:12px;}"
-        )
         rec_lay = QtWidgets.QVBoxLayout(rec_grp)
 
         # 第一轮记录行
         row1_w = QtWidgets.QWidget()
-        row1_w.setStyleSheet("background:white;")
+        set_props(row1_w, recordRow=True)
         row1 = QtWidgets.QHBoxLayout(row1_w)
-        row1.setContentsMargins(0, 0, 0, 0)
+        row1.setContentsMargins(10, 6, 10, 6)
         self.sync_round1_lbl = QtWidgets.QLabel("Gen 1 基准 → Gen 2 同步：未记录")
         self.sync_round1_lbl.setStyleSheet("font-size:15px; color:#999999;")
         btn_r1 = QtWidgets.QPushButton("记录第一轮")
-        btn_r1.setStyleSheet(f"background:#d8f3dc; {_BTN}")
         btn_r1.clicked.connect(lambda: self.ctrl.record_sync_round(1))
+        apply_button_tone(self, btn_r1, "primary")
         row1.addWidget(self.sync_round1_lbl, 1)
         row1.addWidget(btn_r1)
         rec_lay.addWidget(row1_w)
 
         # 第二轮记录行
         row2_w = QtWidgets.QWidget()
-        row2_w.setStyleSheet("background:white;")
+        set_props(row2_w, recordRow=True)
         row2 = QtWidgets.QHBoxLayout(row2_w)
-        row2.setContentsMargins(0, 0, 0, 0)
+        row2.setContentsMargins(10, 6, 10, 6)
         self.sync_round2_lbl = QtWidgets.QLabel("Gen 2 基准 → Gen 1 同步：未记录")
         self.sync_round2_lbl.setStyleSheet("font-size:15px; color:#999999;")
         btn_r2 = QtWidgets.QPushButton("记录第二轮")
-        btn_r2.setStyleSheet(f"background:#d8f3dc; {_BTN}")
         btn_r2.clicked.connect(lambda: self.ctrl.record_sync_round(2))
+        apply_button_tone(self, btn_r2, "primary")
         row2.addWidget(self.sync_round2_lbl, 1)
         row2.addWidget(btn_r2)
         rec_lay.addWidget(row2_w)
@@ -184,7 +170,7 @@ class SyncTestTabMixin:
         if state.completed:
             self.sync_test_mode_banner.setVisible(False)
             self.btn_sync_test_start.setText("开始第五步测试")
-            self.btn_sync_test_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+            apply_button_tone(self, self.btn_sync_test_start, "warning", hero=True)
             self.sync_test_summary_lbl.setText(
                 "✅ 第五步已确认完成：同步功能测试通过，数据已锁定。")
             self.sync_test_summary_lbl.setStyleSheet(
@@ -206,11 +192,10 @@ class SyncTestTabMixin:
         self.sync_test_mode_banner.setVisible(started)
         if started:
             self.btn_sync_test_start.setText("退出第五步测试")
-            self.btn_sync_test_start.setStyleSheet(
-                f"background:#f4a261; color:white; {_BTN_BOLD}")
+            apply_button_tone(self, self.btn_sync_test_start, "danger", hero=True)
         else:
             self.btn_sync_test_start.setText("开始第五步测试")
-            self.btn_sync_test_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+            apply_button_tone(self, self.btn_sync_test_start, "warning", hero=True)
 
         # ── 动态显示 ──────────────────────────────────────────────────────
         feedback = state.feedback

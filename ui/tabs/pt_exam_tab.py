@@ -6,6 +6,7 @@ PT 二次端子压差测试 Tab (Tab 5 — 第四步)
 from PyQt5 import QtWidgets
 
 from ui.tabs.circuit_tab import _qs
+from ui.tabs._step_style import apply_button_tone, apply_step_shell, set_props
 
 _BTN      = "font-size:14px; padding:4px 8px;"
 _BTN_BOLD = "font-size:14px; font-weight:bold; padding:4px 8px;"
@@ -23,10 +24,7 @@ class PtExamTabMixin:
         _tlay = QtWidgets.QVBoxLayout(tab_outer)
         _tlay.setContentsMargins(0, 0, 0, 0)
         _scroll = QtWidgets.QScrollArea()
-        _scroll.setWidgetResizable(True)
-        _scroll.setStyleSheet("QScrollArea{border:none;background:#f8fbff;}")
         tab = QtWidgets.QWidget()
-        tab.setStyleSheet("background:#f8fbff;")
         _scroll.setWidget(tab)
         _tlay.addWidget(_scroll)
 
@@ -36,7 +34,6 @@ class PtExamTabMixin:
 
         # 标题
         hdr = QtWidgets.QLabel("隔离母排合闸前 - 第四步：PT二次端子压差测试")
-        hdr.setStyleSheet("font-size:18px; font-weight:bold; color:#16324f;")
         outer.addWidget(hdr)
 
         desc = QtWidgets.QLabel(
@@ -44,7 +41,6 @@ class PtExamTabMixin:
             "随后在母排拓扑页使用万用表测量并记录三相 PT 二次端子压差。"
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color:#334e68; font-size:15px;")
         outer.addWidget(desc)
 
         # ── 测试进行中横幅 ────────────────────────────────────────────────
@@ -52,27 +48,27 @@ class PtExamTabMixin:
             "🧪 第四步测试进行中 — 请在母排拓扑页完成 PT 二次端子压差测量"
         )
         self.pt_exam_mode_banner.setWordWrap(True)
-        self.pt_exam_mode_banner.setStyleSheet(
-            "background:#e8f4fd; color:#0c5460; font-size:14px; "
-            "font-weight:bold; padding:6px; border:1px solid #bee5eb; border-radius:4px;"
-        )
         self.pt_exam_mode_banner.setVisible(False)
         outer.addWidget(self.pt_exam_mode_banner)
+        apply_step_shell(
+            tab_outer,
+            _scroll,
+            tab,
+            hdr,
+            desc,
+            self.pt_exam_mode_banner,
+            banner_tone="info",
+        )
 
         # ── 考核对象选择 ──────────────────────────────────────────────────
         target_grp = QtWidgets.QGroupBox("测试对象")
-        target_grp.setStyleSheet(
-            "QGroupBox{background:#eef4ff; color:#264653; font-size:15px;}"
-            "QGroupBox::title{font-weight:bold;}"
-            "QGroupBox *{font-weight:normal; font-size:12px;}"
-        )
+        target_grp.setProperty("cardTone", "info")
         tg_lay = QtWidgets.QHBoxLayout(target_grp)
         self._pt_target_bg = QtWidgets.QButtonGroup(self)
         self._pt_target_rb = {}
         for txt, val in [("Gen 1", 1), ("Gen 2", 2)]:
             rb = QtWidgets.QRadioButton(txt)
             rb.setChecked(val == 1)
-            rb.setStyleSheet("background:#eef4ff; font-size:15px;")
             self._pt_target_bg.addButton(rb, val)
             tg_lay.addWidget(rb)
             self._pt_target_rb[val] = rb
@@ -81,31 +77,31 @@ class PtExamTabMixin:
 
         # ── 操作按钮 ──────────────────────────────────────────────────────
         act_row = QtWidgets.QWidget()
-        act_row.setStyleSheet("background:#f8fbff;")
         ar = QtWidgets.QHBoxLayout(act_row)
         ar.setContentsMargins(0, 0, 0, 0)
+        set_props(act_row, actionRow=True)
 
         self.btn_pt_exam_start = QtWidgets.QPushButton("开始第四步测试")
-        self.btn_pt_exam_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
         self.btn_pt_exam_start.clicked.connect(self._on_toggle_pt_exam_mode)
+        apply_button_tone(self, self.btn_pt_exam_start, "warning", hero=True)
 
         btn_topo = QtWidgets.QPushButton("打开母排拓扑页")
-        btn_topo.setStyleSheet(f"background:#d9ecff; {_BTN}")
         btn_topo.clicked.connect(lambda: self.tab_widget.setCurrentIndex(1))
+        apply_button_tone(self, btn_topo, "primary", secondary=True)
 
         btn_mm = QtWidgets.QPushButton("开启/关闭万用表")
-        btn_mm.setStyleSheet(f"background:#fff3bf; {_BTN}")
         btn_mm.clicked.connect(
             lambda: self.multimeter_cb.setChecked(not self.multimeter_cb.isChecked()))
+        apply_button_tone(self, btn_mm, "warning")
 
         btn_reset = QtWidgets.QPushButton("重置当前机组测试")
-        btn_reset.setStyleSheet(f"background:#ffd6d6; {_BTN}")
         btn_reset.clicked.connect(
             lambda: self.ctrl.reset_pt_exam(self._pt_target_bg.checkedId()))
+        apply_button_tone(self, btn_reset, "danger")
 
         btn_done = QtWidgets.QPushButton("完成第四步测试")
-        btn_done.setStyleSheet(f"background:#cdeccf; {_BTN_BOLD}")
         btn_done.clicked.connect(lambda: self.ctrl.finalize_all_pt_exams())
+        apply_button_tone(self, btn_done, "success", hero=True)
 
         ar.addWidget(self.btn_pt_exam_start)
         ar.addWidget(btn_topo)
@@ -116,11 +112,6 @@ class PtExamTabMixin:
 
         # ── 实时状态 ──────────────────────────────────────────────────────
         status_grp = QtWidgets.QGroupBox("实时状态")
-        status_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:15px;}"
-            "QGroupBox::title{font-weight:bold;}"
-            "QGroupBox *{font-weight:normal; font-size:12px;}"
-        )
         sg_lay = QtWidgets.QVBoxLayout(status_grp)
 
         self.pt_exam_summary_lbl = QtWidgets.QLabel("")
@@ -142,27 +133,17 @@ class PtExamTabMixin:
 
         # ── 步骤列表 ──────────────────────────────────────────────────────
         steps_grp = QtWidgets.QGroupBox("测试步骤")
-        steps_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:15px;}"
-            "QGroupBox::title{font-weight:bold;}"
-            "QGroupBox *{font-weight:normal; font-size:12px;}"
-        )
         sl_lay = QtWidgets.QVBoxLayout(steps_grp)
         self.pt_exam_step_labels = []
         for _ in range(5):
             lbl = QtWidgets.QLabel("")
-            lbl.setStyleSheet("font-size:15px; color:#666666;")
+            set_props(lbl, stepListItem=True)
             sl_lay.addWidget(lbl)
             self.pt_exam_step_labels.append(lbl)
         outer.addWidget(steps_grp)
 
         # ── 9 组矢量压差记录（AA/AB/…/CC） ───────────────────────────────
         rec_grp = QtWidgets.QGroupBox("9 组矢量压差记录（机组相 × 母排相，AA~CC）")
-        rec_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:13px;}"
-            "QGroupBox::title{font-weight:bold;}"
-            "QGroupBox *{font-weight:normal; font-size:11px;}"
-        )
         rec_lay = QtWidgets.QVBoxLayout(rec_grp)
         rec_lay.setSpacing(2)
         self.pt_exam_record_labels = {}
@@ -171,9 +152,9 @@ class PtExamTabMixin:
             for bp in ('A', 'B', 'C'):
                 key = f"{gp}{bp}"
                 row_w = QtWidgets.QWidget()
-                row_w.setStyleSheet("background:white;")
+                set_props(row_w, recordRow=True)
                 row = QtWidgets.QHBoxLayout(row_w)
-                row.setContentsMargins(0, 0, 0, 0)
+                row.setContentsMargins(10, 6, 10, 6)
                 row.setSpacing(4)
 
                 lbl_key = QtWidgets.QLabel(key)
@@ -189,10 +170,10 @@ class PtExamTabMixin:
 
                 rec_btn = QtWidgets.QPushButton(f"记录 {key}")
                 rec_btn.setFixedWidth(72)
-                rec_btn.setStyleSheet(f"background:#d8f3dc; {_BTN_SM}")
                 rec_btn.clicked.connect(
                     lambda _, g=gp, b=bp: self.ctrl.record_pt_measurement(
                         g, b, self._pt_target_bg.checkedId()))
+                apply_button_tone(self, rec_btn, "primary")
 
                 row.addWidget(lbl_key)
                 row.addWidget(hint)
@@ -230,7 +211,7 @@ class PtExamTabMixin:
         if both_completed:
             self.pt_exam_mode_banner.setVisible(False)
             self.btn_pt_exam_start.setText("开始第四步测试")
-            self.btn_pt_exam_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+            apply_button_tone(self, self.btn_pt_exam_start, "warning", hero=True)
             self.pt_exam_summary_lbl.setText(
                 "✅ 第四步已确认完成：Gen1 和 Gen2 PT 二次端子压差测试均通过，数据已锁定。")
             self.pt_exam_summary_lbl.setStyleSheet(
@@ -254,11 +235,10 @@ class PtExamTabMixin:
         self.pt_exam_mode_banner.setVisible(both_started)
         if both_started:
             self.btn_pt_exam_start.setText("退出第四步测试")
-            self.btn_pt_exam_start.setStyleSheet(
-                f"background:#f4a261; color:white; {_BTN_BOLD}")
+            apply_button_tone(self, self.btn_pt_exam_start, "danger", hero=True)
         else:
             self.btn_pt_exam_start.setText("开始第四步测试")
-            self.btn_pt_exam_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+            apply_button_tone(self, self.btn_pt_exam_start, "warning", hero=True)
         started = both_started
 
         # ── 动态显示 ──────────────────────────────────────────────────────

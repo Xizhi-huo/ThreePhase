@@ -6,6 +6,14 @@ PT 单体线电压检查 Tab (Tab 3 — 第二步)
 from PyQt5 import QtWidgets
 
 from ui.tabs.circuit_tab import _qs
+from ui.tabs._step_style import (
+    apply_button_tone,
+    apply_step_shell,
+    set_live_text,
+    set_props,
+    set_record_value,
+    set_step_item,
+)
 
 _BTN      = "font-size:14px; padding:4px 8px;"
 _BTN_BOLD = "font-size:14px; font-weight:bold; padding:4px 8px;"
@@ -35,10 +43,7 @@ class PtVoltageCheckTabMixin:
         _tlay = QtWidgets.QVBoxLayout(tab_outer)
         _tlay.setContentsMargins(0, 0, 0, 0)
         _scroll = QtWidgets.QScrollArea()
-        _scroll.setWidgetResizable(True)
-        _scroll.setStyleSheet("QScrollArea{border:none;background:#f0f8f0;}")
         tab = QtWidgets.QWidget()
-        tab.setStyleSheet("background:#f0f8f0;")
         _scroll.setWidget(tab)
         _tlay.addWidget(_scroll)
 
@@ -47,7 +52,6 @@ class PtVoltageCheckTabMixin:
         outer.setSpacing(8)
 
         hdr = QtWidgets.QLabel("隔离母排合闸前 - 第二步：PT 单体线电压检查")
-        hdr.setStyleSheet("font-size:18px; font-weight:bold; color:#1a5c1a;")
         outer.addWidget(hdr)
 
         desc = QtWidgets.QLabel(
@@ -57,7 +61,6 @@ class PtVoltageCheckTabMixin:
             "⑤ 确认三组 PT 输出电压量级一致（均约 100V AC）后，点击「完成第二步测试」。"
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color:#1a5c1a; font-size:14px;")
         outer.addWidget(desc)
 
         # ── 测试进行中横幅 ────────────────────────────────────────────────
@@ -65,39 +68,44 @@ class PtVoltageCheckTabMixin:
             "📏 第二步测试进行中 — 请在母排拓扑页完成 PT1/PT2/PT3 各相线电压测量"
         )
         self.pt_voltage_check_banner.setWordWrap(True)
-        self.pt_voltage_check_banner.setStyleSheet(
-            "background:#d4edda; color:#155724; font-size:14px; "
-            "font-weight:bold; padding:6px; border:1px solid #c3e6cb; border-radius:4px;"
-        )
         self.pt_voltage_check_banner.setVisible(False)
         outer.addWidget(self.pt_voltage_check_banner)
+        apply_step_shell(
+            tab_outer,
+            _scroll,
+            tab,
+            hdr,
+            desc,
+            self.pt_voltage_check_banner,
+            banner_tone="success",
+        )
 
         # ── 操作按钮 ──────────────────────────────────────────────────────
         act_row = QtWidgets.QWidget()
-        act_row.setStyleSheet("background:#f0f8f0;")
         ar = QtWidgets.QHBoxLayout(act_row)
         ar.setContentsMargins(0, 0, 0, 0)
+        set_props(act_row, actionRow=True)
 
         self.btn_pt_voltage_start = QtWidgets.QPushButton("开始第二步测试")
-        self.btn_pt_voltage_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
         self.btn_pt_voltage_start.clicked.connect(self._on_toggle_pt_voltage_check_mode)
+        apply_button_tone(self, self.btn_pt_voltage_start, "warning", hero=True)
 
         btn_topo = QtWidgets.QPushButton("打开母排拓扑页")
-        btn_topo.setStyleSheet(f"background:#d9ecff; {_BTN}")
         btn_topo.clicked.connect(lambda: self.tab_widget.setCurrentIndex(1))
+        apply_button_tone(self, btn_topo, "primary", secondary=True)
 
         btn_mm = QtWidgets.QPushButton("开启/关闭万用表")
-        btn_mm.setStyleSheet(f"background:#fff3bf; {_BTN}")
         btn_mm.clicked.connect(
             lambda: self.multimeter_cb.setChecked(not self.multimeter_cb.isChecked()))
+        apply_button_tone(self, btn_mm, "warning")
 
         btn_reset = QtWidgets.QPushButton("重置线电压检查")
-        btn_reset.setStyleSheet(f"background:#ffd6d6; {_BTN}")
         btn_reset.clicked.connect(lambda: self.ctrl.reset_pt_voltage_check())
+        apply_button_tone(self, btn_reset, "danger")
 
         btn_done = QtWidgets.QPushButton("完成第二步测试")
-        btn_done.setStyleSheet(f"background:#ffe0b2; {_BTN_BOLD}")
         btn_done.clicked.connect(lambda: self.ctrl.finalize_pt_voltage_check())
+        apply_button_tone(self, btn_done, "success", hero=True)
 
         ar.addWidget(self.btn_pt_voltage_start)
         ar.addWidget(btn_topo)
@@ -108,24 +116,18 @@ class PtVoltageCheckTabMixin:
 
         # ── 实时状态 ──────────────────────────────────────────────────────
         status_grp = QtWidgets.QGroupBox("实时状态")
-        status_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:15px;}"
-            "QGroupBox::title{font-weight:bold;}"
-            "QGroupBox *{font-weight:normal; font-size:12px;}"
-        )
         sg_lay = QtWidgets.QVBoxLayout(status_grp)
 
         self.pt_voltage_summary_lbl = QtWidgets.QLabel("")
-        self.pt_voltage_summary_lbl.setStyleSheet(
-            "font-weight:bold; font-size:15px; color:#264653;")
+        set_live_text(self.pt_voltage_summary_lbl, "info")
         self.pt_voltage_summary_lbl.setWordWrap(True)
 
         self.pt_voltage_meter_lbl = QtWidgets.QLabel("")
-        self.pt_voltage_meter_lbl.setStyleSheet("font-size:13px;")
+        set_props(self.pt_voltage_meter_lbl, liveText=True, tone="neutral")
         self.pt_voltage_meter_lbl.setWordWrap(True)
 
         self.pt_voltage_feedback_lbl = QtWidgets.QLabel("")
-        self.pt_voltage_feedback_lbl.setStyleSheet("font-size:15px; color:#444444;")
+        set_live_text(self.pt_voltage_feedback_lbl, "neutral")
         self.pt_voltage_feedback_lbl.setWordWrap(True)
 
         sg_lay.addWidget(self.pt_voltage_summary_lbl)
@@ -135,27 +137,17 @@ class PtVoltageCheckTabMixin:
 
         # ── 步骤列表 ──────────────────────────────────────────────────────
         steps_grp = QtWidgets.QGroupBox("测试步骤")
-        steps_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:15px;}"
-            "QGroupBox::title{font-weight:bold;}"
-            "QGroupBox *{font-weight:normal; font-size:12px;}"
-        )
         sl_lay = QtWidgets.QVBoxLayout(steps_grp)
         self.pt_voltage_step_labels = []
         for _ in range(9):
             lbl = QtWidgets.QLabel("")
-            lbl.setStyleSheet("font-size:14px; color:#666666;")
+            set_props(lbl, stepListItem=True)
             sl_lay.addWidget(lbl)
             self.pt_voltage_step_labels.append(lbl)
         outer.addWidget(steps_grp)
 
         # ── 九组线电压测量记录（PT1/PT2/PT3 各三组） ─────────────────────
         rec_grp = QtWidgets.QGroupBox("PT 线电压测量记录（PT1/PT2/PT3 各三组，共九组）")
-        rec_grp.setStyleSheet(
-            "QGroupBox{background:white; color:#264653; font-size:15px;}"
-            "QGroupBox::title{font-weight:bold;}"
-            "QGroupBox *{font-weight:normal; font-size:12px;}"
-        )
         rec_lay = QtWidgets.QVBoxLayout(rec_grp)
         self.pt_voltage_record_labels = {}
 
@@ -181,13 +173,13 @@ class PtVoltageCheckTabMixin:
                 key = f"{pt_name}_{pair}"
                 n1, n2 = _KEY_TO_NODES[key]
                 row_w = QtWidgets.QWidget()
-                row_w.setStyleSheet(f"background:{pt_color};")
+                set_props(row_w, recordRow=True)
                 row = QtWidgets.QHBoxLayout(row_w)
-                row.setContentsMargins(0, 0, 0, 0)
+                row.setContentsMargins(10, 6, 10, 6)
 
                 pair_lbl = QtWidgets.QLabel(f"{pair} 线电压")
                 pair_lbl.setFixedWidth(80)
-                pair_lbl.setStyleSheet("font-weight:bold; font-size:15px;")
+                set_live_text(pair_lbl, "info")
 
                 probe_hint = QtWidgets.QLabel(f"（{n1} ↔ {n2}）")
                 probe_hint.setFixedWidth(180)
@@ -195,13 +187,13 @@ class PtVoltageCheckTabMixin:
 
                 val_lbl = QtWidgets.QLabel("未记录")
                 val_lbl.setFixedWidth(200)
-                val_lbl.setStyleSheet("font-size:14px; color:#999999;")
+                set_record_value(val_lbl, "neutral")
 
                 rec_btn = QtWidgets.QPushButton(f"记录 {key}")
-                rec_btn.setStyleSheet(f"background:#b8e0c8; {_BTN}")
                 rec_btn.clicked.connect(
                     lambda _, pt=pt_name, pp=pair:
                         self.ctrl.record_pt_voltage_measurement(pt, pp))
+                apply_button_tone(self, rec_btn, "primary")
 
                 row.addWidget(pair_lbl)
                 row.addWidget(probe_hint)
@@ -230,24 +222,22 @@ class PtVoltageCheckTabMixin:
         if state.completed:
             self.pt_voltage_check_banner.setVisible(False)
             self.btn_pt_voltage_start.setText("开始第二步测试")
-            self.btn_pt_voltage_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+            apply_button_tone(self, self.btn_pt_voltage_start, "warning", hero=True)
             self.pt_voltage_summary_lbl.setText(
                 "✅ 第二步已确认完成：PT1/PT2/PT3 线电压检查通过，数据已锁定。")
-            self.pt_voltage_summary_lbl.setStyleSheet(
-                "font-weight:bold; font-size:15px; color:#006400;")
+            set_live_text(self.pt_voltage_summary_lbl, "success")
             self.pt_voltage_meter_lbl.setText("")
             self.pt_voltage_feedback_lbl.setText(
                 "操作提示：第二步测试已完成，请继续进行第三步 PT 相序检查。")
-            self.pt_voltage_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
+            set_live_text(self.pt_voltage_feedback_lbl, "success")
             for lbl, (text, _) in zip(self.pt_voltage_step_labels,
                                       self.ctrl.get_pt_voltage_check_steps()):
-                lbl.setText("√ " + text)
-                lbl.setStyleSheet("font-size:14px; color:#006400;")
+                set_step_item(lbl, text, True, True)
             for key, lbl in self.pt_voltage_record_labels.items():
                 rec = records.get(key)
                 if rec is not None:
                     lbl.setText(f"{rec['voltage']/1000:.2f} kV ✓")
-                    lbl.setStyleSheet("font-size:14px; color:#006400;")
+                    set_record_value(lbl, "success")
             return
 
         started = state.started
@@ -256,11 +246,10 @@ class PtVoltageCheckTabMixin:
         self.pt_voltage_check_banner.setVisible(started)
         if started:
             self.btn_pt_voltage_start.setText("退出第二步测试")
-            self.btn_pt_voltage_start.setStyleSheet(
-                f"background:#f4a261; color:white; {_BTN_BOLD}")
+            apply_button_tone(self, self.btn_pt_voltage_start, "danger", hero=True)
         else:
             self.btn_pt_voltage_start.setText("开始第二步测试")
-            self.btn_pt_voltage_start.setStyleSheet(f"background:#ffe082; {_BTN_BOLD}")
+            apply_button_tone(self, self.btn_pt_voltage_start, "warning", hero=True)
 
         # ── 动态显示 ──────────────────────────────────────────────────────
         feedback = state.feedback
@@ -278,38 +267,31 @@ class PtVoltageCheckTabMixin:
             sc = '#264653'
 
         self.pt_voltage_summary_lbl.setText(summary)
-        self.pt_voltage_summary_lbl.setStyleSheet(
-            f"font-weight:bold; font-size:15px; color:{sc};")
+        set_live_text(self.pt_voltage_summary_lbl, "warning" if sc == '#cc6600' else "info")
 
         meter_text = p.meter_reading
-        meter_color = _qs(getattr(p, 'meter_color', 'black'))
         self.pt_voltage_meter_lbl.setText(f"实时测量：{meter_text}")
-        self.pt_voltage_meter_lbl.setStyleSheet(f"font-size:13px; color:{meter_color};")
+        set_props(self.pt_voltage_meter_lbl, liveText=True, tone=self._tone_from_color(getattr(p, 'meter_color', 'black')))
 
         self.pt_voltage_feedback_lbl.setText(f"操作提示：{feedback}")
-        self.pt_voltage_feedback_lbl.setStyleSheet(
-            f"font-size:15px; color:{_qs(fb_color)};")
+        set_live_text(self.pt_voltage_feedback_lbl, self._tone_from_color(fb_color))
 
         if not started:
             for lbl, (text, _) in zip(self.pt_voltage_step_labels,
                                       self.ctrl.get_pt_voltage_check_steps()):
-                lbl.setText("□ " + text)
-                lbl.setStyleSheet("font-size:14px; color:#aaaaaa;")
+                set_step_item(lbl, text, False, False)
         else:
             for lbl, (text, done) in zip(self.pt_voltage_step_labels,
                                          self.ctrl.get_pt_voltage_check_steps()):
-                lbl.setText(("√ " if done else "□ ") + text)
-                lbl.setStyleSheet(
-                    f"font-size:14px; color:{'#006400' if done else '#666666'};")
+                set_step_item(lbl, text, done, True)
 
         for key, lbl in self.pt_voltage_record_labels.items():
             rec = records.get(key)
             if rec is None:
                 lbl.setText("未记录")
-                lbl.setStyleSheet("font-size:14px; color:#999999;")
+                set_record_value(lbl, "neutral")
             else:
                 primary_v = rec['voltage']                 # 一次侧 V（额定 10500V）
                 ok = 8925.0 <= primary_v <= 12075.0        # ±15% of 10500V
                 lbl.setText(f"{primary_v/1000:.2f} kV {'✓' if ok else '⚠'}")
-                lbl.setStyleSheet(
-                    f"font-size:14px; color:{'#006400' if ok else '#cc4400'};")
+                set_record_value(lbl, "success" if ok else "warning")

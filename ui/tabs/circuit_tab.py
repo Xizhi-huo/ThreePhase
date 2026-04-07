@@ -603,21 +603,9 @@ class CircuitTabMixin:
 
     def _render_bus_status(self, p):
         self.bus_status_lbl.setText(p.bus_status_msg)
-        if p.bus_live:
-            self.bus_status_lbl.setStyleSheet(
-                "background:#dcfce7; color:#15803d; font-weight:bold;"
-                " padding:5px; font-size:12px; border-radius:4px;"
-                " border:1px solid #86efac;")
-        else:
-            self.bus_status_lbl.setStyleSheet(
-                "background:#fef3c7; color:#92400e; font-weight:bold;"
-                " padding:5px; font-size:12px; border-radius:4px;"
-                " border:1px solid #fcd34d;")
+        self._apply_badge_tone(self.bus_status_lbl, "success" if p.bus_live else "warning")
         self.bus_reference_lbl.setText(p.bus_reference_msg)
-        self.bus_reference_lbl.setStyleSheet(
-            f"background:#f8fafc; color:{'#15803d' if p.bus_live else '#64748b'}; "
-            f"font-weight:bold; padding:4px; font-size:12px; border-radius:4px;"
-            f" border:1px solid #e2e8f0;")
+        self._apply_badge_tone(self.bus_reference_lbl, "success" if p.bus_live else "neutral")
         src_map = {
             1:      "Bus ← Gen 1",
             2:      "Bus ← Gen 2",
@@ -628,11 +616,15 @@ class CircuitTabMixin:
 
     def _render_breakers(self, p):
         self.arbitrator_lbl.setText(p.arb_msg)
-        self.arbitrator_lbl.setStyleSheet(
-            f"background:#eff6ff; color:#1d4ed8; font-weight:bold; padding:6px; font-size:12px;"
-            f" border-radius:4px; border:1px solid #bfdbfe;")
+        self._apply_badge_tone(self.arbitrator_lbl, "info")
         self.relay_lbl.setText(p.relay_msg)
-        self.relay_lbl.setStyleSheet(f"color:{_qs(p.relay_color)}; font-size:12px; padding:3px;")
+        relay_tone = {
+            "red": "danger",
+            "orange": "warning",
+            "blue": "primary",
+            "green": "success",
+        }.get(_qs(p.relay_color), "primary")
+        self._apply_badge_tone(self.relay_lbl, relay_tone)
 
         for lbl_attr, text, bg in [
             ('status1_lbl', p.brk1_text, p.brk1_bg),
@@ -641,28 +633,17 @@ class CircuitTabMixin:
             lbl = getattr(self, lbl_attr)
             lbl.setText(text)
             bg_str = _qs(bg)
-            # Map legacy dark colors to new theme palette
             if bg_str in ('#00cc00', '#009900', '#006600', '#00ff00'):
-                style = ("background:#dcfce7; color:#15803d; font-weight:bold;"
-                         " padding:3px; font-size:12px; border-radius:3px;"
-                         " border:1px solid #86efac;")
+                tone = "success"
             elif bg_str in ('#cc0000', '#ff0000', '#990000', '#ff3333'):
-                style = ("background:#fee2e2; color:#dc2626; font-weight:bold;"
-                         " padding:3px; font-size:12px; border-radius:3px;"
-                         " border:1px solid #fca5a5;")
+                tone = "danger"
             elif bg_str in ('#ffaa00', '#ffcc00', '#ff9900', '#d97706'):
-                style = ("background:#fef3c7; color:#92400e; font-weight:bold;"
-                         " padding:3px; font-size:12px; border-radius:3px;"
-                         " border:1px solid #fcd34d;")
+                tone = "warning"
             elif bg_str in ('#333399', '#0000ff', '#1d4ed8'):
-                style = ("background:#eff6ff; color:#1d4ed8; font-weight:bold;"
-                         " padding:3px; font-size:12px; border-radius:3px;"
-                         " border:1px solid #93c5fd;")
+                tone = "info"
             else:
-                tc = 'white' if bg_str not in ('#ffaa00', '#ffcc00') else 'black'
-                style = (f"background:{bg_str}; color:{tc}; font-weight:bold;"
-                         f" padding:3px; font-size:12px; border-radius:3px;")
-            lbl.setStyleSheet(style)
+                tone = "neutral"
+            self._apply_badge_tone(lbl, tone)
 
         for lines, xs, y_bot, y_top, is_closed in [
             (self.sw1_pack, [0.24, 0.28, 0.32], 0.24, 0.31, p.brk1_visual),

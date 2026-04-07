@@ -1073,9 +1073,10 @@ class PowerSyncController:
         self.ui.pause_btn.setText(
             "▶ 恢复物理时空" if self.sim_state.paused else "⏸ 暂停整个物理空间"
         )
-        self.ui.pause_btn.setStyleSheet(
-            f"background:{'#99ff99' if self.sim_state.paused else '#ffcc00'}; "
-            f"font-weight:bold; font-size:13px; padding:7px;"
+        self.ui._apply_button_tone(
+            self.ui.pause_btn,
+            "success" if self.sim_state.paused else "warning",
+            hero=True,
         )
 
     def reshuffle_pt_phase_orders(self):

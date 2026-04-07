@@ -42,11 +42,12 @@ ThreePhase/
 │   └── assessment_service.py        # 考核模式自动评分与成绩汇总
 ├── ui/                      # PyQt5 用户界面（Mixin 拼装）
 │   ├── main_window.py       # PowerSyncUI 主窗口
-│   ├── styles.py            # 全局 QSS 样式
+│   ├── styles.py            # 浅色主题入口与全局 QSS 设计令牌
 │   ├── test_panel.py        # 测试模式控制面板 Mixin（含第1~5步控制台）
 │   ├── panels/
 │   │   └── control_panel.py # 右侧控制面板 Mixin
 │   ├── tabs/
+│   │   ├── _step_style.py   # 步骤页通用样式辅助
 │   │   ├── waveform_tab.py      # Tab 0: 波形 & 相量图
 │   │   ├── circuit_tab.py       # Tab 1: 母线拓扑（最大，~970行）
 │   │   ├── loop_test_tab.py     # Tab 2: 回路测试 UI
@@ -507,6 +508,37 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 | `SyncTestTabMixin` | Tab 6：同期测试 |
 | `TestPanelMixin` | 测试模式竖向控制栏（替换右侧面板，含第1~5步控制台） |
 
+### UI 现代化（2026-04）
+
+当前 UI 改造策略已经统一为：继续使用 `PyQt5 + QWidget`，在现有界面层级上做浅色主题现代化迭代，不切换到新的控件框架。
+
+- **设计基线**
+  - 浅色优先，当前不做深色主题
+  - 中性专业风
+  - 标准信息密度
+  - 青蓝主色
+  - 8px 圆角
+  - 保留原生系统标题栏
+- **实现方式**
+  - `ui/styles.py` 负责全局主题入口、设计令牌、组件 QSS 和语义属性样式
+  - `ui/main_window.py` 在主窗口启动时统一加载主题
+  - `ui/panels/control_panel.py` 通过属性驱动的辅助方法统一按钮、卡片、badge、toggle 外观
+  - `ui/tabs/_step_style.py` 提供步骤页壳层、按钮、动态文本、记录值等公共样式 helper
+  - `ui/test_panel.py` 已把说明文字、反馈文本、行容器、管理员区、弹窗骨架等高频样式收敛为语义 helper
+- **当前已完成的覆盖范围**
+  - 主窗口、主 Tab、右侧控制面板
+  - `test_panel.py` 的顶部栏、底部栏、故障横幅、步骤反馈、管理员区、成绩单弹窗、黑盒弹窗
+  - Tab 2～6 步骤页公共壳层与主要动作按钮
+  - 第 1/2/3 步动态文本、反馈标签、记录值、状态提示
+- **保留的局部特殊样式**
+  - 步骤圆点按钮
+  - 少量成绩单动态强调卡片
+  - 个别 PT 分组提示色块
+  - 少量探针提示文本
+- **当前边界**
+  - matplotlib 图表区主要完成外围容器和主题接入，绘图区本身尚未进行更深层统一
+  - 整体主题系统已稳定，但如果后续要做深色主题，还需要补完整套 light/dark token 切换
+
 ### 测试模式面板（test_panel.py）重要细节
 - 进入测试模式：`ctrl_container.setVisible(False)`，`test_panel.setVisible(True)`
 - 每步控制台由 `_build_step1~5` 构建，`_refresh_tp_step1~5` 每帧刷新
@@ -594,6 +626,11 @@ def record_all_pt_measurements_quick(self):
 ---
 
 ## 项目当前状态
+
+- **2026-04 UI 现代化收敛**：
+  - 主题路线已固定为“浅色主题 + 语义属性 QSS + 渐进式改造”，当前不做深色主题。
+  - `ui/styles.py` 已升级为全局主题入口；`ui/tabs/_step_style.py` 已作为步骤页公共样式层加入。
+  - 右侧控制面板、测试面板、步骤页壳层和主要弹窗已完成第一轮统一；后续若继续迭代，重点应转到 matplotlib 绘图区和截图级细节微调。
 
 - **2026-04 黑盒接线逻辑校正**：
   - G1 / PT1 黑盒对话框优先显示控制器运行态黑盒状态，不再优先读取 `fault_scenarios.py` 的静态 `params`。

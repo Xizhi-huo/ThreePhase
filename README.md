@@ -52,11 +52,12 @@ ThreePhase/
 │   └── assessment_service.py        # 考核模式自动评分与成绩汇总
 ├── ui/                              # PyQt5 用户界面（Mixin 拼装）
 │   ├── main_window.py               # PowerSyncUI 主窗口
-│   ├── styles.py                    # 全局 QSS 样式
+│   ├── styles.py                    # 浅色主题入口与全局 QSS 设计令牌
 │   ├── test_panel.py                # 测试模式控制面板（第 1～5 步控制台）
 │   ├── panels/
 │   │   └── control_panel.py        # 右侧控制面板 Mixin
 │   ├── tabs/
+│   │   ├── _step_style.py          # 步骤页通用样式辅助
 │   │   ├── waveform_tab.py         # Tab 0：波形 & 相量图
 │   │   ├── circuit_tab.py          # Tab 1：母线拓扑（~970 行）
 │   │   ├── loop_test_tab.py        # Tab 2：回路测试 UI
@@ -414,6 +415,33 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 | `SyncTestTabMixin` | Tab 6：同期测试 |
 | `TestPanelMixin` | 测试模式竖向控制栏（第 1～5 步控制台） |
 
+### UI 现代化（2026-04）
+
+当前 UI 继续保留 `PyQt5 + QWidget` 体系，不引入新的控件框架，采用“浅色主题 + 设计令牌 + 语义属性 QSS”的渐进式迭代方式：
+
+- **主题基线**
+  - 浅色优先，当前不提供深色主题
+  - 中性专业风
+  - 标准信息密度
+  - 青蓝主色，圆角统一为 8px
+  - 保留系统原生标题栏
+- **主题入口**
+  - `ui/styles.py` 提供全局令牌、组件 QSS、语义属性样式与 `apply_app_theme()`
+  - 若运行环境安装 `qdarkstyle`，会优先叠加 light palette；未安装时自动回退到项目内置浅色样式
+- **语义化样式策略**
+  - 控件不再大量直接拼接内联 `setStyleSheet()`，而是通过 `property` 驱动样式
+  - `ui/panels/control_panel.py` 收敛了按钮、badge、toggle、卡片的公共样式辅助
+  - `ui/tabs/_step_style.py` 负责步骤页壳层、动作按钮、状态文本、记录值等通用样式辅助
+  - `ui/test_panel.py` 通过反馈标签、说明文字、行容器、弹窗骨架等语义 helper 收口高频样式
+- **本轮已覆盖区域**
+  - 主窗口、主 Tab、右侧控制面板
+  - `test_panel.py` 顶部栏、底部栏、步骤反馈、管理员区、成绩单与黑盒弹窗公共骨架
+  - Tab 2～6 的页面壳层与主要动作按钮
+  - 第 1/2/3 步中的高频动态文本、记录值、状态提示
+- **当前边界**
+  - matplotlib 图表区目前主要完成外围容器与主题接入，未对波形绘图区做深度视觉统一
+  - 仍保留少量强语义或强动态的局部样式，例如步骤圆点、部分成绩单强调卡片、个别 PT 分组提示色块
+
 ### 测试模式面板（`test_panel.py`）
 
 - 进入测试模式：右侧控制面板隐藏，测试面板显示
@@ -448,6 +476,11 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 
 ## 当前状态
 
+- **2026-04 UI 现代化收敛**：
+  - 主题路线已固定为“浅色主题 + 语义属性 QSS + 渐进式改造”，当前不做深色主题。
+  - `ui/styles.py` 已升级为全局主题入口；`ui/tabs/_step_style.py` 已作为步骤页公共样式层加入。
+  - 主窗口、主 Tab、右侧控制面板、测试面板、步骤页壳层和主要弹窗已完成第一轮统一。
+
 - **2026-04 黑盒接线逻辑校正**：
   - G1 / PT1 黑盒对话框现在读取的是控制器运行态黑盒状态，而不是 `fault_scenarios.py` 中的静态 `params` 快照。
   - G1 运行态真值源为 `ctrl.g1_blackbox_order`；`pt_phase_orders['PT2']` 仍用于回路/测量计算，但它是由黑盒状态同步得到的派生结果，不再应视为唯一物理真值源。
@@ -462,4 +495,3 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - **最新修复**：E01 double-swap bug；黑盒 params 键名统一（`g1_blackbox_order` / `p1_pri_blackbox_order` / `pt2_sec_blackbox_order` / `g2_blackbox_order`）；PT1 一次侧/二次侧独立修复；Gen2 机端接线黑盒改为终端接线级可交互修复；黑盒对话框运行态回显修复；`teaching / engineering / assessment` 三模式差异已收敛到 `FLOW_MODE_POLICIES`；考核模式事件流与自动评分已接入
 - **现阶段重构**：`FlowModePolicy` 已类型化；`loop_test_service.py` 与 `pt_phase_check_service.py` 已先改为通过控制器语义方法写回状态；控制器已新增 `get_test_progress_snapshot()`、`get_blackbox_runtime_state()`、`finish_assessment_session_if_ready()`、`apply_blackbox_repair_attempt()` 作为最小只读/编排接口，用于收敛 `test_panel.py` 的业务判断
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）
-

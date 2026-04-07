@@ -39,7 +39,7 @@ PowerSyncUI 通过多重继承组合各个 Mixin：
 
 from PyQt5 import QtWidgets, QtCore, QtGui
 
-from ui.styles import APP_QSS
+from ui.styles import apply_app_theme
 from ui.panels.control_panel import WidgetBuilderMixin
 from ui.tabs.waveform_tab import WaveformTabMixin
 from ui.tabs.circuit_tab import CircuitTabMixin
@@ -82,31 +82,37 @@ class PowerSyncUI(
 
         # ── 中央 Widget + 水平主布局 ──────────────────────────────────────
         central = QtWidgets.QWidget()
+        central.setObjectName("appRoot")
         self.setCentralWidget(central)
         h_layout = QtWidgets.QHBoxLayout(central)
-        h_layout.setContentsMargins(0, 0, 0, 0)
-        h_layout.setSpacing(0)
+        h_layout.setContentsMargins(12, 12, 12, 12)
+        h_layout.setSpacing(12)
 
         # ── 左侧：Tab 区 ──────────────────────────────────────────────────
         self.tab_widget = QtWidgets.QTabWidget()
+        self.tab_widget.setObjectName("mainTabWidget")
+        self.tab_widget.setDocumentMode(True)
+        self.tab_widget.tabBar().setExpanding(False)
+        self.tab_widget.tabBar().setElideMode(QtCore.Qt.ElideRight)
         h_layout.addWidget(self.tab_widget, stretch=1)
 
         # ── 右侧：控制面板（固定宽度 + 垂直滚动）─────────────────────────
         ctrl_container = QtWidgets.QScrollArea()
+        ctrl_container.setObjectName("controlSidebarScroll")
         ctrl_container.setFixedWidth(520)
         ctrl_container.setWidgetResizable(True)
         ctrl_container.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        ctrl_container.setStyleSheet("QScrollArea { border: none; background: #f1f5f9; }")
         self.ctrl_inner = QtWidgets.QWidget()
-        self.ctrl_inner.setStyleSheet("background: #f1f5f9;")
+        self.ctrl_inner.setObjectName("controlSidebar")
+        self.ctrl_inner.setProperty("panelSurface", True)
         ctrl_container.setWidget(self.ctrl_inner)
         h_layout.addWidget(ctrl_container)
         self.ctrl_container = ctrl_container  # 保存引用，供 test_panel 切换显示
 
         self.ctrl_layout = QtWidgets.QVBoxLayout(self.ctrl_inner)
         self.ctrl_layout.setAlignment(QtCore.Qt.AlignTop)
-        self.ctrl_layout.setContentsMargins(8, 6, 8, 6)
-        self.ctrl_layout.setSpacing(4)
+        self.ctrl_layout.setContentsMargins(0, 0, 0, 0)
+        self.ctrl_layout.setSpacing(8)
 
         # ── 构建各区域 ────────────────────────────────────────────────────
         self._build_control_panel()           # ← WidgetBuilderMixin
@@ -120,7 +126,7 @@ class PowerSyncUI(
         self._init_lines()                    # ← WaveformTabMixin
 
         # ── 全局主题 + Tab 整理 ───────────────────────────────────────────
-        QtWidgets.QApplication.instance().setStyleSheet(APP_QSS)
+        apply_app_theme(QtWidgets.QApplication.instance())
         self.tab_widget.setTabText(0, "📊 实时波形与同期表")
         # 步骤 Tab 2-6 由测试模式按需显示，初始隐藏
         for _i in range(2, 7):
