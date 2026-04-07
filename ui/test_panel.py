@@ -882,7 +882,7 @@ class TestPanelMixin:
                 sec = max(1, _s.value())
                 ratio = pri / sec
                 _l.setText(f"{ratio:.2f}")
-                setattr(self.ctrl.sim_state, _a, ratio)
+                self.ctrl.update_pt_ratio(_a, ratio)
 
             pri_spin.valueChanged.connect(_update_ratio)
             sec_spin.valueChanged.connect(_update_ratio)
@@ -1291,7 +1291,7 @@ class TestPanelMixin:
             if self.ctrl.pt_phase_check_state.completed:
                 try:
                     self.disconnect_phase_seq_meter()
-                except Exception:
+                except AttributeError:
                     pass
         elif step == 4:
             self.ctrl.finalize_all_pt_exams()
@@ -1370,7 +1370,7 @@ class TestPanelMixin:
         """接入相序仪到指定 PT，驱动母排图侧栏显示。"""
         try:
             self.connect_phase_seq_meter(pt_name)   # 方法定义在主窗口 mixin 上
-        except Exception:
+        except AttributeError:
             pass
         # 接入后才允许记录
         if pt_name in self._tp_s3_rec_btns:
@@ -1382,7 +1382,7 @@ class TestPanelMixin:
         """断开相序仪，隐藏侧栏。"""
         try:
             self.disconnect_phase_seq_meter()
-        except Exception:
+        except AttributeError:
             pass
         for btn in self._tp_s3_rec_btns.values():
             btn.setEnabled(False)
@@ -1390,10 +1390,7 @@ class TestPanelMixin:
 
     def _on_record_psm(self, pt_name: str):
         """根据当前相序仪示数记录相序结果到服务层。"""
-        try:
-            seq = self.phase_seq_meter._sequence   # phase_seq_meter 在主窗口 mixin 上
-        except Exception:
-            seq = 'unknown'
+        seq = getattr(self.phase_seq_meter, '_sequence', 'unknown')
         if seq == 'unknown':
             self.tp_s3_fb_lbl.setText("请先接入相序仪，再记录结果。")
             return
@@ -1402,78 +1399,6 @@ class TestPanelMixin:
         self.tp_s3_fb_lbl.setText(state.feedback)
         self.tp_s3_fb_lbl.setStyleSheet(f"color:{state.feedback_color};")
         if ok and pt_name in self._tp_s3_rec_btns:
-            self._tp_s3_rec_btns[pt_name].setEnabled(False)
-        return
-        # 把相序仪结果写入 pt_phase_check_state（逐相批量写入）
-        state = self.ctrl.pt_phase_check_state
-        if not state.started:
-            self.tp_s3_fb_lbl.setText("请先点击「开始第三步测试」再记录。")
-            return
-        # ── 前置条件门禁 ───────────────────────────────────────────────────
-        if not self.ctrl.is_loop_test_complete():
-            state.feedback = "请先完成第一步【回路连通性测试】，再进行相序检查。"
-            state.feedback_color = "red"
-            return
-        if not self.ctrl.is_pt_voltage_check_complete():
-            state.feedback = "请先完成第二步【PT 单体线电压检查】，再进行相序检查。"
-            state.feedback_color = "red"
-            return
-        sim = self.ctrl.sim_state
-        from domain.enums import BreakerPosition
-        if sim.grounding_mode != "小电阻接地":
-            state.feedback = "请先恢复中性点小电阻接地，再进行相序检查。"
-            state.feedback_color = "red"
-            return
-        gen1 = sim.gen1
-        if gen1.breaker_position != BreakerPosition.WORKING or not gen1.breaker_closed:
-            state.feedback = "请先确认 Gen1 已并入母排，建立 PT1/PT2 参考电压。"
-            state.feedback_color = "red"
-            return
-        if pt_name == 'PT3':
-            gen2 = sim.gen2
-            if not gen2.running:
-                state.feedback = "测量 PT3 相序时，请先启动 Gen2（保持断路器断开）。"
-                state.feedback_color = "red"
-                return
-            if gen2.breaker_closed:
-                state.feedback = "测量 PT3 相序时，Gen2 断路器应保持断开状态。"
-                state.feedback_color = "red"
-                return
-        phase_order = ('A', 'B', 'C')
-        is_valid_seq = isinstance(seq, str) and len(seq) == 3 and set(seq) == set(phase_order)
-        is_forward_seq = seq in {'ABC', 'BCA', 'CAB'}
-        any_fail = False
-        for ph in ('A', 'B', 'C'):
-            key = f"{pt_name}_{ph}"
-            actual = seq[phase_order.index(ph)] if is_valid_seq else '?'
-            phase_match = is_valid_seq and actual == ph
-            any_fail = any_fail or (not phase_match)
-            state.records[key] = {
-                'phase_match': phase_match,
-                'reading': f"相序仪检测: {pt_name} → {seq}",
-                'actual_phase': actual,
-            }
-        if any_fail and self.ctrl.sim_state.fault_config.active:
-            self.ctrl.mark_fault_detected(step=3, source='phase_seq_meter_legacy', target=pt_name, sequence=seq)
-        self.ctrl.append_assessment_event(
-            'measurement_recorded',
-            step=3,
-            target=pt_name,
-            point='sequence',
-            value=seq,
-        )
-
-        if is_valid_seq:
-            seq_label = "正序" if is_forward_seq else "逆序"
-            result_txt = f"{seq_label}（{seq}）" + ("✓" if not any_fail else "✗")
-        else:
-            result_txt = f"异常（{seq}）✗"
-        color = "#15803d" if not any_fail else "#dc2626"
-        state.result = 'pass' if not any_fail else 'fail'
-        # 写入 state.feedback，避免下次 refresh 刷新回旧文字
-        state.feedback = f"{pt_name} 相序已记录：{result_txt}"
-        state.feedback_color = color
-        if pt_name in self._tp_s3_rec_btns:
             self._tp_s3_rec_btns[pt_name].setEnabled(False)
 
     def _on_tp_toggle_admin(self, checked):

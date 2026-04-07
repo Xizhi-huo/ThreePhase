@@ -6,6 +6,14 @@ class SystemMode:
     BLACKSTART = "黑启动"         # (预留) 全站失电后的恢复启动流程
 
 
+AVAILABLE_MODES = [
+    SystemMode.ISOLATED_BUS,
+    SystemMode.ISLAND,
+    SystemMode.GRID_TIED,
+    SystemMode.BLACKSTART,
+]
+
+
 # 断路器物理位置枚举
 class BreakerPosition:
     DISCONNECTED = "脱开位置"    # 绝缘测试用

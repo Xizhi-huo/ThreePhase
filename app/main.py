@@ -644,6 +644,11 @@ class PowerSyncController:
     def record_phase_sequence(self, pt_name: str, seq: str) -> bool:
         return self._pt_phase_svc.record_phase_sequence(pt_name, seq)
 
+    def update_pt_ratio(self, ratio_attr: str, ratio: float):
+        if ratio_attr not in {'pt_gen_ratio', 'pt3_ratio', 'pt_bus_ratio'}:
+            raise ValueError(f"Unsupported PT ratio attribute: {ratio_attr}")
+        setattr(self.sim_state, ratio_attr, ratio)
+
     # ════════════════════════════════════════════════════════════════════════
     # PT 节点解析辅助（physics_engine.py 通过 self.ctrl 调用）
     # ════════════════════════════════════════════════════════════════════════
@@ -1140,7 +1145,9 @@ class PowerSyncController:
             fc.params.get(key) is not None
             for key in (
                 'g1_blackbox_order',
+                'pt1_pri_blackbox_order',
                 'p1_pri_blackbox_order',
+                'pt1_sec_blackbox_order',
                 'pt2_sec_blackbox_order',
                 'g2_blackbox_order',
             )
@@ -1154,9 +1161,11 @@ class PowerSyncController:
         relevant_orders = []
         if fc.params.get('g1_blackbox_order') is not None:
             relevant_orders.append(self.g1_blackbox_order)
-        if fc.params.get('p1_pri_blackbox_order') is not None:
+        if (fc.params.get('pt1_pri_blackbox_order') is not None
+                or fc.params.get('p1_pri_blackbox_order') is not None):
             relevant_orders.append(self.pt1_pri_blackbox_order)
-        if fc.params.get('pt2_sec_blackbox_order') is not None:
+        if (fc.params.get('pt1_sec_blackbox_order') is not None
+                or fc.params.get('pt2_sec_blackbox_order') is not None):
             relevant_orders.append(self.pt1_sec_blackbox_order)
         if fc.params.get('g2_blackbox_order') is not None:
             relevant_orders.append(self.g2_blackbox_order)
@@ -1211,8 +1220,18 @@ class PowerSyncController:
         # E05–E14: Gen1/PT1 接线矩阵场景（通用注入）
         self.g1_blackbox_order = list(fc.params.get('g1_blackbox_order', self.g1_blackbox_order))
         self.g2_blackbox_order = list(fc.params.get('g2_blackbox_order', self.g2_blackbox_order))
-        self.pt1_pri_blackbox_order = list(fc.params.get('p1_pri_blackbox_order', self.pt1_pri_blackbox_order))
-        self.pt1_sec_blackbox_order = list(fc.params.get('pt2_sec_blackbox_order', self.pt1_sec_blackbox_order))
+        self.pt1_pri_blackbox_order = list(
+            fc.params.get(
+                'pt1_pri_blackbox_order',
+                fc.params.get('p1_pri_blackbox_order', self.pt1_pri_blackbox_order),
+            )
+        )
+        self.pt1_sec_blackbox_order = list(
+            fc.params.get(
+                'pt1_sec_blackbox_order',
+                fc.params.get('pt2_sec_blackbox_order', self.pt1_sec_blackbox_order),
+            )
+        )
 
         pt1_order = fc.params.get('pt1_phase_order')
         if pt1_order:
@@ -1230,7 +1249,16 @@ class PowerSyncController:
 
         if scenario_id == 'E02':
             self.sync_g2_blackbox_to_phase_orders()
-        if scenario_id.startswith('E0') and scenario_id not in ('', 'E01', 'E02', 'E03', 'E04'):
+        if any(
+                fc.params.get(key) is not None
+                for key in (
+                    'g1_blackbox_order',
+                    'pt1_phase_order',
+                    'pt1_pri_blackbox_order',
+                    'p1_pri_blackbox_order',
+                    'pt1_sec_blackbox_order',
+                    'pt2_sec_blackbox_order',
+                )):
             self.sync_pt1_blackbox_to_phase_orders()
 
     def repair_fault(self, step: int = 4, source: str = 'repair_fault'):

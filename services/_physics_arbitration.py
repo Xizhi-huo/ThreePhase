@@ -49,9 +49,9 @@ class ArbitrationMixin:
         if not g1_on_bus and not g2_on_bus:
             self.bus_reference_gen = None
         elif self.bus_reference_gen == 1 and g1_on_bus:
-            pass
+            pass  # 基准不变，保持 Gen1
         elif self.bus_reference_gen == 2 and g2_on_bus:
-            pass
+            pass  # 基准不变，保持 Gen2
         elif g1_on_bus:
             self.bus_reference_gen = 1
         elif g2_on_bus:
@@ -270,8 +270,3 @@ class ArbitrationMixin:
                     if _attr == 'phase_deg':
                         _new = round(((_new + 180.0) % 360.0) - 180.0, 3)
                     setattr(_gen, _attr, _new)
-
-        # ── E05 暂时禁用：Fix 3 强制幅值锁定注释掉 ──────────────────────
-        # fc = sim.fault_config
-        # if fc.active and not fc.repaired and fc.scenario_id == 'E05':
-        #     sim.gen2.amp = fc.params.get('gen2_amp', 13000.0)

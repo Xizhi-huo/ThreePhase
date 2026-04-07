@@ -98,6 +98,8 @@ class MeasurementMixin:
 
     def _resolve_terminal_actual_phase(self, pt_name: str, terminal: str) -> str:
         """将 PT 端子标签（A/B/C）解析为实际物理相（受 pt_phase_orders 与 fault_reverse_bc 影响）。"""
+        if terminal not in ('A', 'B', 'C'):
+            raise ValueError(f"Unsupported terminal label: {terminal}")
         idx = ('A', 'B', 'C').index(terminal)
         phase = self.ctrl.pt_phase_orders[pt_name][idx]
         # fault_reverse_bc 物理上对调 Gen2 B/C 绕组；
@@ -121,271 +123,246 @@ class MeasurementMixin:
         else:
             self.pt3_v = a2 / sim.pt3_ratio
 
+    def _handle_loop_measurement(self, sim, n1, n2, info1, info2):
+        loop_done = self.ctrl.loop_test_state.completed
+        if (sim.gen1.running or sim.gen2.running) and not loop_done:
+            self.meter_status = "invalid"
+            self.meter_color = "red"
+            self.meter_reading = "⚠ 危险：发电机运行中，通断测试须先停机，高压将损坏万用表"
+        elif sim.grounding_mode != "断开" and not loop_done:
+            self.meter_status = "invalid"
+            self.meter_color = "red"
+            self.meter_reading = "通断测试前请先断开中性点接地（防止通过中性点形成寄生回路）"
+        elif not (sim.gen1.breaker_closed and sim.gen2.breaker_closed) and not loop_done:
+            self.meter_status = "invalid"
+            self.meter_color = "red"
+            self.meter_reading = "通断测试前请先闭合 Gen1 和 Gen2 断路器（使被测回路形成完整通路）"
+        elif info1[2] == info2[2]:
+            self.meter_status = "invalid"
+            self.meter_reading = "请分别选择 G1 与 G2 的三相回路测点进行比较"
+        else:
+            phase1 = self.ctrl.resolve_loop_node_phase(n1)
+            phase2 = self.ctrl.resolve_loop_node_phase(n2)
+            self.meter_nodes = (n1, n2)
+            fc = sim.fault_config
+            if phase1 == phase2:
+                self.meter_status = "ok"
+                self.meter_color = "green"
+                self.meter_reading = f"通路 [≈0Ω / 蜂鸣] — {info1[4]} ↔ {info2[4]} 导通"
+            else:
+                self.meter_status = "danger"
+                self.meter_color = "red"
+                hint = "（检测到接线异常）"
+                if self.ctrl.should_show_diagnostic_hints():
+                    hint = f"（疑似接线错误，请检查 {info2[4].split()[0]} 侧接线）"
+                self.meter_reading = (
+                    f"断路 [∞Ω / 无蜂鸣] — {info1[4]} ↔ {info2[4]} 不通"
+                    f"{hint}"
+                )
+                if (fc.active and not fc.repaired
+                        and (fc.scenario_id in ('E01', 'E02')
+                             or fc.params.get('g1_loop_swap')
+                             or fc.params.get('g2_loop_swap'))):
+                    self.ctrl.mark_fault_detected(
+                        step=1,
+                        source='loop_measurement',
+                        target='loop',
+                        point=f'{phase1}:{phase2}',
+                    )
+
+    def _handle_intra_pt_measurement(self, sim, n1, n2, info1, info2, pt_name, ph1, ph2):
+        _sim_r = self.ctrl.sim_state
+        _pt_ratio = (_sim_r.pt_gen_ratio if pt_name == 'PT1'
+                     else _sim_r.pt3_ratio if pt_name == 'PT3'
+                     else _sim_r.pt_bus_ratio)
+        if pt_name == 'PT1':
+            _pt_line_v = self.pt1_v
+        elif pt_name == 'PT3':
+            _pt_line_v = self.pt3_v
+        else:
+            _pt_line_v = self.pt2_v
+
+        meter_v = self._compute_intra_pt_voltage(pt_name, ph1, ph2, _pt_line_v, sim)
+        self.meter_voltage = meter_v
+        self.meter_nodes = (n1, n2)
+        _fc_e04 = _sim_r.fault_config
+        if (pt_name == 'PT3' and _fc_e04.active and not _fc_e04.repaired
+                and _fc_e04.scenario_id == 'E04'):
+            _pt_ratio = 11000.0 / 193.0
+
+        _ok_lo = 8925.0 / _pt_ratio
+        _ok_hi = 12075.0 / _pt_ratio
+        if _ok_lo <= meter_v <= _ok_hi:
+            self.meter_status = "ok"
+            self.meter_color = "green"
+        elif meter_v < 1.0:
+            self.meter_status = "idle"
+            self.meter_color = "black"
+        else:
+            self.meter_status = "danger"
+            self.meter_color = "red"
+
+        primary_display = meter_v * _pt_ratio
+        fc = sim.fault_config
+        if (fc.active and not fc.repaired
+                and pt_name == 'PT3'
+                and self.meter_status == 'danger'):
+            if fc.scenario_id == 'E04':
+                self.ctrl.mark_fault_detected(
+                    step=2,
+                    source='pt_voltage_measurement',
+                    target='PT3',
+                    point=f'{ph1}{ph2}',
+                )
+            elif fc.scenario_id == 'E03' and 'A' in (ph1, ph2):
+                self.ctrl.mark_fault_detected(
+                    step=2,
+                    source='pt_voltage_measurement',
+                    target='PT3',
+                    point=f'{ph1}{ph2}',
+                )
+
+        warn_icon = (" ⚠️" if self.meter_status == 'danger'
+                     and fc.active and not fc.repaired
+                     and fc.scenario_id in ('E03', 'E04')
+                     and pt_name == 'PT3' else "")
+        self.meter_reading = (
+            f"线电压: {info1[4]} ↔ {info2[4]} | "
+            f"一次侧={primary_display/1000:.2f} kV"
+            f"（二次侧={meter_v:.1f} V）"
+            + ("  [正常]" if self.meter_status == "ok" else
+               f"  [异常]{warn_icon}" if self.meter_status == "danger" else "  [无电压]")
+        )
+
+    def _handle_cross_pt_measurement(self, sim, n1, n2):
+        gen_node = n1 if not n1.startswith('PT2_') else n2
+        bus_node = n2 if not n1.startswith('PT2_') else n1
+        gen_pt_name = gen_node.split('_')[0]
+        gen_term = gen_node.split('_')[1]
+        bus_phase = bus_node.split('_')[1]
+
+        gen_phase_actual = self._resolve_terminal_actual_phase(gen_pt_name, gen_term)
+        bus_phase_actual = self._resolve_terminal_actual_phase('PT2', bus_phase)
+        sqrt3 = np.sqrt(3)
+        gen_line = self.pt1_v if gen_pt_name == 'PT1' else self.pt3_v
+        bus_line = self.pt2_v
+        gen_ph = gen_line / sqrt3
+        bus_ph = bus_line / sqrt3
+        fc = sim.fault_config
+        is_same_phase = (gen_phase_actual == bus_phase_actual)
+
+        e03_active = (fc.active and not fc.repaired
+                      and fc.scenario_id == 'E03'
+                      and gen_pt_name == 'PT3' and gen_term == 'A')
+        if e03_active:
+            if bus_phase_actual == gen_phase_actual:
+                meter_v = gen_ph + bus_ph
+            else:
+                meter_v = np.sqrt(max(0.0, gen_ph**2 + bus_ph**2 - gen_ph * bus_ph))
+        elif is_same_phase:
+            meter_v = abs(gen_ph - bus_ph)
+        else:
+            meter_v = np.sqrt(max(0.0, gen_ph**2 + bus_ph**2 + gen_ph * bus_ph))
+
+        if fc.active and not fc.repaired:
+            if e03_active:
+                self.ctrl.mark_fault_detected(
+                    step=4,
+                    source='pt_exam_measurement',
+                    target=gen_pt_name,
+                    point=f'{gen_term}-{bus_phase}',
+                )
+            elif fc.scenario_id == 'E04' and gen_pt_name == 'PT3' and is_same_phase:
+                self.ctrl.mark_fault_detected(
+                    step=4,
+                    source='pt_exam_measurement',
+                    target=gen_pt_name,
+                    point=f'{gen_term}-{bus_phase}',
+                )
+            elif (gen_pt_name == 'PT1'
+                  and fc.params.get('pt1_phase_order') is not None
+                  and not is_same_phase):
+                self.ctrl.mark_fault_detected(
+                    step=4,
+                    source='pt_exam_measurement',
+                    target=gen_pt_name,
+                    point=f'{gen_term}-{bus_phase}',
+                )
+
+        self.meter_phase_match = False if e03_active else is_same_phase
+        self.meter_voltage = meter_v
+        self.meter_nodes = (n1, n2)
+        self.meter_color = "green"
+        self.meter_status = "ok"
+        warn = (" ⚠️" if fc.active and not fc.repaired
+                and fc.scenario_id in ('E03', 'E04')
+                and gen_pt_name == 'PT3'
+                and meter_v > (5.0 if is_same_phase else 200.0) else "")
+        same_tag = "同相" if is_same_phase else "跨相"
+        self.meter_reading = (
+            f"{gen_pt_name}_{gen_term} ↔ PT2_{bus_phase} | {same_tag}{warn}"
+            f" | 机组相电压={gen_ph:.2f} V  母排相电压={bus_ph:.2f} V"
+            f"  压差={meter_v:.2f} V"
+        )
+
     def _update_multimeter(self, sim):
-        _UI_NODES = NODES
+        ui_nodes = NODES
 
-        self.meter_color            = "black"
-        self.meter_voltage          = None
-        self.meter_status           = "idle"
-        self.meter_nodes            = None
-        self.meter_phase_match      = None
+        self.meter_color = "black"
+        self.meter_voltage = None
+        self.meter_status = "idle"
+        self.meter_nodes = None
+        self.meter_phase_match = None
 
-        # 当探针位置变化时重置 EMA，避免切换测点后示值拖尾
-        _cur_probes = (sim.probe1_node, sim.probe2_node)
+        cur_probes = (sim.probe1_node, sim.probe2_node)
         if not hasattr(self, '_meter_last_probes'):
-            self._meter_last_probes = _cur_probes
-        if _cur_probes != self._meter_last_probes:
+            self._meter_last_probes = cur_probes
+        if cur_probes != self._meter_last_probes:
             self._ema_reset('intra_diff', 'cross_rms1', 'cross_rms2')
-            self._meter_last_probes = _cur_probes
+            self._meter_last_probes = cur_probes
 
         if sim.multimeter_mode:
             n1, n2 = sim.probe1_node, sim.probe2_node
             if n1 and n2:
-                info1, info2 = _UI_NODES[n1], _UI_NODES[n2]
+                if n1 not in ui_nodes or n2 not in ui_nodes:
+                    self.meter_status = "invalid"
+                    self.meter_color = "red"
+                    self.meter_reading = "测量无效: 探针未连接到合法测点"
+                    return
+                info1, info2 = ui_nodes[n1], ui_nodes[n2]
                 loop_pair = info1[2].startswith('Loop') and info2[2].startswith('Loop')
                 valid_pairs = {
                     frozenset({f'PT{gn}_{gp}', f'PT2_{bp}'})
                     for gn in (1, 3) for gp in 'ABC' for bp in 'ABC'
                 }
-                # 检查是否为同一 PT 内的线电压测量（如 PT1_A ↔ PT1_B）
-                _pt1 = n1.rsplit('_', 1)[0] if '_' in n1 else ''
-                _pt2 = n2.rsplit('_', 1)[0] if '_' in n2 else ''
-                _ph1 = n1.rsplit('_', 1)[1] if '_' in n1 else ''
-                _ph2 = n2.rsplit('_', 1)[1] if '_' in n2 else ''
+                pt1 = n1.rsplit('_', 1)[0] if '_' in n1 else ''
+                pt2 = n2.rsplit('_', 1)[0] if '_' in n2 else ''
+                ph1 = n1.rsplit('_', 1)[1] if '_' in n1 else ''
+                ph2 = n2.rsplit('_', 1)[1] if '_' in n2 else ''
                 intra_pt_pair = (
-                    _pt1 == _pt2 and
-                    _pt1 in ('PT1', 'PT2', 'PT3') and
-                    _ph1 in ('A', 'B', 'C') and
-                    _ph2 in ('A', 'B', 'C') and
-                    _ph1 != _ph2
+                    pt1 == pt2 and
+                    pt1 in ('PT1', 'PT2', 'PT3') and
+                    ph1 in ('A', 'B', 'C') and
+                    ph2 in ('A', 'B', 'C') and
+                    ph1 != ph2
                 )
                 if loop_pair:
-                    loop_done = self.ctrl.loop_test_state.completed
-                    # 安全前提：发电机运行时有高压，通断测试会损坏万用表
-                    if (sim.gen1.running or sim.gen2.running) and not loop_done:
-                        self.meter_status = "invalid"
-                        self.meter_color = "red"
-                        self.meter_reading = "⚠ 危险：发电机运行中，通断测试须先停机，高压将损坏万用表"
-                    elif sim.grounding_mode != "断开" and not loop_done:
-                        self.meter_status = "invalid"
-                        self.meter_color = "red"
-                        self.meter_reading = "通断测试前请先断开中性点接地（防止通过中性点形成寄生回路）"
-                    elif not (sim.gen1.breaker_closed and sim.gen2.breaker_closed) and not loop_done:
-                        self.meter_status = "invalid"
-                        self.meter_color = "red"
-                        self.meter_reading = "通断测试前请先闭合 Gen1 和 Gen2 断路器（使被测回路形成完整通路）"
-                    elif info1[2] == info2[2]:
-                        self.meter_status = "invalid"
-                        self.meter_reading = "请分别选择 G1 与 G2 的三相回路测点进行比较"
-                    else:
-                        phase1 = self.ctrl.resolve_loop_node_phase(n1)
-                        phase2 = self.ctrl.resolve_loop_node_phase(n2)
-                        self.meter_nodes = (n1, n2)
-                        fc = sim.fault_config
-                        if phase1 == phase2:
-                            self.meter_status = "ok"
-                            self.meter_color = "green"
-                            self.meter_reading = (
-                                f"通路 [≈0Ω / 蜂鸣] — {info1[4]} ↔ {info2[4]} 导通"
-                            )
-                        else:
-                            self.meter_status = "danger"
-                            self.meter_color = "red"
-                            hint = "（检测到接线异常）"
-                            if self.ctrl.should_show_diagnostic_hints():
-                                hint = f"（疑似接线错误，请检查 {info2[4].split()[0]} 侧接线）"
-                            self.meter_reading = (
-                                f"断路 [∞Ω / 无蜂鸣] — {info1[4]} ↔ {info2[4]} 不通"
-                                f"{hint}"
-                            )
-                            # 故障检测：回路断路时触发
-                            # E01/E02 硬编码；E05–E14 通用：有 g1_loop_swap 参数的场景均触发
-                            if (fc.active and not fc.repaired
-                                    and (fc.scenario_id in ('E01', 'E02')
-                                         or fc.params.get('g1_loop_swap')
-                                         or fc.params.get('g2_loop_swap'))):
-                                self.ctrl.mark_fault_detected(
-                                    step=1,
-                                    source='loop_measurement',
-                                    target='loop',
-                                    point=f'{phase1}:{phase2}',
-                                )
+                    self._handle_loop_measurement(sim, n1, n2, info1, info2)
                 elif intra_pt_pair:
-                    # 同一 PT 内两相线电压测量（第二步 PT 单体线电压检查）
-                    _pt_name = _pt1   # 两探针同 PT
-                    _sim_r = self.ctrl.sim_state
-                    _pt_ratio = (_sim_r.pt_gen_ratio if _pt_name == 'PT1'
-                                 else _sim_r.pt3_ratio if _pt_name == 'PT3'
-                                 else _sim_r.pt_bus_ratio)
-                    if _pt_name == 'PT1':
-                        _pt_line_v = self.pt1_v
-                    elif _pt_name == 'PT3':
-                        _pt_line_v = self.pt3_v
-                    else:
-                        _pt_line_v = self.pt2_v
-                    # 通用相量差计算：支持相序调换（E01/E02）和极性反接（E03）
-                    meter_v = self._compute_intra_pt_voltage(_pt_name, _ph1, _ph2, _pt_line_v, sim)
-                    self.meter_voltage = meter_v
-                    self.meter_nodes = (n1, n2)
-                    # E04：阈值使用额定变比（故障是硬件变比与铭牌不符，铭牌值56.99应为参考基准）
-                    _fc_e04 = _sim_r.fault_config
-                    if (_pt_name == 'PT3' and _fc_e04.active and not _fc_e04.repaired
-                            and _fc_e04.scenario_id == 'E04'):
-                        _pt_ratio = 11000.0 / 193.0
-                    # ±15% 容差：均以一次侧 [8925V, 12075V] 为基准折算到各 PT 二次侧
-                    _ok_lo = 8925.0 / _pt_ratio
-                    _ok_hi = 12075.0 / _pt_ratio
-                    if _ok_lo <= meter_v <= _ok_hi:
-                        self.meter_status = "ok"
-                        self.meter_color = "green"
-                    elif meter_v < 1.0:
-                        self.meter_status = "idle"
-                        self.meter_color = "black"
-                    else:
-                        self.meter_status = "danger"
-                        self.meter_color = "red"
-                    primary_display = meter_v * _pt_ratio   # 换算回一次侧
-                    # E03/E04 故障检测：PT3 intra-PT 测量显示异常时触发
-                    # E03: PT3_AB/CA（含 A 端子）线电压降至相电压，偏低约 42%
-                    # E04: PT3 变比铭牌错误，所有三对均偏低
-                    # E05 暂时禁用
-                    fc = sim.fault_config
-                    if (fc.active and not fc.repaired
-                            and _pt_name == 'PT3'
-                            and self.meter_status == 'danger'):
-                        if fc.scenario_id in ('E04',):  # 'E05' disabled
-                            self.ctrl.mark_fault_detected(
-                                step=2,
-                                source='pt_voltage_measurement',
-                                target='PT3',
-                                point=f'{_ph1}{_ph2}',
-                            )
-                        elif fc.scenario_id == 'E03' and 'A' in (_ph1, _ph2):
-                            self.ctrl.mark_fault_detected(
-                                step=2,
-                                source='pt_voltage_measurement',
-                                target='PT3',
-                                point=f'{_ph1}{_ph2}',
-                            )
-                    _warn_icon = (" ⚠️" if self.meter_status == 'danger'
-                                  and fc.active and not fc.repaired
-                                  and fc.scenario_id in ('E03', 'E04')  # 'E05' disabled
-                                  and _pt_name == 'PT3' else "")
-                    self.meter_reading = (
-                        f"线电压: {info1[4]} ↔ {info2[4]} | "
-                        f"一次侧={primary_display/1000:.2f} kV"
-                        f"（二次侧={meter_v:.1f} V）"
-                        + ("  [正常]" if self.meter_status == "ok" else
-                           f"  [异常]{_warn_icon}" if self.meter_status == "danger" else "  [无电压]")
-                    )
+                    self._handle_intra_pt_measurement(sim, n1, n2, info1, info2, pt1, ph1, ph2)
                 elif frozenset({n1, n2}) in valid_pairs:
-                    # 确定机组节点（PT1/PT3）和母排节点（PT2）
-                    gen_node       = n1 if not n1.startswith('PT2_') else n2
-                    bus_node       = n2 if not n1.startswith('PT2_') else n1
-                    gen_pt_name    = gen_node.split('_')[0]   # 'PT1' 或 'PT3'
-                    gen_term       = gen_node.split('_')[1]   # 端子标签 'A'/'B'/'C'
-                    bus_phase      = bus_node.split('_')[1]   # 'A'/'B'/'C'
-
-                    # 将 PT 端子标签解析为实际物理相
-                    # 受 pt_phase_orders 影响（E01/E02 通过修改 pt_phase_orders 注入）
-                    gen_phase_actual = self._resolve_terminal_actual_phase(gen_pt_name, gen_term)
-                    bus_phase_actual = self._resolve_terminal_actual_phase('PT2', bus_phase)
-                    # PT2 正常时 bus_phase_actual == bus_phase
-
-                    # PT 二次侧线电压 → 相电压（÷√3）
-                    _SQRT3 = np.sqrt(3)
-                    gen_line = self.pt1_v if gen_pt_name == 'PT1' else self.pt3_v
-                    bus_line = self.pt2_v
-                    gen_ph = gen_line / _SQRT3   # 机组侧相电压（幅值）
-                    bus_ph = bus_line / _SQRT3   # 母排侧相电压（幅值）
-                    fc = sim.fault_config
-                    is_same_phase = (gen_phase_actual == bus_phase_actual)
-
-                    # ── E03：PT3 A 相极性反接 ────────────────────────────
-                    # PT3 A 端子实际输出 −VA，需修正矢量计算：
-                    #   同相(AA): |(-VA) - VA| = 2VA ≈ 212V
-                    #   异相(AB/AC): cos 角变为 60° → sqrt(VA²+VB²−VA·VB) ≈ 106V
-                    _e03_active = (fc.active and not fc.repaired
-                                   and fc.scenario_id == 'E03'
-                                   and gen_pt_name == 'PT3' and gen_term == 'A')
-                    if _e03_active:
-                        if bus_phase_actual == gen_phase_actual:   # AA
-                            # (-gen_ph∠0°) - (bus_ph∠0°) = -(gen_ph + bus_ph)
-                            meter_v = gen_ph + bus_ph
-                        else:                                       # AB or AC
-                            # reversed_A(180°) 与 B/C(240°/120°) 夹角 60°
-                            meter_v = np.sqrt(max(0.0,
-                                gen_ph**2 + bus_ph**2 - gen_ph * bus_ph))
-                    elif is_same_phase:
-                        # 同相：绝对差值（幅值差）
-                        meter_v = abs(gen_ph - bus_ph)
-                    else:
-                        # 异相：三相系统内相间角固定 120°，cos(120°)=-0.5
-                        # |V1∠α − V2∠β|² = V1² + V2² − 2V1V2·cos(±120°)
-                        #                  = V1² + V2² + V1·V2
-                        meter_v = np.sqrt(max(0.0,
-                            gen_ph**2 + bus_ph**2 + gen_ph * bus_ph))
-
-                    # ── 故障检测触发 ─────────────────────────────────────
-                    # E03: PT3_A↔PT2_A 测量时，压差异常偏大 → 检测
-                    # E04: PT3 感知到异常（由 _update_pt_measurements 修改 pt3_v，
-                    #      Step2 intra-PT 已会触发 danger；Step4 同相压差也会异常）
-                    # E05 暂时禁用
-                    if fc.active and not fc.repaired:
-                        if _e03_active:   # PT3_A 测量（任何对端）均触发检测
-                            self.ctrl.mark_fault_detected(
-                                step=4,
-                                source='pt_exam_measurement',
-                                target=gen_pt_name,
-                                point=f'{gen_term}-{bus_phase}',
-                            )
-                        # elif fc.scenario_id == 'E05' and gen_pt_name == 'PT3' and is_same_phase:
-                        #     if meter_v > 20.0:   # 正常同相压差 < 5V，超 20V 说明幅值异常
-                        #         fc.detected = True
-                        elif fc.scenario_id == 'E04' and gen_pt_name == 'PT3' and is_same_phase:
-                            # E04 在 step4 同相压差异常时辅助检测（主要检测在 step2 intra-PT）
-                            self.ctrl.mark_fault_detected(
-                                step=4,
-                                source='pt_exam_measurement',
-                                target=gen_pt_name,
-                                point=f'{gen_term}-{bus_phase}',
-                            )
-                        elif (gen_pt_name == 'PT1'
-                              and fc.params.get('pt1_phase_order') is not None
-                              and not is_same_phase):
-                            # E05–E14 通用：PT1 端子与 Bus 相位不匹配时触发检测
-                            # 覆盖 E06/E07/E11（步骤一无断路，仅步骤四才暴露）
-                            # E08 全部同相，不触发；E05/E09/E10/E12/E13/E14 已在步骤一检测
-                            self.ctrl.mark_fault_detected(
-                                step=4,
-                                source='pt_exam_measurement',
-                                target=gen_pt_name,
-                                point=f'{gen_term}-{bus_phase}',
-                            )
-
-                    # E03：PT3 A 端子极性反接 = 180° 反相，等同于相位不匹配
-                    self.meter_phase_match = False if _e03_active else is_same_phase
-                    self.meter_voltage = meter_v
-                    self.meter_nodes   = (n1, n2)
-                    self.meter_color   = "green"
-                    self.meter_status  = "ok"
-                    # 故障时附加警告图标
-                    _warn = (" ⚠️" if fc.active and not fc.repaired
-                             and fc.scenario_id in ('E03', 'E04')  # 'E05' disabled
-                             and gen_pt_name == 'PT3'
-                             and meter_v > (5.0 if is_same_phase else 200.0) else "")
-                    same_tag = "同相" if is_same_phase else "跨相"
-                    self.meter_reading = (
-                        f"{gen_pt_name}_{gen_term} ↔ PT2_{bus_phase} | {same_tag}{_warn}"
-                        f" | 机组相电压={gen_ph:.2f} V  母排相电压={bus_ph:.2f} V"
-                        f"  压差={meter_v:.2f} V"
-                    )
+                    self._handle_cross_pt_measurement(sim, n1, n2)
                 else:
                     self.meter_status = "invalid"
                     self.meter_reading = "测量无效: PT压差请测 PT 二次端子；回路演示请测 G1/G2 三相回路测点"
             elif n1:
-                self.meter_status = "waiting"
-                self.meter_reading = f"已连接 {_UI_NODES[n1][4]}, 等待放置黑表笔..."
+                if n1 in ui_nodes:
+                    self.meter_status = "waiting"
+                    self.meter_reading = f"已连接 {ui_nodes[n1][4]}, 等待放置黑表笔..."
+                else:
+                    self.meter_status = "invalid"
+                    self.meter_color = "red"
+                    self.meter_reading = "测量无效: 探针未连接到合法测点"
             else:
                 self.meter_status = "waiting"
                 self.meter_reading = "请用鼠标点击 PT 二次端子或 G1/G2 三相回路测点进行测量"

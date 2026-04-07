@@ -764,21 +764,6 @@ class CircuitTabMixin:
             self.probe2_plot.set_data([], [])
             self.multimeter_widget.setVisible(False)
 
-        # ── 回路连通测试电流动画（已禁用）────────────────────────────────────────
-        # 导通绿色流动球与断路红色 X 路径动画已注释。
-        # 学员须通过万用表面板读数（导通: 0.0 Ω，断路: 不导通）来判断通断状态。
-        # _PHASE_CLR_MPL = {'A': '#b45309', 'B': '#1a9c3c', 'C': '#d62828'}
-        # mn = p.meter_nodes
-        # ms = p.meter_status
-        # loop_done = self.ctrl.loop_test_state.completed
-        # is_loop = (mn and not loop_done and
-        #            mn[0] and mn[0].startswith('LOOP_G') and
-        #            mn[1] and mn[1].startswith('LOOP_G'))
-        # if is_loop:
-        #     n1, n2 = mn
-        #     ...（导通绿色流动球 + 断路红色 X 动画，全部已注释）...
-        # else:
-        #     self._clear_loop_anim()
         self._clear_loop_anim()
 
     def _clear_loop_anim(self):

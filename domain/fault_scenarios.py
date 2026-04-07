@@ -14,11 +14,11 @@ domain/fault_scenarios.py
   - params       : 故障注入参数（由控制器读取）
   - repair_prompt: 虚拟修复确认对话框文案
 
-命名约定说明（兼容旧场景键名）：
-  - `p1_pri_blackbox_order` 对应控制器运行态 `pt1_pri_blackbox_order`
-  - `pt2_sec_blackbox_order` 对应控制器运行态 `pt1_sec_blackbox_order`
-上述 params 键名保留是为了兼容历史场景定义；新增场景时不要把 `pt2_sec_blackbox_order`
-误解为 PT2 自身的二次侧，而应理解为“PT1 二次侧黑盒本级置换”的历史键名。
+命名约定说明：
+  - `pt1_pri_blackbox_order` 对应控制器运行态 `pt1_pri_blackbox_order`
+  - `pt1_sec_blackbox_order` 对应控制器运行态 `pt1_sec_blackbox_order`
+兼容历史场景定义时，控制器仍会回退读取旧键名 `p1_pri_blackbox_order` /
+`pt2_sec_blackbox_order`，但新增场景统一使用 `pt1_*` 前缀。
 """
 
 SCENARIOS: dict = {
@@ -187,8 +187,8 @@ SCENARIOS: dict = {
             'g1_loop_swap': ('A', 'B'),
 
             'g1_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保G1/PT1一致反序
-            'p1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
-            'pt2_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
+            'pt1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt1_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
         },
 
         'repair_prompt': (
@@ -221,8 +221,8 @@ SCENARIOS: dict = {
         'params': {
             'pt1_phase_order': ['B', 'A', 'C'],
 
-            'p1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
-            'pt2_sec_blackbox_order': ['A', 'B', 'C'],   # 仅一次侧错接，二次侧保持正序
+            'pt1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt1_sec_blackbox_order': ['A', 'B', 'C'],   # 仅一次侧错接，二次侧保持正序
         },
         'repair_prompt': (
             '已定位故障：PT1一次侧A/B相端子对调。\n\n'
@@ -252,8 +252,8 @@ SCENARIOS: dict = {
         'params': {
             'pt1_phase_order': ['B', 'A', 'C'],
 
-            'p1_pri_blackbox_order': ['A', 'B', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
-            'pt2_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
+            'pt1_pri_blackbox_order': ['A', 'B', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt1_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
         },
         'repair_prompt': (
             '已定位故障：PT1二次侧端子排A/B相对调。\n\n'
@@ -284,8 +284,8 @@ SCENARIOS: dict = {
         'params': {
             'pt1_phase_order': ['A', 'B', 'C'],   # 净效果正常，隐性错误
 
-            'p1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
-            'pt2_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
+            'pt1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt1_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
         },
         'repair_prompt': (
             '已定位隐性故障：PT1一次侧与二次侧均存在A/B相对调，两错相消后测量正常。\n\n'
@@ -319,8 +319,8 @@ SCENARIOS: dict = {
             'g1_loop_swap': ('A', 'B'),
 
             'g1_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保G1/PT1一致反序
-            'p1_pri_blackbox_order': ['A', 'B', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
-            'pt2_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
+            'pt1_pri_blackbox_order': ['A', 'B', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt1_sec_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
         },
         'repair_prompt': (
             '已定位故障：Gen1机端A/B相对调，PT1二次侧A/B相对调（两处跨层错误）。\n\n'
@@ -353,8 +353,8 @@ SCENARIOS: dict = {
             'pt1_phase_order': ['A', 'B', 'C'],   # 净效果正序，但Bus与PT不同相
             'g1_loop_swap': ('A', 'B'),
             'g1_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保G1/PT1一致反序
-            'p1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
-            'pt2_sec_blackbox_order': ['A', 'B', 'C'],   # 仅一次侧错接，二次侧保持正序
+            'pt1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt1_sec_blackbox_order': ['A', 'B', 'C'],   # 仅一次侧错接，二次侧保持正序
 
         },
         'repair_prompt': (
@@ -390,8 +390,8 @@ SCENARIOS: dict = {
         'params': {
             'pt1_phase_order': ['B', 'C', 'A'],   # CAB轮换，相序仪仍显正序
 
-            'p1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
-            'pt2_sec_blackbox_order': ['A', 'C', 'B'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
+            'pt1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt1_sec_blackbox_order': ['A', 'C', 'B'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
         },
         'repair_prompt': (
             '已定位故障：PT1一次侧A/B相对调，PT1二次侧B/C相对调（两处不同换位合成三轮换）。\n\n'
@@ -428,8 +428,8 @@ SCENARIOS: dict = {
             'g1_loop_swap': ('A', 'B'),
 
             'g1_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保G1/PT1一致反序
-            'p1_pri_blackbox_order': ['A', 'B', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
-            'pt2_sec_blackbox_order': ['A', 'C', 'B'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
+            'pt1_pri_blackbox_order': ['A', 'B', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt1_sec_blackbox_order': ['A', 'C', 'B'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序
         },
         'repair_prompt': (
             '已定位故障：Gen1机端A/B相对调，PT1二次侧B/C相对调。\n\n'
@@ -464,8 +464,8 @@ SCENARIOS: dict = {
             'pt1_phase_order': ['B', 'C', 'A'],
             'g1_loop_swap': ('A', 'B'),
             'g1_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保G1/PT1一致反序
-            'p1_pri_blackbox_order': ['A', 'C', 'B'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
-            'pt2_sec_blackbox_order': ['A', 'B', 'C'],  
+            'pt1_pri_blackbox_order': ['A', 'C', 'B'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt1_sec_blackbox_order': ['A', 'B', 'C'],
         },
         'repair_prompt': (
             '已定位故障：Gen1机端A/B相对调，PT1一次侧B/C相对调。\n\n'
@@ -502,8 +502,8 @@ SCENARIOS: dict = {
             'pt1_phase_order': ['A', 'B', 'C'],   # 净效果正序，三错相消
             'g1_loop_swap': ('A', 'B'),
             'g1_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保G1/PT1一致反序
-            'p1_pri_blackbox_order': ['A', 'C', 'B'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
-            'pt2_sec_blackbox_order': ['C', 'A', 'B'],    
+            'pt1_pri_blackbox_order': ['A', 'C', 'B'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
+            'pt1_sec_blackbox_order': ['C', 'A', 'B'],
             
         },
         'repair_prompt': (
@@ -517,62 +517,4 @@ SCENARIOS: dict = {
     },
 
     # ── 暂时禁用（开发中）────────────────────────────────────────────────────
-    # 'E15': {  # 原E05
-    #     'title': 'E05 — Gen2 电压调节器故障（过电压）',
-    #     'category': 'III',
-    #     'label': '数值异常',
-    #     'description': (
-    #         'Gen2 电压调节器故障，运行电压固定在 13000V（正常额定 10500V），'
-    #         '电压偏差约 +23.8%，超出并网电压容差 ±4.8%（±500V）。'
-    #         '第四步同相压差偏大，第五步同期检查无法通过电压幅值校核。'
-    #     ),
-    #     'symptom': (
-    #         '第二步：PT3 线电压约 228V（正常约 184V），显示红色【异常】。\n'
-    #         '第四步：PT3_A↔PT2_A ≈ 71V（应≈0V），所有同相压差均偏大。\n'
-    #         '第五步：同步仪电压差超出容差，仲裁器无法完成幅值同步。'
-    #     ),
-    #     'affected_steps': [2, 4, 5],
-    #     'detection_step': 2,
-    #     'danger_level': 'recoverable',
-    #     'params': {
-    #         'gen2_amp': 13000.0,   # Gen2 注入后锁定的异常电压幅值（V）
-    #     },
-    #     'repair_prompt': (
-    #         '已定位故障：Gen2 电压调节器故障，运行电压偏高约 13000V（超出额定 +23.8%）。\n\n'
-    #         '修复方法：检修 Gen2 电压调节器（AVR），恢复至额定 10500V 输出。\n\n'
-    #         '点击【确认修复】继续测试流程（Gen2 电压将恢复至额定值）。'
-    #     ),
-    # },
-
-    # ── E16 暂时禁用（开发中）────────────────────────────────────────────────
-    # 'E16': {
-    #     'title': 'E16 — 强行并网（非同期合闸危险操作）',
-    #     'category': 'IV',
-    #     'label': '危险操作',
-    #     'description': (
-    #         'Gen2 自动相位追踪功能失效：仲裁器无法捕获相角，导致自动同期无法完成。'
-    #         '正确操作：学员应识别异常并拒绝合闸，上报故障。'
-    #         '危险操作：若强行点击「非同期合闸」按钮，将触发短路冲击电流事故模拟。'
-    #     ),
-    #     'symptom': (
-    #         '第五步：Gen2 相位追踪停止，相角差无法收敛至 0°，同步仪相位差持续振荡。\n'
-    #         '仲裁器显示「Gen2 相角追踪故障，无法自动同期！」\n'
-    #         '若强行合闸：触发短路冲击电流，断路器跳闸，系统产生事故报告。'
-    #     ),
-    #     'affected_steps': [5],
-    #     'detection_step': 5,
-    #     'danger_level': 'accident',
-    #     'params': {
-    #         'phase_track_disabled': True,   # 禁止 Gen2 自动相位追踪
-    #     },
-    #     'repair_prompt': (
-    #         '⚠️ 危险操作警告 ⚠️\n\n'
-    #         '检测到非同期合闸操作！Gen2 与母排相位差过大时强行合闸，'
-    #         '将产生巨大冲击电流，可能损坏发电机绕组与断路器触头。\n\n'
-    #         '实际系统中此操作将导致继电保护跳闸并触发事故报告。\n\n'
-    #         '正确做法：Gen2 相位追踪故障时，应停机检修追踪模块，\n'
-    #         '严禁在相位差未收敛时强行合闸。\n\n'
-    #         '点击【确认】查看事故模拟结果。'
-    #     ),
-    # },
 }

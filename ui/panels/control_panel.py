@@ -16,8 +16,8 @@ import random as _random
 
 from PyQt5 import QtWidgets, QtCore
 
-from domain.constants import TRIP_CURRENT, AVAILABLE_MODES
-from domain.enums import BreakerPosition, SystemMode
+from domain.constants import TRIP_CURRENT
+from domain.enums import AVAILABLE_MODES, BreakerPosition, SystemMode
 from domain.fault_scenarios import SCENARIOS
 from domain.node_map import NODES
 
