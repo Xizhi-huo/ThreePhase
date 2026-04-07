@@ -78,13 +78,15 @@ class PhysicsEngine(WaveformMixin, ArbitrationMixin, ProtectionMixin, Measuremen
         sim = self.ctrl.sim_state
         is_isolated = sim.system_mode == SystemMode.ISOLATED_BUS
 
-        bus_state = self._update_bus_reference(sim, is_isolated)
+        # 仲裁前先计算一次母线参考，供仲裁器判断当前接入关系；
+        # 仲裁后再重算一次，确保本帧后续计算使用的是最终母线状态。
+        pre_arbitration_bus_state = self._update_bus_reference(sim, is_isolated)
         self._update_arbitration(
             sim,
-            bus_state['g1_on_bus'],
-            bus_state['g2_on_bus'],
-            bus_state['ref_freq'],
-            bus_state['ref_amp'],
+            pre_arbitration_bus_state['g1_on_bus'],
+            pre_arbitration_bus_state['g2_on_bus'],
+            pre_arbitration_bus_state['ref_freq'],
+            pre_arbitration_bus_state['ref_amp'],
         )
         bus_state = self._update_bus_reference(sim, is_isolated)
 

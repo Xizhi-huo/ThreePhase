@@ -29,6 +29,8 @@ class AssessmentService:
         detection_step = scene_info.get("detection_step")
         expected_targets = self._expected_blackbox_targets(scene_info)
         expected_target_set = set(expected_targets)
+        expected_device_set = {target.split('.', 1)[0] for target in expected_targets}
+        snapshot = session.state_snapshot or {}
 
         def add_penalty(code: str, message: str, score_delta: int, step: int = 0, timestamp: str = ""):
             if score_delta == 0:
@@ -150,6 +152,16 @@ class AssessmentService:
             if target:
                 opened_targets.append(target)
         opened_target_set: Set[str] = set(opened_targets)
+        touched_layers = set()
+        for event in all_events("blackbox_swap"):
+            target = event.payload.get("target")
+            layer = event.payload.get("layer")
+            if target and layer:
+                touched_layers.add(f"{target}.{layer}")
+        for event in all_events("blackbox_confirm_attempted"):
+            target = event.payload.get("target")
+            for layer in event.payload.get("layers", []):
+                touched_layers.add(f"{target}.{layer}")
 
         step_enter_events = all_events("step_entered")
         blocked_by_step = {
@@ -174,22 +186,25 @@ class AssessmentService:
         blackbox_open_before_gate = happened_before(first_blackbox_open, first_gate_block)
         hidden_fault = bool(session.scene_id) and detection_step is None and bool(expected_targets)
 
-        loop_records = self._ctrl.loop_test_state.records
-        voltage_records = self._ctrl.pt_voltage_check_state.records
-        phase_records = self._ctrl.pt_phase_check_state.records
-        pt_exam_records_1 = self._ctrl.pt_exam_states[1].records
-        pt_exam_records_2 = self._ctrl.pt_exam_states[2].records
+        loop_records = snapshot.get('loop_records', self._ctrl.loop_test_state.records)
+        voltage_records = snapshot.get('voltage_records', self._ctrl.pt_voltage_check_state.records)
+        phase_records = snapshot.get('phase_records', self._ctrl.pt_phase_check_state.records)
+        pt_exam_records = snapshot.get('pt_exam_records', {})
+        pt_exam_records_1 = pt_exam_records.get(1, self._ctrl.pt_exam_states[1].records)
+        pt_exam_records_2 = pt_exam_records.get(2, self._ctrl.pt_exam_states[2].records)
 
-        loop_complete = self._ctrl.is_loop_test_complete()
-        voltage_complete = self._ctrl.is_pt_voltage_check_complete()
-        phase_complete = self._ctrl.is_pt_phase_check_complete()
+        completed = snapshot.get('completed', {})
+        loop_complete = bool(completed.get('loop', self._ctrl.is_loop_test_complete()))
+        voltage_complete = bool(completed.get('voltage', self._ctrl.is_pt_voltage_check_complete()))
+        phase_complete = bool(completed.get('phase', self._ctrl.is_pt_phase_check_complete()))
         pt_exam_complete = (
-            self._ctrl.pt_exam_states[1].completed
-            and self._ctrl.pt_exam_states[2].completed
+            bool(completed.get('pt_exam_1', self._ctrl.pt_exam_states[1].completed))
+            and bool(completed.get('pt_exam_2', self._ctrl.pt_exam_states[2].completed))
         )
-        closure_complete = self._ctrl.is_assessment_closed_loop_ready()
+        closure_complete = bool(completed.get('closure', self._ctrl.is_assessment_closed_loop_ready()))
         repair_required = bool(expected_targets)
-        repaired = bool(self._ctrl.sim_state.fault_config.repaired)
+        fault_snapshot = snapshot.get('fault', {})
+        repaired = bool(fault_snapshot.get('repaired', self._ctrl.sim_state.fault_config.repaired))
 
         pt1_voltage_count = sum(1 for key in ("PT1_AB", "PT1_BC", "PT1_CA") if voltage_records.get(key) is not None)
         pt2_voltage_count = sum(1 for key in ("PT2_AB", "PT2_BC", "PT2_CA") if voltage_records.get(key) is not None)
@@ -346,7 +361,7 @@ class AssessmentService:
             f3_score = 3
             f3_detail = "本场景无黑盒定位要求。"
         else:
-            correct_side_hit = bool(opened_target_set & expected_target_set)
+            correct_side_hit = bool(opened_target_set & expected_device_set)
             f3_score = 3 if correct_side_hit else 0
             f3_detail = "已命中正确设备侧。" if f3_score else "未命中正确设备侧。"
         add_score_item("F3", "定位到正确设备侧", "异常识别与故障定位", 3, f3_score, 4, f3_detail, "故障定位未命中正确设备侧。")
@@ -355,17 +370,18 @@ class AssessmentService:
             f4_score = 3
             f4_detail = "本场景无黑盒门禁定位要求。"
         else:
-            f4_score = 3 if blackbox_open_before_gate else 0
-            f4_detail = "未依赖系统门禁才进入黑盒。" if f4_score else "在系统门禁拦截后才进入黑盒定位。"
-        add_score_item("F4", "定位不依赖系统门禁", "异常识别与故障定位", 3, f4_score, 4, f4_detail, "定位依赖了系统门禁提示。")
+            layer_hit = bool(touched_layers & expected_target_set)
+            f4_score = 3 if layer_hit else 0
+            f4_detail = "已命中正确故障层级。" if f4_score else "未命中正确故障层级。"
+        add_score_item("F4", "定位到正确故障层级", "异常识别与故障定位", 3, f4_score, 4, f4_detail, "故障层级定位不准确。")
 
         # G1-G3 黑盒修复（12）
         if not expected_targets:
             g1_score = 3
             g1_detail = "本场景无黑盒范围控制要求。"
         else:
-            extra_targets = len(opened_target_set - expected_target_set)
-            missing_targets = len(expected_target_set - opened_target_set)
+            extra_targets = len(opened_target_set - expected_device_set)
+            missing_targets = len(expected_device_set - opened_target_set)
             if extra_targets == 0 and missing_targets == 0:
                 g1_score = 3
             elif extra_targets <= 1 and missing_targets <= 1:
@@ -374,7 +390,7 @@ class AssessmentService:
                 g1_score = 0
             g1_detail = (
                 "黑盒开启范围与场景需求一致。"
-                if g1_score == 3 else
+            if g1_score == 3 else
                 f"存在额外打开 {extra_targets} 个、缺失 {missing_targets} 个目标。"
             )
         add_score_item("G1", "黑盒开启范围合理", "黑盒修复", 3, g1_score, 4, g1_detail, "黑盒开启范围不合理。")
@@ -395,7 +411,7 @@ class AssessmentService:
             g3_detail = "未形成有效修复闭环。"
         else:
             g3_score = 4
-            if not opened_target_set.issuperset(expected_target_set):
+            if not touched_layers.issuperset(expected_target_set):
                 g3_score -= 2
             g3_score -= min(1, blackbox_failed_confirms)
             g3_score -= min(1, max(0, blackbox_swap_count - max(1, len(expected_target_set))))
@@ -526,11 +542,12 @@ class AssessmentService:
     def _expected_blackbox_targets(scene_info: Dict) -> List[str]:
         params = scene_info.get("params", {}) if scene_info else {}
         targets: List[str] = []
-        if any(
-            params.get(key) is not None
-            for key in ("g1_blackbox_order", "p1_pri_blackbox_order", "pt2_sec_blackbox_order")
-        ):
-            targets.extend(["G1", "PT1"])
+        if params.get("g1_blackbox_order") is not None:
+            targets.append("G1.terminal")
+        if params.get("p1_pri_blackbox_order") is not None:
+            targets.append("PT1.primary")
+        if params.get("pt2_sec_blackbox_order") is not None:
+            targets.append("PT1.secondary")
         if params.get("g2_blackbox_order") is not None:
-            targets.append("G2")
+            targets.append("G2.terminal")
         return targets

@@ -1,18 +1,20 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Dict, Optional, Tuple
 import numpy as np
+
+from domain.models import GeneratorState
 
 
 @dataclass
 class RenderState:
     # waveform / plot data
-    plot_data: dict = field(default_factory=dict)
-    fixed_deg: object = None
+    plot_data: Dict[str, Any] = field(default_factory=dict)
+    fixed_deg: Optional[np.ndarray] = None
     # bus
     bus_live: bool = False
     bus_amp: float = 0.0
-    bus_source: object = None
-    bus_reference_gen: object = None
+    bus_source: Optional[GeneratorState] = None
+    bus_reference_gen: Optional[GeneratorState] = None
     bus_status_msg: str = ""
     bus_reference_msg: str = ""
     # breakers
@@ -49,5 +51,5 @@ class RenderState:
     meter_color: str = "black"
     meter_voltage: Optional[float] = None
     meter_status: str = "idle"
-    meter_nodes: object = None
+    meter_nodes: Optional[Tuple[str, str]] = None
     meter_phase_match: Optional[bool] = None

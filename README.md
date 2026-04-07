@@ -293,6 +293,8 @@ elif fc.scenario_id == 'E02': show_e02_accident_dialog()
   - `fault_repaired`
   - `hazard_action`
   - `assessment_finished`
+- `fault_detected` 只通过控制器 `mark_fault_detected(step, source, ...)` 在真实发现点写入，不再由主循环 `_tick()` 以 `step=0` 兜底补记；考核中的“第几步发现异常”现在按真实步骤计分。
+- `AssessmentSession` 在结算前会冻结 `state_snapshot`，评分优先读取会话快照，不再直接依赖控制器后续活体状态。
 - 自动评分由 [services/assessment_service.py](/abs/path/c:/Users/AW57P/Documents/ThreePhase_entier/services/assessment_service.py) 负责，当前输出：
   - 总分 / 满分 / 是否通过
   - 分项汇总卡：流程纪律、第一步回路测试、第二步PT电压检查、第三步PT相序检查、第四步压差考核、异常识别与故障定位、黑盒修复、效率与规范性
@@ -308,6 +310,11 @@ elif fc.scenario_id == 'E02': show_e02_accident_dialog()
   - 黑盒修复 12
   - 效率与规范性 8
 - 30 个计分点按 `A1-H2` 输出到成绩单详细表，覆盖步骤顺序、各步记录完整性、显性/隐性故障识别、定位、黑盒修复与效率控制。
+- 黑盒定位与修复评分已升级到层级级目标，不再只按设备级判断。当前使用的目标粒度为：
+  - `G1.terminal`
+  - `PT1.primary`
+  - `PT1.secondary`
+  - `G2.terminal`
 - 对于 `E08` 这类隐性故障，若学员直到第四步闭环门禁触发后才意识到仍有问题，将失去“隐性故障识别 / 定位不依赖系统门禁”等关键分项，不能再拿满分。
 - 第四步闭环完成的判定口径是：
   - 步骤 1~4 已完成
@@ -316,6 +323,8 @@ elif fc.scenario_id == 'E02': show_e02_accident_dialog()
   - 满足后立即展示表格化“考核成绩单”窗口；第五步仅保留为后续流程，不计入考核
 - 步骤 1~4 现在都能记录 `measurement_invalid` 事件，`F2`“无效重复测量控制”已有真实事件来源，不再是空转分项。
 - 考核模式下，步骤 1 / 3 与物理万用表侧的异常提示会通过 `should_show_diagnostic_hints()` 自动降级为非定位性提示，系统只给状态，不直接给出接线位置答案。
+- 相序仪快捷记录 `_on_record_psm()` 已改为通过控制器 `record_phase_sequence()` 调用 `PtPhaseCheckService.record_phase_sequence()`，UI 不再直接写第三步状态或直接设置 `fault_config.detected`。
+- E01/E02/E03 的第五步事故弹窗修复入口现在会按 `step=5` 记录 `fault_repaired` 事件来源，不再误记为第四步修复。
 
 ---
 

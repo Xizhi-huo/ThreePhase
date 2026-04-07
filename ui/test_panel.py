@@ -1397,6 +1397,13 @@ class TestPanelMixin:
         if seq == 'unknown':
             self.tp_s3_fb_lbl.setText("请先接入相序仪，再记录结果。")
             return
+        ok = self.ctrl.record_phase_sequence(pt_name, seq)
+        state = self.ctrl.pt_phase_check_state
+        self.tp_s3_fb_lbl.setText(state.feedback)
+        self.tp_s3_fb_lbl.setStyleSheet(f"color:{state.feedback_color};")
+        if ok and pt_name in self._tp_s3_rec_btns:
+            self._tp_s3_rec_btns[pt_name].setEnabled(False)
+        return
         # 把相序仪结果写入 pt_phase_check_state（逐相批量写入）
         state = self.ctrl.pt_phase_check_state
         if not state.started:
@@ -1447,7 +1454,7 @@ class TestPanelMixin:
                 'actual_phase': actual,
             }
         if any_fail and self.ctrl.sim_state.fault_config.active:
-            self.ctrl.sim_state.fault_config.detected = True
+            self.ctrl.mark_fault_detected(step=3, source='phase_seq_meter_legacy', target=pt_name, sequence=seq)
         self.ctrl.append_assessment_event(
             'measurement_recorded',
             step=3,
@@ -1761,7 +1768,7 @@ class TestPanelMixin:
         hero_lay.setContentsMargins(0, 0, 0, 0)
         hero_lay.setSpacing(8)
 
-        kicker = QtWidgets.QLabel("Assessment Report")
+        kicker = QtWidgets.QLabel("考核结果报告")
         kicker.setStyleSheet("font-size:11px; color:#b45309; font-weight:bold; letter-spacing:1px;")
         hero_lay.addWidget(kicker)
 

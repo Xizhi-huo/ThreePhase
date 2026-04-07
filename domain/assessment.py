@@ -58,6 +58,7 @@ class AssessmentSession:
     mode: str
     started_at: str
     events: List[AssessmentEvent] = field(default_factory=list)
+    state_snapshot: Dict[str, Any] = field(default_factory=dict)
     finished_at: Optional[str] = None
     result: Optional[AssessmentResult] = None
     result_shown: bool = False

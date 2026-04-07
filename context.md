@@ -280,10 +280,12 @@ if fc.scenario_id == 'E03': show_e03_accident_dialog()
   - `app/main.py`
     - 维护 `assessment_session`
     - 提供 `start_assessment_session()` / `append_assessment_event()` / `finish_assessment_session()`
-    - 在故障发现、黑盒修复完成、事故误操作时补记事件
+    - 提供 `mark_fault_detected(step, source, ...)`，在真实发现点统一记录故障事件
+    - 在黑盒修复完成、事故误操作时补记事件
+    - 结算前冻结 `state_snapshot`，供评分稳定读取
 - 评分服务：
   - `services/assessment_service.py`
-    - 根据事件流和当前控制器状态计算总分、分项满分、完整计分点、扣分项、否决原因、统计指标
+    - 根据事件流与 `AssessmentSession.state_snapshot` 计算总分、分项满分、完整计分点、扣分项、否决原因、统计指标
     - 当前采用 **30 个细分计分点** 的 100 分制：
       - 流程纪律 16
       - 第一步回路测试 10
@@ -296,9 +298,11 @@ if fc.scenario_id == 'E03': show_e03_accident_dialog()
     - 30 个计分点按 `A1-H2` 输出到成绩单详细表，覆盖步骤顺序、各步记录完整性、显性/隐性故障识别、定位、黑盒修复与效率控制
     - `E08` 这类隐性故障若依赖第四步闭环门禁后才发现问题，会丢失“隐性故障识别 / 定位不依赖系统门禁”等关键分项，不再可能满分
     - `measurement_invalid` 事件流已接入步骤 1~4 的无效记录路径，现用于 `D3`、`E3`、`H2` 等细分计分点
+    - 黑盒定位与修复评分已升级为层级级目标：`G1.terminal`、`PT1.primary`、`PT1.secondary`、`G2.terminal`
 - UI 入口：
   - `ui/panels/control_panel.py`：在场景选择弹窗中提供 `assessment` 模式
   - `ui/test_panel.py`：记录步骤进入、完成尝试、黑盒操作，并在第四步闭环完成时弹出表格化成绩单
+  - `ui/test_panel.py::_on_record_psm()` 已改为通过控制器 `record_phase_sequence()` 调用 `PtPhaseCheckService.record_phase_sequence()`，UI 不再直接改第三步记录状态或直接设置 `fault_config.detected`
   - `ui/main_window.py`：考核模式下的第四步闭环门禁提示改为弱提示，只提示“当前考核尚未闭环”，不再泄露具体故障位置
 
 ### 考核闭环判定补充
@@ -322,6 +326,8 @@ if fc.scenario_id == 'E03': show_e03_accident_dialog()
 - `fault_repaired`
 - `hazard_action`
 - `assessment_finished`
+- `fault_detected` 不再由 `_tick()` 用 `step=0` 补记，评分中的“首次发现异常步骤”现在按真实检测步骤统计
+- E01/E02/E03 的事故弹窗修复入口现在按 `step=5` 记录 `fault_repaired`，不再误记为第四步修复
 
 ### Gen1/PT1 接线矩阵注入机制（E05–E14，通用参数驱动）
 
@@ -388,12 +394,12 @@ if fc.params.get('g1_loop_swap') or fc.params.get('g2_loop_swap'):
 elif (gen_pt_name == 'PT1'
       and fc.params.get('pt1_phase_order') is not None
       and not is_same_phase):
-    fc.detected = True
+    self.ctrl.mark_fault_detected(step=4, source='pt_exam_measurement', ...)
 ```
 覆盖 E06 / E07 / E11（步骤一无断路，仅步骤四能暴露）。
 E08（pt1_phase_order=['A','B','C'] 且无 g1_loop_swap）永远不触发——完全隐性设计。
 
-**第三步相序仪快捷记录语义**（`ui/test_panel.py::_on_record_psm`）：
+**第三步相序仪快捷记录语义**（`ui/test_panel.py::_on_record_psm` → `PowerSyncController.record_phase_sequence()` → `PtPhaseCheckService.record_phase_sequence()`）：
 - 读取相序仪当前三字母结果，如 `ABC` / `BCA` / `CAB` / `ACB`
 - 对 `PT1_A/PT1_B/PT1_C` 或 `PT3_*` 三条记录逐相写入：
   - `actual_phase = seq[index]`

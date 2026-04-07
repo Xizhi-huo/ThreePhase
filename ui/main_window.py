@@ -372,7 +372,7 @@ class PowerSyncUI(
             "background:#15803d; color:white; font-size:14px;"
             " font-weight:bold; padding:8px 20px; border-radius:4px;"
         )
-        btn_repair.clicked.connect(lambda: (self.ctrl.repair_fault(), dlg.accept()))
+        btn_repair.clicked.connect(lambda: (self.ctrl.repair_fault(step=5, source='E01_accident_dialog'), dlg.accept()))
 
         btn_record = QtWidgets.QPushButton("📋  确认事故已记录")
         btn_record.setStyleSheet(
@@ -502,7 +502,7 @@ class PowerSyncUI(
             "background:#15803d; color:white; font-size:14px;"
             " font-weight:bold; padding:8px 20px; border-radius:4px;"
         )
-        btn_repair.clicked.connect(lambda: (self.ctrl.repair_fault(), dlg.accept()))
+        btn_repair.clicked.connect(lambda: (self.ctrl.repair_fault(step=5, source='E02_accident_dialog'), dlg.accept()))
 
         btn_record = QtWidgets.QPushButton("📋  确认事故已记录")
         btn_record.setStyleSheet(
@@ -634,7 +634,7 @@ class PowerSyncUI(
             "background:#15803d; color:white; font-size:14px;"
             " font-weight:bold; padding:8px 20px; border-radius:4px;"
         )
-        btn_repair.clicked.connect(lambda: (self.ctrl.repair_fault(), dlg.accept()))
+        btn_repair.clicked.connect(lambda: (self.ctrl.repair_fault(step=5, source='E03_accident_dialog'), dlg.accept()))
 
         btn_record = QtWidgets.QPushButton("📋  确认事故已记录")
         btn_record.setStyleSheet(

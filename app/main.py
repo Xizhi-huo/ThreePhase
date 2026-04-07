@@ -20,9 +20,10 @@ import os
 import math
 import random
 import traceback
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 
 # 将项目根目录加入 sys.path，确保 domain/services/ui 包可以被找到
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -322,6 +323,71 @@ class PowerSyncController:
             )
         )
 
+    def mark_fault_detected(self, step: int, source: str, **payload) -> bool:
+        fc = self.sim_state.fault_config
+        if not fc.active or fc.repaired:
+            return False
+
+        fc.detected = True
+        self._last_fault_detected = True
+
+        if not self.should_record_assessment_metrics():
+            return True
+
+        session = self.assessment_session
+        if session is None or session.finished_at is not None:
+            return True
+
+        payload = dict(payload)
+        payload.setdefault('scene_id', fc.scenario_id)
+        payload['source'] = source
+
+        existing = None
+        for event in session.events:
+            if event.event_type == 'fault_detected':
+                existing = event
+                break
+
+        if existing is None:
+            self.append_assessment_event('fault_detected', step=step, **payload)
+            return True
+
+        if step > 0 and (existing.step <= 0 or existing.step > step):
+            existing.step = step
+        existing.payload.update(payload)
+        return True
+
+    def capture_assessment_state_snapshot(self) -> Dict[str, Any]:
+        return {
+            'loop_records': deepcopy(self.loop_test_state.records),
+            'voltage_records': deepcopy(self.pt_voltage_check_state.records),
+            'phase_records': deepcopy(self.pt_phase_check_state.records),
+            'pt_exam_records': {
+                1: deepcopy(self.pt_exam_states[1].records),
+                2: deepcopy(self.pt_exam_states[2].records),
+            },
+            'completed': {
+                'loop': bool(self.loop_test_state.completed),
+                'voltage': bool(self.pt_voltage_check_state.completed),
+                'phase': bool(self.pt_phase_check_state.completed),
+                'pt_exam_1': bool(self.pt_exam_states[1].completed),
+                'pt_exam_2': bool(self.pt_exam_states[2].completed),
+                'closure': bool(self.is_assessment_closed_loop_ready()),
+            },
+            'fault': {
+                'active': bool(self.sim_state.fault_config.active),
+                'repaired': bool(self.sim_state.fault_config.repaired),
+                'detected': bool(self.sim_state.fault_config.detected),
+                'scene_id': self.sim_state.fault_config.scenario_id,
+            },
+            'blackbox_orders': {
+                'g1': list(self.g1_blackbox_order),
+                'g2': list(self.g2_blackbox_order),
+                'pt1_primary': list(self.pt1_pri_blackbox_order),
+                'pt1_secondary': list(self.pt1_sec_blackbox_order),
+            },
+        }
+
     def finish_assessment_session(self):
         if not self.should_auto_score_assessment():
             return None
@@ -330,6 +396,8 @@ class PowerSyncController:
             return None
         if session.result is not None:
             return session.result
+        if not session.state_snapshot:
+            session.state_snapshot = self.capture_assessment_state_snapshot()
         self.append_assessment_event('assessment_finished')
         result = self._assessment_svc.build_result(session)
         session.finished_at = result.finished_at
@@ -456,6 +524,7 @@ class PowerSyncController:
             initial_sec_order=None,
             new_sec_order=None) -> BlackboxRepairOutcome:
         component_correct = False
+        touched_layers = []
 
         if target == 'G1':
             if initial_order is not None and list(new_order) != list(initial_order):
@@ -467,6 +536,7 @@ class PowerSyncController:
                     from_order=list(initial_order),
                     to_order=list(new_order),
                 )
+                touched_layers.append('terminal')
             self.g1_blackbox_order = list(new_order)
             self.sync_pt1_blackbox_to_phase_orders()
             component_correct = (list(new_order) == ['A', 'B', 'C'])
@@ -480,6 +550,7 @@ class PowerSyncController:
                     from_order=list(initial_order),
                     to_order=list(new_order),
                 )
+                touched_layers.append('terminal')
             self.g2_blackbox_order = list(new_order)
             self.sync_g2_blackbox_to_phase_orders()
             component_correct = (list(new_order) == ['A', 'B', 'C'])
@@ -493,6 +564,7 @@ class PowerSyncController:
                     from_order=list(initial_pri_order),
                     to_order=list(new_pri_order),
                 )
+                touched_layers.append('primary')
             if initial_sec_order is not None and list(new_sec_order) != list(initial_sec_order):
                 self.append_assessment_event(
                     'blackbox_swap',
@@ -502,6 +574,7 @@ class PowerSyncController:
                     from_order=list(initial_sec_order),
                     to_order=list(new_sec_order),
                 )
+                touched_layers.append('secondary')
             self.pt1_pri_blackbox_order = list(new_pri_order)
             self.pt1_sec_blackbox_order = list(new_sec_order)
             self.sync_pt1_blackbox_to_phase_orders()
@@ -519,6 +592,7 @@ class PowerSyncController:
                     from_order=list(initial_sec_order),
                     to_order=list(new_sec_order),
                 )
+                touched_layers.append('secondary')
             self.pt_phase_orders['PT3'] = list(new_sec_order)
             component_correct = (list(new_sec_order) == ['A', 'B', 'C'])
         else:
@@ -528,6 +602,7 @@ class PowerSyncController:
             'blackbox_confirm_attempted',
             step=step,
             target=target,
+            layers=touched_layers,
             success=bool(component_correct),
         )
 
@@ -548,7 +623,7 @@ class PowerSyncController:
             and self.all_repairable_wiring_targets_normal()
             and self.should_auto_clear_fault_only_when_all_blackboxes_normal()
         ):
-            self.repair_fault()
+            self.repair_fault(step=step, source=f'{target}_blackbox')
             fault_cleared = True
             disable_repair_button = True
             message = "OK 全部接线均已修复，故障已完全清除。"
@@ -565,6 +640,9 @@ class PowerSyncController:
             message_color=message_color,
             disable_repair_button=disable_repair_button,
         )
+
+    def record_phase_sequence(self, pt_name: str, seq: str) -> bool:
+        return self._pt_phase_svc.record_phase_sequence(pt_name, seq)
 
     # ════════════════════════════════════════════════════════════════════════
     # PT 节点解析辅助（physics_engine.py 通过 self.ctrl 调用）
@@ -676,11 +754,13 @@ class PowerSyncController:
         self.pt_phase_check_state.feedback = message
         self.pt_phase_check_state.feedback_color = color
 
-    def record_pt_phase_check_result(self, key, phase_match, reading):
+    def record_pt_phase_check_result(self, key, phase_match, reading, actual_phase=None):
         self.pt_phase_check_state.records[key] = {
             'phase_match': phase_match,
             'reading': reading,
         }
+        if actual_phase is not None:
+            self.pt_phase_check_state.records[key]['actual_phase'] = actual_phase
 
     def mark_pt_phase_check_completed(self):
         self.pt_phase_check_state.completed = True
@@ -1153,13 +1233,13 @@ class PowerSyncController:
         if scenario_id.startswith('E0') and scenario_id not in ('', 'E01', 'E02', 'E03', 'E04'):
             self.sync_pt1_blackbox_to_phase_orders()
 
-    def repair_fault(self):
+    def repair_fault(self, step: int = 4, source: str = 'repair_fault'):
         """学员完成虚拟修复后调用，消除故障效果并重置检测标志。"""
         fc = self.sim_state.fault_config
         sid = fc.scenario_id
         fc.repaired = True
         fc.detected = False
-        self.append_assessment_event('fault_repaired', step=4, scene_id=sid, source='repair_fault')
+        self.append_assessment_event('fault_repaired', step=step, scene_id=sid, source=source)
         self.reset_blackbox_orders()
 
         # 恢复场景专属注入的效果
@@ -1233,13 +1313,6 @@ class PowerSyncController:
         try:
             self.physics.update_physics()
             fc = self.sim_state.fault_config
-            if fc.detected and not self._last_fault_detected:
-                self.append_assessment_event(
-                    'fault_detected',
-                    step=0,
-                    scene_id=fc.scenario_id,
-                    source='physics_or_ui',
-                )
             self._last_fault_detected = bool(fc.detected)
             rs = self.physics.build_render_state()
             self.ui.render_visuals(rs)

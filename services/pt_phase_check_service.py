@@ -158,6 +158,12 @@ class PtPhaseCheckService:
 
         if any_fail:
             state.result = 'fail'
+            self._ctrl.mark_fault_detected(
+                step=3,
+                source='pt_phase_check',
+                target=pt_name,
+                point=phase,
+            )
             if self._ctrl.should_show_diagnostic_hints():
                 msg = f"⚠️ 相序异常！{key} 检测到端子接线错误，请检查对应侧 B/C 接线。"
             else:
@@ -177,6 +183,95 @@ class PtPhaseCheckService:
             else:
                 msg = f"⚠️ {key} 相序异常！请继续排查。"
             self._set_feedback(msg, "red")
+
+    def record_phase_sequence(self, pt_name: str, seq: str) -> bool:
+        pt_name = pt_name.upper()
+        state = self._ctrl.pt_phase_check_state
+        sim = self._ctrl.sim_state
+
+        def _record_invalid(reason: str):
+            self._ctrl.append_assessment_event(
+                'measurement_invalid',
+                step=3,
+                target=pt_name,
+                point='sequence',
+                reason=reason,
+            )
+
+        if not state.started:
+            _record_invalid("step_not_started")
+            self._set_feedback("请先点击“开始第三步测试”再记录。", "red")
+            return False
+        if not self._ctrl.is_loop_test_complete():
+            _record_invalid("loop_test_incomplete")
+            self._set_feedback("请先完成第一步【回路连通性测试】，再进行相序检查。", "red")
+            return False
+        if not self._ctrl.is_pt_voltage_check_complete():
+            _record_invalid("pt_voltage_incomplete")
+            self._set_feedback("请先完成第二步【PT 单体线电压检查】，再进行相序检查。", "red")
+            return False
+        if sim.grounding_mode != "小电阻接地":
+            _record_invalid("grounding_not_ready")
+            self._set_feedback("请先恢复中性点小电阻接地，再进行相序检查。", "red")
+            return False
+
+        gen1 = sim.gen1
+        if gen1.breaker_position != BreakerPosition.WORKING or not gen1.breaker_closed:
+            _record_invalid("gen1_not_on_bus")
+            self._set_feedback("请先确认 Gen1 已并入母排，建立 PT1/PT2 参考电压。", "red")
+            return False
+
+        if pt_name == 'PT3':
+            gen2 = sim.gen2
+            if not gen2.running:
+                _record_invalid("gen2_not_running")
+                self._set_feedback("测量 PT3 相序时，请先启动 Gen2（保持断路器断开）。", "red")
+                return False
+            if gen2.breaker_closed:
+                _record_invalid("gen2_breaker_closed")
+                self._set_feedback("测量 PT3 相序时，Gen2 断路器应保持断开状态。", "red")
+                return False
+
+        phase_order = ('A', 'B', 'C')
+        is_valid_seq = isinstance(seq, str) and len(seq) == 3 and set(seq) == set(phase_order)
+        is_forward_seq = seq in {'ABC', 'BCA', 'CAB'}
+        any_fail = False
+        for ph in phase_order:
+            key = f"{pt_name}_{ph}"
+            actual = seq[phase_order.index(ph)] if is_valid_seq else '?'
+            phase_match = is_valid_seq and actual == ph
+            any_fail = any_fail or (not phase_match)
+            self._ctrl.record_pt_phase_check_result(
+                key,
+                phase_match,
+                f"相序仪检测: {pt_name} → {seq}",
+                actual_phase=actual,
+            )
+
+        if any_fail and self._ctrl.sim_state.fault_config.active:
+            self._ctrl.mark_fault_detected(
+                step=3,
+                source='phase_seq_meter',
+                target=pt_name,
+                sequence=seq,
+            )
+
+        self._ctrl.append_assessment_event(
+            'measurement_recorded',
+            step=3,
+            target=pt_name,
+            point='sequence',
+            value=seq,
+        )
+
+        result_txt = f"{'正序' if is_forward_seq else '逆序'}（{seq}）✓" if is_valid_seq and not any_fail else (
+            f"{'正序' if is_forward_seq else '逆序'}（{seq}）✗" if is_valid_seq else f"异常（{seq}）✗"
+        )
+        color = "#15803d" if not any_fail else "#dc2626"
+        state.result = 'pass' if not any_fail else 'fail'
+        state.feedback = f"{pt_name} 相序已记录：{result_txt}"
+        state.feedback_color = color
+        return True
 
     def reset_pt_phase_check(self):
         self._ctrl.pt_phase_check_state = self.create_pt_phase_check_state()

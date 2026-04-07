@@ -200,11 +200,16 @@ class MeasurementMixin:
                             )
                             # 故障检测：回路断路时触发
                             # E01/E02 硬编码；E05–E14 通用：有 g1_loop_swap 参数的场景均触发
-                            if (fc.active and not fc.detected and not fc.repaired
+                            if (fc.active and not fc.repaired
                                     and (fc.scenario_id in ('E01', 'E02')
                                          or fc.params.get('g1_loop_swap')
                                          or fc.params.get('g2_loop_swap'))):
-                                fc.detected = True
+                                self.ctrl.mark_fault_detected(
+                                    step=1,
+                                    source='loop_measurement',
+                                    target='loop',
+                                    point=f'{phase1}:{phase2}',
+                                )
                 elif intra_pt_pair:
                     # 同一 PT 内两相线电压测量（第二步 PT 单体线电压检查）
                     _pt_name = _pt1   # 两探针同 PT
@@ -245,13 +250,23 @@ class MeasurementMixin:
                     # E04: PT3 变比铭牌错误，所有三对均偏低
                     # E05 暂时禁用
                     fc = sim.fault_config
-                    if (fc.active and not fc.detected and not fc.repaired
+                    if (fc.active and not fc.repaired
                             and _pt_name == 'PT3'
                             and self.meter_status == 'danger'):
                         if fc.scenario_id in ('E04',):  # 'E05' disabled
-                            fc.detected = True
+                            self.ctrl.mark_fault_detected(
+                                step=2,
+                                source='pt_voltage_measurement',
+                                target='PT3',
+                                point=f'{_ph1}{_ph2}',
+                            )
                         elif fc.scenario_id == 'E03' and 'A' in (_ph1, _ph2):
-                            fc.detected = True
+                            self.ctrl.mark_fault_detected(
+                                step=2,
+                                source='pt_voltage_measurement',
+                                target='PT3',
+                                point=f'{_ph1}{_ph2}',
+                            )
                     _warn_icon = (" ⚠️" if self.meter_status == 'danger'
                                   and fc.active and not fc.repaired
                                   and fc.scenario_id in ('E03', 'E04')  # 'E05' disabled
@@ -316,22 +331,37 @@ class MeasurementMixin:
                     # E04: PT3 感知到异常（由 _update_pt_measurements 修改 pt3_v，
                     #      Step2 intra-PT 已会触发 danger；Step4 同相压差也会异常）
                     # E05 暂时禁用
-                    if fc.active and not fc.detected and not fc.repaired:
+                    if fc.active and not fc.repaired:
                         if _e03_active:   # PT3_A 测量（任何对端）均触发检测
-                            fc.detected = True
+                            self.ctrl.mark_fault_detected(
+                                step=4,
+                                source='pt_exam_measurement',
+                                target=gen_pt_name,
+                                point=f'{gen_term}-{bus_phase}',
+                            )
                         # elif fc.scenario_id == 'E05' and gen_pt_name == 'PT3' and is_same_phase:
                         #     if meter_v > 20.0:   # 正常同相压差 < 5V，超 20V 说明幅值异常
                         #         fc.detected = True
                         elif fc.scenario_id == 'E04' and gen_pt_name == 'PT3' and is_same_phase:
                             # E04 在 step4 同相压差异常时辅助检测（主要检测在 step2 intra-PT）
-                            fc.detected = True
+                            self.ctrl.mark_fault_detected(
+                                step=4,
+                                source='pt_exam_measurement',
+                                target=gen_pt_name,
+                                point=f'{gen_term}-{bus_phase}',
+                            )
                         elif (gen_pt_name == 'PT1'
                               and fc.params.get('pt1_phase_order') is not None
                               and not is_same_phase):
                             # E05–E14 通用：PT1 端子与 Bus 相位不匹配时触发检测
                             # 覆盖 E06/E07/E11（步骤一无断路，仅步骤四才暴露）
                             # E08 全部同相，不触发；E05/E09/E10/E12/E13/E14 已在步骤一检测
-                            fc.detected = True
+                            self.ctrl.mark_fault_detected(
+                                step=4,
+                                source='pt_exam_measurement',
+                                target=gen_pt_name,
+                                point=f'{gen_term}-{bus_phase}',
+                            )
 
                     # E03：PT3 A 端子极性反接 = 180° 反相，等同于相位不匹配
                     self.meter_phase_match = False if _e03_active else is_same_phase
