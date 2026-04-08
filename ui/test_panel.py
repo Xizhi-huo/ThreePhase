@@ -408,6 +408,16 @@ class TestPanelMixin:
     """
 
     # ════════════════════════════════════════════════════════════════════
+    # 对外接口（Controller 调用）
+    # ════════════════════════════════════════════════════════════════════
+    def set_pt_ratio_sec_value(self, ratio_attr: str, value: int):
+        """设置 PT 变比行的二次侧 SpinBox 值（供 Controller 调用，避免直接触碰控件）。"""
+        rows = getattr(self, '_tp_s2_ratio_rows', {})
+        if ratio_attr in rows:
+            _, sec_spin, _ = rows[ratio_attr]
+            sec_spin.setValue(value)
+
+    # ════════════════════════════════════════════════════════════════════
     # 构建入口
     # ════════════════════════════════════════════════════════════════════
     def _setup_test_panel(self):

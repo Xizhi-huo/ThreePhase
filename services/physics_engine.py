@@ -57,6 +57,10 @@ class PhysicsEngine(WaveformMixin, ArbitrationMixin, ProtectionMixin, Measuremen
         self.meter_nodes = None
         self.meter_phase_match = None
 
+        # 事故弹窗延迟标志：物理引擎检测到事故时仅设置此标志，
+        # 由 _tick() 在物理帧完成后读取并弹窗，避免模态对话框阻塞物理循环
+        self.pending_accident = None   # None | 'E01' | 'E02' | 'E03'
+
         self.bus_freq = 0.0
         self.bus_amp = 0.0
         self.bus_phase = 0.0

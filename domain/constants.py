@@ -15,6 +15,10 @@ CT_RATIO = CT_PRIMARY_A / CT_SECONDARY_A  # 变比 (100:1)
 
 NEUTRAL_RESISTOR_OHMS = 10.0     # 中性点接地小电阻 (10Ω，高压机组常用)
 
+# 主循环定时器
+TICK_MS = 33                       # QTimer 间隔 (ms)
+TICK_DT = TICK_MS / 1000.0         # 每帧时间步长 (s)，供物理引擎使用
+
 # 下垂控制系数 (因电压放大，无功下垂系数需缩小以防剧烈震荡)
 KP_DROOP = 0.0005
 KQ_DROOP = 0.0002

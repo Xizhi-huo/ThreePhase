@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PyQt5 import QtWidgets, QtCore
 
-from domain.constants import GRID_FREQ, GRID_AMP
+from domain.constants import GRID_FREQ, GRID_AMP, TICK_MS
 from domain.enums import BreakerPosition, SystemMode
 from domain.assessment import AssessmentEvent, AssessmentSession
 from domain.models import GeneratorState, SimulationState, FaultConfig
@@ -208,7 +208,7 @@ class PowerSyncController:
 
         # ── 主循环定时器（33ms ≈ 30fps）──────────────────────────────────
         self._timer = QtCore.QTimer()
-        self._timer.setInterval(33)
+        self._timer.setInterval(TICK_MS)
         self._timer.timeout.connect(self._tick)
         self._timer.start()
 
@@ -1257,10 +1257,7 @@ class PowerSyncController:
         elif scenario_id == 'E04':
             # E04：PT3 实际变比为 11000:93（= 118.28），控制台同步显示该值
             self.sim_state.pt3_ratio = 11000.0 / 93.0
-            _rows = getattr(self.ui, '_tp_s2_ratio_rows', {})
-            if 'pt3_ratio' in _rows:
-                _, sec_spin, _ = _rows['pt3_ratio']
-                sec_spin.setValue(93)
+            self.ui.set_pt_ratio_sec_value('pt3_ratio', 93)
         # E05–E14: Gen1/PT1 接线矩阵场景（通用注入）
         self.g1_blackbox_order = list(fc.params.get('g1_blackbox_order', self.g1_blackbox_order))
         self.g2_blackbox_order = list(fc.params.get('g2_blackbox_order', self.g2_blackbox_order))
@@ -1324,10 +1321,7 @@ class PowerSyncController:
         elif sid == 'E04':
             # 修复后恢复 PT3 正确变比 11000:193
             self.sim_state.pt3_ratio = 11000.0 / 193.0
-            _rows = getattr(self.ui, '_tp_s2_ratio_rows', {})
-            if 'pt3_ratio' in _rows:
-                _, sec_spin, _ = _rows['pt3_ratio']
-                sec_spin.setValue(193)
+            self.ui.set_pt_ratio_sec_value('pt3_ratio', 193)
         # E05–E14: Gen1/PT1 接线矩阵场景（通用恢复）
         if fc.params.get('pt1_phase_order') is not None:
             self.pt_phase_orders['PT1'] = ['A', 'B', 'C']
@@ -1381,15 +1375,43 @@ class PowerSyncController:
     # ════════════════════════════════════════════════════════════════════════
     # 主循环（QTimer 每 33ms 触发）
     # ════════════════════════════════════════════════════════════════════════
+    _tick_error_count = 0          # 连续 tick 失败计数
+
     def _tick(self):
+        rs = None
+        # ── 物理计算 ──
         try:
             self.physics.update_physics()
             fc = self.sim_state.fault_config
             self._last_fault_detected = bool(fc.detected)
             rs = self.physics.build_render_state()
-            self.ui.render_visuals(rs)
         except Exception:
+            self._tick_error_count += 1
             traceback.print_exc()
+
+        # ── UI 渲染（即使物理异常也尝试刷新上一帧状态）──
+        if rs is not None:
+            try:
+                self.ui.render_visuals(rs)
+                self._tick_error_count = 0      # 成功一帧即清零
+            except Exception:
+                self._tick_error_count += 1
+                traceback.print_exc()
+
+        if self._tick_error_count >= 30:        # ~1 秒连续失败
+            print("[CRITICAL] _tick 连续失败 30 帧，仿真可能已崩溃", flush=True)
+            self._tick_error_count = 0           # 避免刷屏，重置后再观察
+
+        # 事故弹窗延迟处理：物理帧完成后再弹窗，避免模态对话框阻塞物理循环
+        accident = self.physics.pending_accident
+        if accident is not None:
+            self.physics.pending_accident = None
+            if accident == 'E01':
+                self.ui.show_e01_accident_dialog()
+            elif accident == 'E02':
+                self.ui.show_e02_accident_dialog()
+            elif accident == 'E03':
+                self.ui.show_e03_accident_dialog()
 
 
 # ════════════════════════════════════════════════════════════════════════════

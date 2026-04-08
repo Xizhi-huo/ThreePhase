@@ -265,16 +265,14 @@ class PowerSyncUI(
 
         dlg.exec_()
 
-    def show_e01_accident_dialog(self):
-        """
-        E01 专用致命事故弹窗：Gen2 在 Gen1 A/B 相错接未修复时尝试合闸，
-        触发非同期并网事故。最高优先级模态对话框，阻断所有其他操作。
-        内置修复功能，修复后可继续完成第五步。
-        """
+    def _show_accident_dialog(self, scenario_id, title, main_text,
+                              fault_loc_html, consequence_html,
+                              symptom_text, repair_html, height=520):
+        """参数化致命事故弹窗（E01/E02/E03 共用）。"""
         from PyQt5.QtCore import Qt
 
         dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle("⚡ [致命事故] 非同期并网跳闸！")
+        dlg.setWindowTitle(title)
         dlg.setModal(True)
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.setWindowFlags(
@@ -283,13 +281,12 @@ class PowerSyncUI(
             | Qt.WindowTitleHint
             | Qt.WindowStaysOnTopHint
         )
-        dlg.resize(620, 520)
+        dlg.resize(620, height)
 
         lay = QtWidgets.QVBoxLayout(dlg)
         lay.setContentsMargins(18, 16, 18, 16)
         lay.setSpacing(12)
 
-        # ── 顶部警告横幅 ──────────────────────────────────────────────────
         banner = QtWidgets.QLabel("🚨  致命事故  🚨")
         banner.setAlignment(Qt.AlignCenter)
         banner.setStyleSheet(
@@ -298,10 +295,7 @@ class PowerSyncUI(
         )
         lay.addWidget(banner)
 
-        # ── 主提示文本 ────────────────────────────────────────────────────
-        main_lbl = QtWidgets.QLabel(
-            "发电机 Gen2 发生非同期合闸，相间短路！\n机组已紧急停机！"
-        )
+        main_lbl = QtWidgets.QLabel(main_text)
         main_lbl.setAlignment(Qt.AlignCenter)
         main_lbl.setWordWrap(True)
         main_lbl.setStyleSheet(
@@ -309,7 +303,6 @@ class PowerSyncUI(
         )
         lay.addWidget(main_lbl)
 
-        # ── 详细事故分析（滚动区）────────────────────────────────────────
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(
@@ -326,28 +319,17 @@ class PowerSyncUI(
         )
         inner_lay.addWidget(detail_title)
 
-        fault_loc = QtWidgets.QLabel(
-            "<b>故障定位：</b>Gen1 出线 A、B 相序反接。"
-        )
+        fault_loc = QtWidgets.QLabel(fault_loc_html)
         fault_loc.setWordWrap(True)
         fault_loc.setStyleSheet("font-size:12px; color:#1e293b;")
         inner_lay.addWidget(fault_loc)
 
-        consequence = QtWidgets.QLabel(
-            "<b>动作后果：</b>同期装置单相（C 相）条件满足误发合闸指令，"
-            "导致 A、B 错相 120° 短路，产生巨大非同期冲击电流，"
-            "定子绕组及大轴严重受损。"
-        )
+        consequence = QtWidgets.QLabel(consequence_html)
         consequence.setWordWrap(True)
         consequence.setStyleSheet("font-size:12px; color:#1e293b;")
         inner_lay.addWidget(consequence)
 
-        symptom_box = QtWidgets.QLabel(
-            "【学员可见异常现象】\n"
-            "第一步：AA 回路 ∞Ω（断路），BB 回路 ∞Ω（断路），CC 回路正常。\n"
-            "第三步：PT1 相序仪显示 ACB（逆序）。\n"
-            "第四步：PT1_A↔PT2_B 压差 ≈ 0V，PT1_A↔PT2_A 压差 ≈ 146V。"
-        )
+        symptom_box = QtWidgets.QLabel(symptom_text)
         symptom_box.setWordWrap(True)
         symptom_box.setStyleSheet(
             "font-size:11px; color:#374151; background:#fef3c7;"
@@ -355,10 +337,7 @@ class PowerSyncUI(
         )
         inner_lay.addWidget(symptom_box)
 
-        repair_hint = QtWidgets.QLabel(
-            "<b>修复方法：</b>将 Gen1 接线盒内 A 相与 B 相端子重新对调接回原位，"
-            "然后重新执行同步并网操作。"
-        )
+        repair_hint = QtWidgets.QLabel(repair_html)
         repair_hint.setWordWrap(True)
         repair_hint.setStyleSheet(
             "font-size:12px; color:#14532d; background:#dcfce7;"
@@ -370,16 +349,16 @@ class PowerSyncUI(
         scroll.setWidget(inner)
         lay.addWidget(scroll, 1)
 
-        # ── 按钮区 ────────────────────────────────────────────────────────
         btn_row = QtWidgets.QHBoxLayout()
         btn_row.setSpacing(10)
 
+        source = f'{scenario_id}_accident_dialog'
         btn_repair = QtWidgets.QPushButton("🔧  修复故障，继续第五步测试")
         btn_repair.setStyleSheet(
             "background:#15803d; color:white; font-size:14px;"
             " font-weight:bold; padding:8px 20px; border-radius:4px;"
         )
-        btn_repair.clicked.connect(lambda: (self.ctrl.repair_fault(step=5, source='E01_accident_dialog'), dlg.accept()))
+        btn_repair.clicked.connect(lambda: (self.ctrl.repair_fault(step=5, source=source), dlg.accept()))
 
         btn_record = QtWidgets.QPushButton("📋  确认事故已记录")
         btn_record.setStyleSheet(
@@ -393,268 +372,84 @@ class PowerSyncUI(
         lay.addLayout(btn_row)
 
         dlg.exec_()
+
+    def show_e01_accident_dialog(self):
+        self._show_accident_dialog(
+            scenario_id='E01',
+            title="⚡ [致命事故] 非同期并网跳闸！",
+            main_text="发电机 Gen2 发生非同期合闸，相间短路！\n机组已紧急停机！",
+            fault_loc_html="<b>故障定位：</b>Gen1 出线 A、B 相序反接。",
+            consequence_html=(
+                "<b>动作后果：</b>同期装置单相（C 相）条件满足误发合闸指令，"
+                "导致 A、B 错相 120° 短路，产生巨大非同期冲击电流，"
+                "定子绕组及大轴严重受损。"
+            ),
+            symptom_text=(
+                "【学员可见异常现象】\n"
+                "第一步：AA 回路 ∞Ω（断路），BB 回路 ∞Ω（断路），CC 回路正常。\n"
+                "第三步：PT1 相序仪显示 ACB（逆序）。\n"
+                "第四步：PT1_A↔PT2_B 压差 ≈ 0V，PT1_A↔PT2_A 压差 ≈ 146V。"
+            ),
+            repair_html=(
+                "<b>修复方法：</b>将 Gen1 接线盒内 A 相与 B 相端子重新对调接回原位，"
+                "然后重新执行同步并网操作。"
+            ),
+        )
 
     def show_e02_accident_dialog(self):
-        """
-        E02 专用致命事故弹窗：Gen2 在 B/C 相接线对调未修复时合闸并入带电母线，
-        触发跨相短路事故。最高优先级模态对话框，阻断所有其他操作。
-        内置修复功能，修复后可继续完成第五步。
-        """
-        from PyQt5.QtCore import Qt
-
-        dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle("⚡ [致命事故] 跨相短路跳闸！")
-        dlg.setModal(True)
-        dlg.setWindowModality(Qt.ApplicationModal)
-        dlg.setWindowFlags(
-            Qt.Dialog
-            | Qt.CustomizeWindowHint
-            | Qt.WindowTitleHint
-            | Qt.WindowStaysOnTopHint
+        self._show_accident_dialog(
+            scenario_id='E02',
+            title="⚡ [致命事故] 跨相短路跳闸！",
+            main_text="发电机 Gen2 合闸瞬间发生跨相短路！\n机组已紧急停机！",
+            fault_loc_html="<b>故障定位：</b>Gen2 出线 B、C 相序反接。",
+            consequence_html=(
+                "<b>动作后果：</b>同期装置以 A 相为基准判定条件满足并发出合闸指令，"
+                "但 Gen2 B 端子实接 C 相绕组、C 端子实接 B 相绕组，"
+                "合闸瞬间 B/C 两相与母线形成 120° 跨相短路，"
+                "产生巨大冲击电流，定子绕组及大轴严重受损。"
+            ),
+            symptom_text=(
+                "【学员可见异常现象（合闸前已有预警）】\n"
+                "第一步：BB 回路 ∞Ω（断路），CC 回路 ∞Ω（断路），AA 回路正常。\n"
+                "第三步：PT3 相序仪显示 ACB（逆序）。\n"
+                "第四步：PT3_B↔PT2_C 压差 ≈ 0V，PT3_B↔PT2_B 压差 ≈ 146V。"
+            ),
+            repair_html=(
+                "<b>修复方法：</b>将 Gen2 接线盒内 B 相与 C 相端子重新对调接回原位，"
+                "然后重新执行同步并网操作。"
+            ),
         )
-        dlg.resize(620, 520)
-
-        lay = QtWidgets.QVBoxLayout(dlg)
-        lay.setContentsMargins(18, 16, 18, 16)
-        lay.setSpacing(12)
-
-        # ── 顶部警告横幅 ──────────────────────────────────────────────────
-        banner = QtWidgets.QLabel("🚨  致命事故  🚨")
-        banner.setAlignment(Qt.AlignCenter)
-        banner.setStyleSheet(
-            "background:#7f1d1d; color:#fef2f2; font-size:20px;"
-            " font-weight:bold; padding:10px; border-radius:6px;"
-        )
-        lay.addWidget(banner)
-
-        # ── 主提示文本 ────────────────────────────────────────────────────
-        main_lbl = QtWidgets.QLabel(
-            "发电机 Gen2 合闸瞬间发生跨相短路！\n机组已紧急停机！"
-        )
-        main_lbl.setAlignment(Qt.AlignCenter)
-        main_lbl.setWordWrap(True)
-        main_lbl.setStyleSheet(
-            "font-size:16px; font-weight:bold; color:#991b1b; padding:6px;"
-        )
-        lay.addWidget(main_lbl)
-
-        # ── 详细事故分析（滚动区）────────────────────────────────────────
-        scroll = QtWidgets.QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(
-            "QScrollArea{border:2px solid #fca5a5; border-radius:4px; background:white;}"
-        )
-        inner = QtWidgets.QWidget()
-        inner_lay = QtWidgets.QVBoxLayout(inner)
-        inner_lay.setContentsMargins(12, 12, 12, 12)
-        inner_lay.setSpacing(10)
-
-        detail_title = QtWidgets.QLabel("【详细事故分析】")
-        detail_title.setStyleSheet(
-            "font-size:13px; font-weight:bold; color:#7f1d1d;"
-        )
-        inner_lay.addWidget(detail_title)
-
-        fault_loc = QtWidgets.QLabel(
-            "<b>故障定位：</b>Gen2 出线 B、C 相序反接。"
-        )
-        fault_loc.setWordWrap(True)
-        fault_loc.setStyleSheet("font-size:12px; color:#1e293b;")
-        inner_lay.addWidget(fault_loc)
-
-        consequence = QtWidgets.QLabel(
-            "<b>动作后果：</b>同期装置以 A 相为基准判定条件满足并发出合闸指令，"
-            "但 Gen2 B 端子实接 C 相绕组、C 端子实接 B 相绕组，"
-            "合闸瞬间 B/C 两相与母线形成 120° 跨相短路，"
-            "产生巨大冲击电流，定子绕组及大轴严重受损。"
-        )
-        consequence.setWordWrap(True)
-        consequence.setStyleSheet("font-size:12px; color:#1e293b;")
-        inner_lay.addWidget(consequence)
-
-        symptom_box = QtWidgets.QLabel(
-            "【学员可见异常现象（合闸前已有预警）】\n"
-            "第一步：BB 回路 ∞Ω（断路），CC 回路 ∞Ω（断路），AA 回路正常。\n"
-            "第三步：PT3 相序仪显示 ACB（逆序）。\n"
-            "第四步：PT3_B↔PT2_C 压差 ≈ 0V，PT3_B↔PT2_B 压差 ≈ 146V。"
-        )
-        symptom_box.setWordWrap(True)
-        symptom_box.setStyleSheet(
-            "font-size:11px; color:#374151; background:#fef3c7;"
-            " padding:8px; border-radius:4px;"
-        )
-        inner_lay.addWidget(symptom_box)
-
-        repair_hint = QtWidgets.QLabel(
-            "<b>修复方法：</b>将 Gen2 接线盒内 B 相与 C 相端子重新对调接回原位，"
-            "然后重新执行同步并网操作。"
-        )
-        repair_hint.setWordWrap(True)
-        repair_hint.setStyleSheet(
-            "font-size:12px; color:#14532d; background:#dcfce7;"
-            " padding:8px; border-radius:4px;"
-        )
-        inner_lay.addWidget(repair_hint)
-        inner_lay.addStretch()
-
-        scroll.setWidget(inner)
-        lay.addWidget(scroll, 1)
-
-        # ── 按钮区 ────────────────────────────────────────────────────────
-        btn_row = QtWidgets.QHBoxLayout()
-        btn_row.setSpacing(10)
-
-        btn_repair = QtWidgets.QPushButton("🔧  修复故障，继续第五步测试")
-        btn_repair.setStyleSheet(
-            "background:#15803d; color:white; font-size:14px;"
-            " font-weight:bold; padding:8px 20px; border-radius:4px;"
-        )
-        btn_repair.clicked.connect(lambda: (self.ctrl.repair_fault(step=5, source='E02_accident_dialog'), dlg.accept()))
-
-        btn_record = QtWidgets.QPushButton("📋  确认事故已记录")
-        btn_record.setStyleSheet(
-            "background:#dc2626; color:white; font-size:13px;"
-            " padding:8px 16px; border-radius:4px;"
-        )
-        btn_record.clicked.connect(dlg.accept)
-
-        btn_row.addWidget(btn_repair)
-        btn_row.addWidget(btn_record)
-        lay.addLayout(btn_row)
-
-        dlg.exec_()
 
     def show_e03_accident_dialog(self):
-        """
-        E03 专用致命事故弹窗：PT3 A 相极性反接未修复时强行合闸，
-        同期装置以 180° 错误相位为基准触发非同期并网事故。
-        内置修复功能，修复后可继续完成第五步。
-        """
-        from PyQt5.QtCore import Qt
-
-        dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle("⚡ [致命事故] PT3极性错误导致非同期合闸！")
-        dlg.setModal(True)
-        dlg.setWindowModality(Qt.ApplicationModal)
-        dlg.setWindowFlags(
-            Qt.Dialog
-            | Qt.CustomizeWindowHint
-            | Qt.WindowTitleHint
-            | Qt.WindowStaysOnTopHint
+        self._show_accident_dialog(
+            scenario_id='E03',
+            title="⚡ [致命事故] PT3极性错误导致非同期合闸！",
+            main_text=(
+                "PT3 A 相极性反接导致同期装置相角基准错误！\n"
+                "Gen2 以 180° 反相位置合闸，发生非同期冲击！机组已紧急停机！"
+            ),
+            fault_loc_html=(
+                "<b>故障定位：</b>PT3 A 相二次端子 K/k 极性反接，实际输出 −V<sub>A</sub>。"
+            ),
+            consequence_html=(
+                "<b>动作后果：</b>同期装置以 PT3 A 相作为相角参考，极性反接使参考角偏差 180°。"
+                "自动同期将 Gen2 驱向反相位置后误判「相角差 = 0°」发出合闸指令，"
+                "合闸瞬间 Gen2 与母线实际相位差约 180°，产生巨大非同期冲击电流，"
+                "定子绕组及大轴严重受损。"
+            ),
+            symptom_text=(
+                "【学员可见异常现象（合闸前已有预警）】\n"
+                "第二步：PT3_AB ≈ 106V（应≈184V，标红异常）；PT3_CA ≈ 106V（标红异常）。\n"
+                "第三步：PT3 相序仪显示「故障/不平衡」（A 相极性反相）。\n"
+                "第四步：PT3_A↔PT2_A ≈ 166V（应≈0V），PT3_A↔PT2_B/C ≈ 92V（应≈146V）。\n"
+                "第五步：同步仪相位差持续显示约 180°，仲裁器报 PT3 A相极性异常。"
+            ),
+            repair_html=(
+                "<b>修复方法：</b>将 PT3 A 相二次端子 K/k 对调，恢复正确极性后"
+                "重新执行同步并网操作。"
+            ),
+            height=540,
         )
-        dlg.resize(620, 540)
-
-        lay = QtWidgets.QVBoxLayout(dlg)
-        lay.setContentsMargins(18, 16, 18, 16)
-        lay.setSpacing(12)
-
-        # ── 顶部警告横幅 ──────────────────────────────────────────────────
-        banner = QtWidgets.QLabel("🚨  致命事故  🚨")
-        banner.setAlignment(Qt.AlignCenter)
-        banner.setStyleSheet(
-            "background:#7f1d1d; color:#fef2f2; font-size:20px;"
-            " font-weight:bold; padding:10px; border-radius:6px;"
-        )
-        lay.addWidget(banner)
-
-        # ── 主提示文本 ────────────────────────────────────────────────────
-        main_lbl = QtWidgets.QLabel(
-            "PT3 A 相极性反接导致同期装置相角基准错误！\n"
-            "Gen2 以 180° 反相位置合闸，发生非同期冲击！机组已紧急停机！"
-        )
-        main_lbl.setAlignment(Qt.AlignCenter)
-        main_lbl.setWordWrap(True)
-        main_lbl.setStyleSheet(
-            "font-size:16px; font-weight:bold; color:#991b1b; padding:6px;"
-        )
-        lay.addWidget(main_lbl)
-
-        # ── 详细事故分析（滚动区）────────────────────────────────────────
-        scroll = QtWidgets.QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(
-            "QScrollArea{border:2px solid #fca5a5; border-radius:4px; background:white;}"
-        )
-        inner = QtWidgets.QWidget()
-        inner_lay = QtWidgets.QVBoxLayout(inner)
-        inner_lay.setContentsMargins(12, 12, 12, 12)
-        inner_lay.setSpacing(10)
-
-        detail_title = QtWidgets.QLabel("【详细事故分析】")
-        detail_title.setStyleSheet(
-            "font-size:13px; font-weight:bold; color:#7f1d1d;"
-        )
-        inner_lay.addWidget(detail_title)
-
-        fault_loc = QtWidgets.QLabel(
-            "<b>故障定位：</b>PT3 A 相二次端子 K/k 极性反接，实际输出 −V<sub>A</sub>。"
-        )
-        fault_loc.setWordWrap(True)
-        fault_loc.setStyleSheet("font-size:12px; color:#1e293b;")
-        inner_lay.addWidget(fault_loc)
-
-        consequence = QtWidgets.QLabel(
-            "<b>动作后果：</b>同期装置以 PT3 A 相作为相角参考，极性反接使参考角偏差 180°。"
-            "自动同期将 Gen2 驱向反相位置后误判「相角差 = 0°」发出合闸指令，"
-            "合闸瞬间 Gen2 与母线实际相位差约 180°，产生巨大非同期冲击电流，"
-            "定子绕组及大轴严重受损。"
-        )
-        consequence.setWordWrap(True)
-        consequence.setStyleSheet("font-size:12px; color:#1e293b;")
-        inner_lay.addWidget(consequence)
-
-        symptom_box = QtWidgets.QLabel(
-            "【学员可见异常现象（合闸前已有预警）】\n"
-            "第二步：PT3_AB ≈ 106V（应≈184V，标红异常）；PT3_CA ≈ 106V（标红异常）。\n"
-            "第三步：PT3 相序仪显示「故障/不平衡」（A 相极性反相）。\n"
-            "第四步：PT3_A↔PT2_A ≈ 166V（应≈0V），PT3_A↔PT2_B/C ≈ 92V（应≈146V）。\n"
-            "第五步：同步仪相位差持续显示约 180°，仲裁器报 PT3 A相极性异常。"
-        )
-        symptom_box.setWordWrap(True)
-        symptom_box.setStyleSheet(
-            "font-size:11px; color:#374151; background:#fef3c7;"
-            " padding:8px; border-radius:4px;"
-        )
-        inner_lay.addWidget(symptom_box)
-
-        repair_hint = QtWidgets.QLabel(
-            "<b>修复方法：</b>将 PT3 A 相二次端子 K/k 对调，恢复正确极性后"
-            "重新执行同步并网操作。"
-        )
-        repair_hint.setWordWrap(True)
-        repair_hint.setStyleSheet(
-            "font-size:12px; color:#14532d; background:#dcfce7;"
-            " padding:8px; border-radius:4px;"
-        )
-        inner_lay.addWidget(repair_hint)
-        inner_lay.addStretch()
-
-        scroll.setWidget(inner)
-        lay.addWidget(scroll, 1)
-
-        # ── 按钮区 ────────────────────────────────────────────────────────
-        btn_row = QtWidgets.QHBoxLayout()
-        btn_row.setSpacing(10)
-
-        btn_repair = QtWidgets.QPushButton("🔧  修复故障，继续第五步测试")
-        btn_repair.setStyleSheet(
-            "background:#15803d; color:white; font-size:14px;"
-            " font-weight:bold; padding:8px 20px; border-radius:4px;"
-        )
-        btn_repair.clicked.connect(lambda: (self.ctrl.repair_fault(step=5, source='E03_accident_dialog'), dlg.accept()))
-
-        btn_record = QtWidgets.QPushButton("📋  确认事故已记录")
-        btn_record.setStyleSheet(
-            "background:#dc2626; color:white; font-size:13px;"
-            " padding:8px 16px; border-radius:4px;"
-        )
-        btn_record.clicked.connect(dlg.accept)
-
-        btn_row.addWidget(btn_repair)
-        btn_row.addWidget(btn_record)
-        lay.addLayout(btn_row)
-
-        dlg.exec_()
 
     # ── 对外接口（ctrl 调用）────────────────────────────────────────────────
     def show_warning(self, title: str, message: str):

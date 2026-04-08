@@ -185,12 +185,8 @@ class ProtectionMixin:
                     if (gen_id == 2
                             and generator.breaker_position == BreakerPosition.WORKING
                             and fc.active and not fc.repaired):
-                        if fc.scenario_id == 'E01':
-                            self.ctrl.ui.show_e01_accident_dialog()
-                        elif fc.scenario_id == 'E02':
-                            self.ctrl.ui.show_e02_accident_dialog()
-                        elif fc.scenario_id == 'E03':
-                            self.ctrl.ui.show_e03_accident_dialog()
+                        if fc.scenario_id in ('E01', 'E02', 'E03'):
+                            self.pending_accident = fc.scenario_id
                         else:
                             generator.breaker_closed = True
                     else:
@@ -208,12 +204,8 @@ class ProtectionMixin:
                             and fc.active and not fc.repaired
                             and self.bus_live
                             and not test_mode):
-                        if fc.scenario_id == 'E01':
-                            self.ctrl.ui.show_e01_accident_dialog()
-                        elif fc.scenario_id == 'E02':
-                            self.ctrl.ui.show_e02_accident_dialog()
-                        elif fc.scenario_id == 'E03':
-                            self.ctrl.ui.show_e03_accident_dialog()
+                        if fc.scenario_id in ('E01', 'E02', 'E03'):
+                            self.pending_accident = fc.scenario_id
                         else:
                             generator.breaker_closed = True
                     else:
@@ -227,7 +219,7 @@ class ProtectionMixin:
                             and fc.scenario_id == 'E03'
                             and self.bus_live
                             and not test_mode):
-                        self.ctrl.ui.show_e03_accident_dialog()
+                        self.pending_accident = 'E03'
                     else:
                         self.relay_msg, self.relay_color = (
                             f"非同期合闸爆炸！频差:{abs(generator.freq-ref_freq):.1f}Hz, "
