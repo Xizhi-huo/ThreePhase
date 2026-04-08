@@ -97,6 +97,144 @@ QLabel[mutedText="true"] {{
     color: {text_muted};
 }}
 
+QWidget[waveformPage="true"] {{
+    background: {bg_app};
+}}
+
+QLabel[sectionTitle="true"] {{
+    color: {text_main};
+    font-size: 17px;
+    font-weight: 800;
+}}
+
+QLabel[sectionCaption="true"] {{
+    color: {text_muted};
+    font-size: 12px;
+}}
+
+QFrame[metricCard="true"],
+QFrame[plotCard="true"],
+QFrame[wavePanelCard="true"] {{
+    background: {bg_surface};
+    border: 1px solid {border};
+    border-radius: 14px;
+}}
+
+QFrame[metricCard="true"][tone="success"] {{
+    border-color: #bbf7d0;
+    background: #f8fdf9;
+}}
+
+QFrame[metricCard="true"][tone="warning"] {{
+    border-color: #fed7aa;
+    background: #fffdf8;
+}}
+
+QFrame[metricCard="true"][tone="danger"] {{
+    border-color: #fecaca;
+    background: #fff9f9;
+}}
+
+QFrame[metricCard="true"][tone="primary"],
+QFrame[metricCard="true"][tone="info"] {{
+    border-color: #d7e4ff;
+    background: #fbfdff;
+}}
+
+QFrame[criteriaRow="true"] {{
+    background: {bg_surface_alt};
+    border: 1px solid {border};
+    border-radius: 12px;
+}}
+
+QLabel[metricTitle="true"] {{
+    color: {text_muted};
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}}
+
+QLabel[metricValue="true"] {{
+    color: {text_main};
+    font-size: 22px;
+    font-weight: 800;
+    min-height: 30px;
+    padding: 2px 0;
+}}
+
+QLabel[metricValue="true"][tone="neutral"] {{
+    color: {text_main};
+}}
+
+QLabel[metricValue="true"][tone="primary"],
+QLabel[metricValue="true"][tone="info"] {{
+    color: {primary};
+}}
+
+QLabel[metricValue="true"][tone="success"] {{
+    color: {success};
+}}
+
+QLabel[metricValue="true"][tone="warning"] {{
+    color: {warning};
+}}
+
+QLabel[metricValue="true"][tone="danger"] {{
+    color: {danger};
+}}
+
+QLabel[metricCaption="true"] {{
+    color: {text_muted};
+    font-size: 10px;
+}}
+
+QLabel[syncStateHero="true"] {{
+    background: {bg_surface_alt};
+    border: 1px solid {border};
+    border-radius: 12px;
+    padding: 10px 12px;
+    color: {text_main};
+    font-size: 18px;
+    font-weight: 800;
+    min-height: 52px;
+}}
+
+QLabel[syncStateHero="true"][tone="neutral"] {{
+    background: {bg_surface_alt};
+    border-color: {border};
+    color: {text_muted};
+}}
+
+QLabel[syncStateHero="true"][tone="info"] {{
+    background: {info_soft};
+    border-color: #bfdbfe;
+    color: {info};
+}}
+
+QLabel[syncStateHero="true"][tone="primary"] {{
+    background: {primary_soft};
+    border-color: #bfdbfe;
+    color: {primary};
+}}
+
+QLabel[syncStateHero="true"][tone="success"] {{
+    background: {success_soft};
+    border-color: #bbf7d0;
+    color: {success};
+}}
+
+QLabel[syncStateHero="true"][tone="warning"] {{
+    background: {warning_soft};
+    border-color: #fed7aa;
+    color: {warning};
+}}
+
+QLabel[syncStateHero="true"][tone="danger"] {{
+    background: {danger_soft};
+    border-color: #fecaca;
+    color: {danger};
+}}
+
 QLabel[stepHeader="true"] {{
     color: {text_main};
     font-size: 20px;
@@ -154,6 +292,14 @@ QLabel[badge="true"][tone="danger"] {{
     background: {danger_soft};
     color: {danger};
     border-color: #fecaca;
+}}
+
+QLabel[badge="true"][criteriaBadge="true"] {{
+    border-radius: 9px;
+    padding: 4px 10px;
+    font-size: 10px;
+    font-weight: 600;
+    min-height: 22px;
 }}
 
 QLabel[stepBanner="true"] {{

@@ -372,13 +372,13 @@ SCENARIOS: dict = {
         'label': '接线错误',
         'description': (
             'Gen1机端正常，PT1一次侧A/B对调，二次侧B/C对调。\n'
-            '两个不同换位合成三轮换（A→B→C→A循环），测量端相序为CAB——\n'
+            '两个不同换位合成三轮换（A→B→C→A循环），测量端净相序为BCA——\n'
             '三相电压均存在120°相位平移，但旋转方向不变，相序仪仍显正序（虚假正常）。\n'
             '步骤四是唯一有效检测：同相端子对比全部暴露≈183V相位差。'
         ),
         'symptom': (
             '第一步：三相回路全部导通，Gen1直测ABC正序。\n'
-            '第三步：PT1相序仪显示正序（CAB轮换被误判为ABC）——虚假正常。\n'
+            '第三步：PT1相序仪显示正序（BCA 正序轮换，绿灯顺时针）——虚假正常。\n'
             '第四步：Bus_A=A相(∠0°)，PT1_A=B相(∠240°) → 压差≈183V ❌\n'
             '         Bus_B=B相，PT1_B=C相 → 压差≈183V ❌\n'
             '         Bus_C=C相，PT1_C=A相 → 压差≈183V ❌\n'
@@ -388,7 +388,7 @@ SCENARIOS: dict = {
         'detection_step': 4,
         'danger_level': 'recoverable',
         'params': {
-            'pt1_phase_order': ['B', 'C', 'A'],   # CAB轮换，相序仪仍显正序
+            'pt1_phase_order': ['B', 'C', 'A'],   # BCA轮换，相序仪仍显正序
 
             'pt1_pri_blackbox_order': ['B', 'A', 'C'],   # 黑箱数据源，覆盖pt1_phase_order，确保P1/PT1一致反序
             'pt1_sec_blackbox_order': ['A', 'C', 'B'],   # 黑箱数据源，覆盖pt1_phase_order，确保PT2/PT1一致反序

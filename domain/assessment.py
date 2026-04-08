@@ -57,8 +57,12 @@ class AssessmentSession:
     scene_id: str
     mode: str
     started_at: str
+    fault_selection_mode: str = "specified"
     events: List[AssessmentEvent] = field(default_factory=list)
     state_snapshot: Dict[str, Any] = field(default_factory=dict)
+    fault_guess_scene_id: str = ""
+    fault_guess_submitted: bool = False
+    fault_guess_correct: bool = False
     finished_at: Optional[str] = None
     result: Optional[AssessmentResult] = None
     result_shown: bool = False

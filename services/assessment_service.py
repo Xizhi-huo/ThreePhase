@@ -151,6 +151,10 @@ class AssessmentService:
             target = event.payload.get("target")
             if target:
                 opened_targets.append(target)
+        early_pt_blackbox_open_events = [
+            event for event in blackbox_open_events
+            if event.step in (1, 2) and event.payload.get("target") in {"PT1", "PT3"}
+        ]
         opened_target_set: Set[str] = set(opened_targets)
         touched_layers = set()
         for event in all_events("blackbox_swap"):
@@ -462,7 +466,7 @@ class AssessmentService:
         add_score_item("H2", "无效操作控制", "效率与规范性", 4, h2_score, detail=h2_detail, penalty_message="无效测量或违规操作次数偏多。")
 
         step_scores = {
-            "flow_discipline": a1_score + a2_score + a3_score + a4_score + a5_score,
+            "flow_discipline": sum(item.earned_score for item in score_items if item.code.startswith("A")),
             "loop_test": sum(item.earned_score for item in score_items if item.code.startswith("B")),
             "pt_voltage_check": sum(item.earned_score for item in score_items if item.code.startswith("C")),
             "pt_phase_check": sum(item.earned_score for item in score_items if item.code.startswith("D")),
@@ -472,16 +476,42 @@ class AssessmentService:
             "efficiency": sum(item.earned_score for item in score_items if item.code.startswith("H")),
         }
         step_max_scores = {
-            "flow_discipline": 16,
-            "loop_test": 10,
-            "pt_voltage_check": 12,
-            "pt_phase_check": 12,
-            "pt_exam": 16,
-            "anomaly_localization": 14,
-            "blackbox_repair": 12,
-            "efficiency": 8,
+            "flow_discipline": sum(item.max_score for item in score_items if item.code.startswith("A")),
+            "loop_test": sum(item.max_score for item in score_items if item.code.startswith("B")),
+            "pt_voltage_check": sum(item.max_score for item in score_items if item.code.startswith("C")),
+            "pt_phase_check": sum(item.max_score for item in score_items if item.code.startswith("D")),
+            "pt_exam": sum(item.max_score for item in score_items if item.code.startswith("E")),
+            "anomaly_localization": sum(item.max_score for item in score_items if item.code.startswith("F")),
+            "blackbox_repair": sum(item.max_score for item in score_items if item.code.startswith("G")),
+            "efficiency": sum(item.max_score for item in score_items if item.code.startswith("H")),
         }
         total_score = sum(step_scores.values())
+        max_score = sum(step_max_scores.values())
+
+        extra_deduction_total = 0
+        for idx, event in enumerate(early_pt_blackbox_open_events, start=1):
+            extra_deduction_total += 10
+            penalties.append(
+                AssessmentPenalty(
+                    code="X1",
+                    message=f"前两步第 {idx} 次提前打开 PT 黑盒，属于高危违规，额外扣 10 分。",
+                    score_delta=-10,
+                    step=event.step,
+                    timestamp=event.timestamp,
+                )
+            )
+        if session.fault_selection_mode == "random" and session.scene_id and not session.fault_guess_correct:
+            extra_deduction_total += 10
+            penalties.append(
+                AssessmentPenalty(
+                    code="X2",
+                    message="随机故障最终场景判定错误，额外扣 10 分。",
+                    score_delta=-10,
+                    step=4,
+                    timestamp=finished_at,
+                )
+            )
+        total_score = max(0, total_score - extra_deduction_total)
 
         veto_reason = None
         if serious_misoperations > 0:
@@ -494,6 +524,16 @@ class AssessmentService:
         passed = veto_reason is None and total_score >= 60
 
         metrics: Dict[str, object] = {
+            "fault_selection_mode": "随机故障" if session.fault_selection_mode == "random" else "指定/正常",
+            "fault_guess_scene_id": session.fault_guess_scene_id or "-",
+            "fault_guess_correct": (
+                "-"
+                if session.fault_selection_mode != "random"
+                else ("正确" if session.fault_guess_correct else "错误")
+            ),
+            "actual_fault_scene_id": session.scene_id or "-",
+            "early_pt_blackbox_opened": len(early_pt_blackbox_open_events),
+            "extra_deduction_total": extra_deduction_total,
             "step_entered_order": [event.step for event in step_enter_events],
             "step_finalize_attempts": count("step_finalize_attempted"),
             "blocked_advances": len(blocked_events),
@@ -518,6 +558,8 @@ class AssessmentService:
             summary = "通过：达到基本考核要求。"
         else:
             summary = "未通过：总分未达到及格线。"
+        if extra_deduction_total > 0:
+            summary = f"{summary} 另有额外扣分 {extra_deduction_total} 分。"
 
         return AssessmentResult(
             session_id=session.session_id,
@@ -528,7 +570,7 @@ class AssessmentService:
             elapsed_seconds=elapsed_seconds,
             passed=passed,
             total_score=total_score,
-            max_score=100,
+            max_score=max_score,
             veto_reason=veto_reason,
             step_scores=step_scores,
             step_max_scores=step_max_scores,

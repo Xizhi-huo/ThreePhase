@@ -157,6 +157,7 @@ class PowerSyncUI(
 
         self._render_waveforms(d, deg, bus_a_display)
         self._render_phasors(d, bus_a_display)
+        self._render_waveform_dashboard(rs)
         self._render_ct_readings(p)
         self._render_bus_status(p)
         self._render_breakers(p)
@@ -180,7 +181,7 @@ class PowerSyncUI(
 
         idx = self.tab_widget.currentIndex()
         if idx == 0:
-            self.canvas1.draw_idle()
+            self._draw_waveform_canvases()
         elif idx == 1:
             self.canvas2.draw_idle()
 

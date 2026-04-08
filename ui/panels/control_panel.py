@@ -556,6 +556,7 @@ class WidgetBuilderMixin:
         sid = _random.choice(fault_ids)
         self._pre_test_scenario_id = sid
         self._pre_test_preset_mode = "random"
+        self._pre_test_flow_mode = "assessment"
         self._sync_fault_preset_buttons(self._pre_test_preset_mode)
         self._refresh_pretest_status_label()
 

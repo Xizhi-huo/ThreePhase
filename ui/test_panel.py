@@ -8,6 +8,7 @@ ui/test_panel.py
 
 from PyQt5 import QtWidgets, QtCore, QtGui
 from domain.enums import BreakerPosition
+from domain.fault_scenarios import SCENARIOS
 
 # ── 主题色常量（清新工业教学风）────────────────────────────────────────────
 _PANEL_BG   = "#eef3f9"
@@ -42,7 +43,7 @@ class _GenWiringWidget(QtWidgets.QWidget):
         phases = ['A', 'B', 'C']
         self._order = [mapping.get(p, p) for p in phases]
         self._selected = None   # (zone, raw_idx): zone='top'|'bot', raw_idx∈{0,1,2}
-        self.setFixedSize(270, 210)
+        self.setFixedSize(320, 250)
         if interactive:
             self.setCursor(QtCore.Qt.PointingHandCursor)
 
@@ -57,10 +58,10 @@ class _GenWiringWidget(QtWidgets.QWidget):
         """返回 (zone, raw_idx) 或 None。top=绕组圆(idx=相序0-2), bot=接线柱(idx=柱0-2)。"""
         xs = self._xs(); r = 13
         for i in range(3):
-            if abs(pos.x() - xs[i]) <= r + 4 and abs(pos.y() - 52) <= r + 4:
+            if abs(pos.x() - xs[i]) <= r + 4 and abs(pos.y() - 64) <= r + 4:
                 return ('top', i)
         for i in range(3):
-            if abs(pos.x() - xs[i]) <= r + 4 and abs(pos.y() - 158) <= r + 4:
+            if abs(pos.x() - xs[i]) <= r + 4 and abs(pos.y() - 186) <= r + 4:
                 return ('bot', i)
         return None
 
@@ -100,26 +101,19 @@ class _GenWiringWidget(QtWidgets.QWidget):
         phases = ['A', 'B', 'C']
         term_labels = ['U', 'V', 'W']
         r = 13          # circle/square half-size
-        y_src = 52      # 内部绕组圆心 y
-        y_dst = 158     # 输出接线柱中心 y
+        y_src = 64      # 内部绕组圆心 y
+        y_dst = 186     # 输出接线柱中心 y
 
         # 白色背景
         qp.setPen(QtCore.Qt.NoPen)
         qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
         qp.drawRoundedRect(0, 0, w, self.height(), 6, 6)
 
-        if self.interactive:
-            hint = QtWidgets.QLabel()  # 仅借用文字绘制，不显示 widget
-            f6 = QtGui.QFont(); f6.setPointSize(6); f6.setItalic(True)
-            qp.setFont(f6); qp.setPen(QtGui.QPen(QtGui.QColor('#64748b')))
-            qp.drawText(QtCore.QRect(0, self.height() - 28, w, 13),
-                        QtCore.Qt.AlignCenter, "点击任意两个节点可互换接线")
-
         # 区域标签
-        f7 = QtGui.QFont(); f7.setPointSize(7)
+        f7 = QtGui.QFont(); f7.setPointSize(8)
         qp.setFont(f7); qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
-        qp.drawText(QtCore.QRect(0, 2, w, 14), QtCore.Qt.AlignCenter, "── 内部绕组 ──")
-        qp.drawText(QtCore.QRect(0, y_dst + r + 18, w, 13),
+        qp.drawText(QtCore.QRect(0, 8, w, 16), QtCore.Qt.AlignCenter, "── 内闭绕组 ──")
+        qp.drawText(QtCore.QRect(0, y_dst + r + 24, w, 16),
                     QtCore.Qt.AlignCenter, "── 输出接线柱 ──")
 
         # ── 连线（先画，在圆下方）──
@@ -133,7 +127,7 @@ class _GenWiringWidget(QtWidgets.QWidget):
             qp.setPen(pen)
             qp.drawLine(sx, y_src + r + 1, dx, y_dst - r - 1)
 
-        f9b = QtGui.QFont(); f9b.setPointSize(9); f9b.setBold(True)
+        f9b = QtGui.QFont(); f9b.setPointSize(10); f9b.setBold(True)
 
         # ── 内部绕组圆（A=黄/B=绿/C=红，位置固定）──
         for i, ph in enumerate(phases):
@@ -166,9 +160,9 @@ class _GenWiringWidget(QtWidgets.QWidget):
             qp.drawText(QtCore.QRect(x - r, y_dst - r, 2 * r, 2 * r),
                         QtCore.Qt.AlignCenter, term_labels[i])
             # 实际相标注（接线柱下方）
-            f8 = QtGui.QFont(); f8.setPointSize(8)
+            f8 = QtGui.QFont(); f8.setPointSize(9)
             qp.setFont(f8); qp.setPen(QtGui.QPen(c))
-            qp.drawText(QtCore.QRect(x - 18, y_dst + r + 2, 36, 16),
+            qp.drawText(QtCore.QRect(x - 22, y_dst + r + 6, 44, 18),
                         QtCore.Qt.AlignCenter, f"({actual})")
         qp.end()
 
@@ -182,12 +176,12 @@ class _PTWiringWidget(QtWidgets.QWidget):
     最上方测量端仅将二次侧当前结果垂直引出，不再额外重排为 ABC。
     """
 
-    _Y_OUT   = 24
-    _Y_SEC   = 104
-    _Y_BOXT  = 124
-    _Y_BOXB  = 202
-    _Y_PRI   = 222
-    _Y_CABLE = 318
+    _Y_OUT   = 56
+    _Y_SEC   = 176
+    _Y_BOXT  = 224
+    _Y_BOXB  = 344
+    _Y_PRI   = 392
+    _Y_CABLE = 496
 
     def __init__(self, pri_order, sec_order, pri_input_order=None,
                  interactive_pri=False, interactive_sec=False, parent=None):
@@ -200,7 +194,7 @@ class _PTWiringWidget(QtWidgets.QWidget):
         self.interactive_sec = interactive_sec
         self._sel_sec = None
         self._sel_pri = None
-        self.setFixedSize(270, 350)
+        self.setFixedSize(410, 560)
         if interactive_pri or interactive_sec:
             self.setCursor(QtCore.Qt.PointingHandCursor)
 
@@ -293,32 +287,24 @@ class _PTWiringWidget(QtWidgets.QWidget):
         qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
         qp.drawRoundedRect(0, 0, w, self.height(), 6, 6)
 
-        if self.interactive_pri or self.interactive_sec:
-            f6 = QtGui.QFont(); f6.setPointSize(6); f6.setItalic(True)
-            qp.setFont(f6); qp.setPen(QtGui.QPen(QtGui.QColor('#64748b')))
-            qp.drawText(QtCore.QRect(0, y_out - 13, w, 11),
-                        QtCore.Qt.AlignCenter, "↑ 点击一次侧或二次侧两个端子可互换接线 ↑")
-
         # 变压器铁芯盒（中间灰色虚线框）
         qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8'), 1.5, QtCore.Qt.DashLine))
         qp.setBrush(QtGui.QBrush(QtGui.QColor('#f0f9ff')))
-        qp.drawRect(10, y_boxt, w - 20, y_boxb - y_boxt)
-        f8 = QtGui.QFont(); f8.setPointSize(8)
+        qp.drawRect(16, y_boxt, w - 32, y_boxb - y_boxt)
+        f8 = QtGui.QFont(); f8.setPointSize(9)
         qp.setFont(f8); qp.setPen(QtGui.QPen(QtGui.QColor('#64748b')))
         ymid = (y_boxt + y_boxb) // 2
-        qp.drawText(QtCore.QRect(0, ymid - 8, w, 16),
+        qp.drawText(QtCore.QRect(0, ymid - 10, w, 20),
                     QtCore.Qt.AlignCenter, "⚡  变压器铁芯（黑盒）")
 
-        f9b = QtGui.QFont(); f9b.setPointSize(9); f9b.setBold(True)
-        f7  = QtGui.QFont(); f7.setPointSize(7)
+        f9b = QtGui.QFont(); f9b.setPointSize(10); f9b.setBold(True)
+        f7  = QtGui.QFont(); f7.setPointSize(8)
 
         # ═══════════════════ 二次侧（上半部）═══════════════════
 
         # 测量端口圆：仅垂直引出二次侧当前实际结果
         qp.setFont(f7); qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
-        qp.drawText(QtCore.QRect(0, y_out + r + 2, w, 12), QtCore.Qt.AlignCenter,
-                    "── 二次侧测量端口 ──")
-        qp.drawText(QtCore.QRect(0, 8, w, 12), QtCore.Qt.AlignCenter,
+        qp.drawText(QtCore.QRect(0, 12, w, 18), QtCore.Qt.AlignCenter,
                     f"实际输出: {''.join(sec_actual)}")
         for i, ph in enumerate(sec_actual):
             x = xs[i]; c = QtGui.QColor(_PC[ph])
@@ -349,20 +335,25 @@ class _PTWiringWidget(QtWidgets.QWidget):
             qp.setPen(QtGui.QPen(border_c, border_w))
             qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
             qp.drawEllipse(x - r, y_sec - r, 2 * r, 2 * r)
-            f7b = QtGui.QFont(); f7b.setPointSize(7); f7b.setBold(True)
+            f7b = QtGui.QFont(); f7b.setPointSize(8); f7b.setBold(True)
             qp.setFont(f7b); qp.setPen(QtGui.QPen(QtGui.QColor('#1e293b')))
             qp.drawText(QtCore.QRect(x - r, y_sec - r, 2 * r, 2 * r),
                         QtCore.Qt.AlignCenter, sec_lbl[i])
             qp.setFont(f7)
             qp.setPen(QtGui.QPen(c))
-            qp.drawText(QtCore.QRect(x + r + 4, y_sec - 8, 28, 16),
+            qp.drawText(QtCore.QRect(x + r + 6, y_sec - 9, 36, 18),
                         QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, f"({ph_out})")
+
+        qp.setFont(f7)
+        qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
+        qp.drawText(QtCore.QRect(0, y_sec + r + 10, w, 16), QtCore.Qt.AlignCenter,
+                    "── 二次侧测量端口 ──")
 
         # ═══════════════════ 一次侧（下半部）═══════════════════
 
         # 一次侧端子圆：显示一次侧端子处的实际相别
         qp.setFont(f7); qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
-        qp.drawText(QtCore.QRect(0, y_pri - r - 18, w, 12), QtCore.Qt.AlignCenter,
+        qp.drawText(QtCore.QRect(0, y_pri - r - 26, w, 16), QtCore.Qt.AlignCenter,
                     f"一次侧结果: {''.join(pri_actual)}")
         pri_lbl = ['A1', 'B1', 'C1']
         for i, ph_in in enumerate(pri_actual):
@@ -373,13 +364,13 @@ class _PTWiringWidget(QtWidgets.QWidget):
             qp.setPen(QtGui.QPen(border_c, border_w))
             qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
             qp.drawEllipse(x - r, y_pri - r, 2 * r, 2 * r)
-            f7b = QtGui.QFont(); f7b.setPointSize(7); f7b.setBold(True)
+            f7b = QtGui.QFont(); f7b.setPointSize(8); f7b.setBold(True)
             qp.setFont(f7b); qp.setPen(QtGui.QPen(QtGui.QColor('#1e293b')))
             qp.drawText(QtCore.QRect(x - r, y_pri - r, 2 * r, 2 * r),
                         QtCore.Qt.AlignCenter, pri_lbl[i])
             qp.setFont(f7)
             qp.setPen(QtGui.QPen(c))
-            qp.drawText(QtCore.QRect(x + r + 4, y_pri - 8, 28, 16),
+            qp.drawText(QtCore.QRect(x + r + 6, y_pri - 9, 36, 18),
                         QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, f"({ph_in})")
 
         # 一次侧交叉连线：从下方来相实际位置连到一次侧端子
@@ -404,9 +395,9 @@ class _PTWiringWidget(QtWidgets.QWidget):
                         QtCore.Qt.AlignCenter, ph)
 
         qp.setFont(f7); qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
-        qp.drawText(QtCore.QRect(0, self.height() - 14, w, 13),
+        qp.drawText(QtCore.QRect(0, self.height() - 30, w, 16),
                     QtCore.Qt.AlignCenter, "── 一次侧输入电缆 ──")
-        qp.drawText(QtCore.QRect(0, y_cable + r + 14, w, 12), QtCore.Qt.AlignCenter,
+        qp.drawText(QtCore.QRect(0, y_cable + r + 8, w, 16), QtCore.Qt.AlignCenter,
                     f"实际来相: {''.join(pri_input)}")
         qp.end()
 
@@ -1187,7 +1178,10 @@ class TestPanelMixin:
             self._tp_admin_mode = False
             self.tp_btn_admin.setChecked(False)
             self._tp_forced_step = None
-        self.ctrl.start_assessment_session(scenario_id)
+        self.ctrl.start_assessment_session(
+            scenario_id,
+            preset_mode=getattr(self, '_pre_test_preset_mode', 'specified'),
+        )
         self.tab_widget.setCurrentIndex(1)
         # 进入测试模式即自动开启回路检查，省去用户二次点击
         if not self.ctrl.sim_state.loop_test_mode:
@@ -1783,6 +1777,35 @@ class TestPanelMixin:
         self._set_props(section3, dialogSection=True)
         content_lay.addWidget(section3)
 
+        extra_penalties = [penalty for penalty in result.penalties if penalty.code in {"X1", "X2"}]
+        if extra_penalties:
+            section_extra = QtWidgets.QLabel("额外扣分说明")
+            self._set_props(section_extra, dialogSection=True)
+            content_lay.addWidget(section_extra)
+
+            extra_wrap = QtWidgets.QFrame()
+            extra_wrap.setStyleSheet("background:white; border:1px solid #fecaca; border-radius:12px;")
+            extra_lay = QtWidgets.QVBoxLayout(extra_wrap)
+            extra_lay.setContentsMargins(14, 12, 14, 12)
+            extra_lay.setSpacing(8)
+
+            for penalty in extra_penalties:
+                step_text = f"第 {penalty.step} 步" if penalty.step > 0 else "流程外"
+                item_lbl = QtWidgets.QLabel(f"{step_text}：{penalty.message}（{penalty.score_delta} 分）")
+                item_lbl.setWordWrap(True)
+                item_lbl.setStyleSheet("font-size:13px; color:#991b1b; font-weight:bold;")
+                extra_lay.addWidget(item_lbl)
+
+            content_lay.addWidget(extra_wrap)
+
+        metric_labels.update({
+            "fault_selection_mode": "随机出题方式",
+            "fault_guess_scene_id": "学员判定故障",
+            "fault_guess_correct": "判定结果",
+            "actual_fault_scene_id": "实际故障",
+            "early_pt_blackbox_opened": "前两步提前打开 PT 黑盒次数",
+            "extra_deduction_total": "额外扣分合计",
+        })
         metric_rows = []
         for key, value in result.metrics.items():
             if isinstance(value, list):
@@ -1821,6 +1844,81 @@ class TestPanelMixin:
         self._apply_button_tone(btn_close, "primary")
         btn_close.clicked.connect(dlg.accept)
         btn_row.addWidget(btn_close)
+        lay.addLayout(btn_row)
+
+        dlg.adjustSize()
+        dlg.resize(max(340, dlg.sizeHint().width()), dlg.sizeHint().height())
+        dlg.exec_()
+
+    def _show_random_fault_identification_dialog(self):
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("随机故障判定")
+        dlg.resize(520, 260)
+        dlg.setModal(True)
+        dlg.setWindowFlags(
+            QtCore.Qt.Dialog
+            | QtCore.Qt.CustomizeWindowHint
+            | QtCore.Qt.WindowTitleHint
+        )
+        self._set_props(dlg, themedDialog=True)
+
+        lay = QtWidgets.QVBoxLayout(dlg)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(10)
+
+        title_lbl = QtWidgets.QLabel("请先判断本轮随机故障，再生成第 4 步成绩单")
+        self._set_props(title_lbl, dialogTitle=True)
+        lay.addWidget(title_lbl)
+
+        desc_lbl = QtWidgets.QLabel(
+            "随机故障考核不会提前公开场景。请根据前四步测量结果，选择你认为最符合当前现象的故障场景。"
+        )
+        desc_lbl.setWordWrap(True)
+        self._set_props(desc_lbl, dialogCaption=True)
+        lay.addWidget(desc_lbl)
+
+        combo = QtWidgets.QComboBox()
+        combo.setMinimumHeight(36)
+        combo.setStyleSheet(
+            "QComboBox{font-size:16px; padding:6px 10px;}"
+            "QAbstractItemView{font-size:16px; outline:none;}"
+            "QAbstractItemView::item{min-height:30px;}"
+        )
+        combo.addItem("请选择故障场景", "")
+        for scene_id, info in SCENARIOS.items():
+            if not scene_id:
+                continue
+            title_text = info.get('title', scene_id)
+            if str(title_text).startswith(scene_id):
+                combo.addItem(str(title_text), scene_id)
+            else:
+                combo.addItem(f"{scene_id} - {title_text}", scene_id)
+        lay.addWidget(combo)
+
+        hint_lbl = QtWidgets.QLabel("")
+        hint_lbl.setWordWrap(True)
+        self._set_props(hint_lbl, feedbackText=True, tone="warning")
+        hint_lbl.setVisible(False)
+        lay.addWidget(hint_lbl)
+
+        lay.addStretch()
+
+        btn_row = QtWidgets.QHBoxLayout()
+        btn_row.addStretch()
+        btn_ok = QtWidgets.QPushButton("提交判定并生成成绩单")
+        self._apply_button_tone(btn_ok, "primary")
+
+        def _submit():
+            guessed_scene_id = combo.currentData()
+            if not guessed_scene_id:
+                hint_lbl.setText("请先选择一个故障场景。")
+                hint_lbl.setVisible(True)
+                return
+            self.ctrl.submit_random_fault_identification(guessed_scene_id)
+            dlg.accept()
+
+        btn_ok.clicked.connect(_submit)
+        btn_row.addWidget(btn_ok)
         lay.addLayout(btn_row)
 
         dlg.exec_()
@@ -1935,6 +2033,9 @@ class TestPanelMixin:
             self._refresh_tp_step4()
         elif step == 5:
             self._refresh_tp_step5(sim)
+
+        if progress.random_fault_guess_required:
+            self._show_random_fault_identification_dialog()
 
         result = self.ctrl.finish_assessment_session_if_ready(step)
         if result is not None:
@@ -2117,6 +2218,7 @@ class TestPanelMixin:
         sim = self.ctrl.sim_state
         fc  = sim.fault_config
         allow_repair = self.ctrl.can_repair_in_blackbox()
+        assessment_mode = self.ctrl.is_assessment_mode()
 
         # 是否存在活跃未修复故障（影响接线显示）
         blackbox_state = self.ctrl.get_blackbox_runtime_state(target)
@@ -2124,7 +2226,7 @@ class TestPanelMixin:
 
         dlg = QtWidgets.QDialog(self)
         self._set_props(dlg, themedDialog=True)
-        dlg.setFixedWidth(310)
+        dlg.setMinimumWidth(340)
         vlay = QtWidgets.QVBoxLayout(dlg)
         vlay.setSpacing(6)
         vlay.setContentsMargins(12, 10, 12, 10)
@@ -2203,7 +2305,7 @@ class TestPanelMixin:
             initial_sec_order = widget.get_sec_order()
             vlay.addWidget(widget, alignment=QtCore.Qt.AlignHCenter)
             repair_target = blackbox_state['repair_target']
-            if fault_active and fc.scenario_id == 'E03':
+            if fault_active and fc.scenario_id == 'E03' and not assessment_mode:
                 note = QtWidgets.QLabel("⚠ A 相极性反接：A1 正负极颠倒（a2 输出反相）")
                 self._set_props(note, stepBanner=True, tone="warning")
                 note.setWordWrap(True)
@@ -2238,17 +2340,22 @@ class TestPanelMixin:
                     initial_sec_order=initial_sec_order,
                     new_sec_order=new_sec,
                 )
-                fb_lbl.setText(outcome.message)
-                self._set_props(
-                    fb_lbl,
-                    feedbackText=True,
-                    tone=self._tone_from_color(outcome.message_color),
-                )
-                if outcome.disable_repair_button:
+                if not assessment_mode and fb_lbl is not None:
+                    fb_lbl.setText(outcome.message)
+                    self._set_props(
+                        fb_lbl,
+                        feedbackText=True,
+                        tone=self._tone_from_color(outcome.message_color),
+                    )
+                    fb_lbl.setVisible(True)
+                elif assessment_mode and fb_lbl is not None:
+                    fb_lbl.setText("接线已保存，请关闭黑盒后返回外部测试流程复测。")
+                    self._set_props(fb_lbl, feedbackText=True, tone="info")
+                    fb_lbl.setVisible(True)
+                if outcome.disable_repair_button and not assessment_mode:
                     btn_repair.setEnabled(False)
-                fb_lbl.setVisible(True)
 
-            btn_repair = QtWidgets.QPushButton("确认修复 ✓")
+            btn_repair = QtWidgets.QPushButton("保存接线" if assessment_mode else "确认修复 ✓")
             self._apply_button_tone(btn_repair, "success")
             btn_repair.clicked.connect(_on_confirm)
             bh.addWidget(btn_repair, 1)

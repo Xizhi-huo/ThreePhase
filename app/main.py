@@ -71,6 +71,7 @@ class StepProgressSnapshot:
     block_before_step5: bool
     should_emit_assessment_gate_event: bool
     should_show_blackbox_required_dialog: bool
+    random_fault_guess_required: bool
     assessment_result_ready: bool
 
 
@@ -290,22 +291,25 @@ class PowerSyncController:
     def assessment_ends_after_step4_closed_loop(self):
         return self.flow_policy_flag('assessment_ends_after_step4_closed_loop')
 
-    def start_assessment_session(self, scene_id: str):
+    def start_assessment_session(self, scene_id: str, preset_mode: str = 'specified'):
         if not self.should_record_assessment_metrics():
             self.assessment_session = None
             return
         now = datetime.now().isoformat(timespec='seconds')
         session_id = f"ASM-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        fault_selection_mode = 'random' if preset_mode == 'random' else 'specified'
         self.assessment_session = AssessmentSession(
             session_id=session_id,
             scene_id=scene_id,
             mode=self.test_flow_mode,
             started_at=now,
+            fault_selection_mode=fault_selection_mode,
         )
         self.append_assessment_event(
             'assessment_started',
             scene_id=scene_id,
             mode=self.test_flow_mode,
+            fault_selection_mode=fault_selection_mode,
         )
 
     def append_assessment_event(self, event_type: str, step: int = 0, **payload):
@@ -404,6 +408,43 @@ class PowerSyncController:
         session.result = result
         return result
 
+    def requires_random_fault_identification(self, current_step: int) -> bool:
+        session = self.assessment_session
+        if session is None or session.finished_at is not None:
+            return False
+        if not self.is_assessment_mode():
+            return False
+        if session.fault_selection_mode != 'random':
+            return False
+        if session.fault_guess_submitted:
+            return False
+        if not session.scene_id:
+            return False
+        if current_step < 4:
+            return False
+        if not self.assessment_ends_after_step4_closed_loop():
+            return False
+        return self.is_assessment_closed_loop_ready()
+
+    def submit_random_fault_identification(self, guessed_scene_id: str) -> bool:
+        session = self.assessment_session
+        if session is None:
+            return False
+        guessed_scene_id = (guessed_scene_id or '').strip()
+        correct = bool(guessed_scene_id) and guessed_scene_id == session.scene_id
+        session.fault_guess_scene_id = guessed_scene_id
+        session.fault_guess_submitted = bool(guessed_scene_id)
+        session.fault_guess_correct = correct
+        self.append_assessment_event(
+            'fault_guess_submitted',
+            step=4,
+            guessed_scene_id=guessed_scene_id,
+            actual_scene_id=session.scene_id,
+            correct=correct,
+            fault_selection_mode=session.fault_selection_mode,
+        )
+        return correct
+
     def mark_assessment_result_shown(self):
         if self.assessment_session is not None:
             self.assessment_session.result_shown = True
@@ -452,6 +493,7 @@ class PowerSyncController:
             and self.assessment_ends_after_step4_closed_loop()
             and self.is_assessment_closed_loop_ready()
             and self.assessment_session is not None
+            and not self.requires_random_fault_identification(current_step)
             and not self.assessment_session.result_shown
         )
         return StepProgressSnapshot(
@@ -460,6 +502,7 @@ class PowerSyncController:
             block_before_step5=block_before_step5,
             should_emit_assessment_gate_event=should_emit_assessment_gate_event,
             should_show_blackbox_required_dialog=should_show_blackbox_required_dialog,
+            random_fault_guess_required=self.requires_random_fault_identification(current_step),
             assessment_result_ready=assessment_result_ready,
         )
 

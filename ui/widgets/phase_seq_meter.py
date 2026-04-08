@@ -3,8 +3,8 @@ ui/widgets/phase_seq_meter.py
 相序仪 Widget — 追光圆点式
 
 12 个圆点排成一圈，亮点依次追逐产生视觉旋转感：
-  · 顺时针追逐 → ABC 正序
-  · 逆时针追逐 → ACB 逆序
+  · 顺时针追逐 → 正序
+  · 逆时针追逐 → 反序
   · 静止（暗淡） → 未接入
 中心显示相序文字，底部两个氖灯指示正序/逆序。
 """
@@ -50,7 +50,7 @@ class PhaseSeqMeterWidget(QtWidgets.QWidget):
         self.setFixedSize(180, 200)
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
-        self.setToolTip("相序仪\n顺时针=正序组(ABC/BCA/CAB)  逆时针=逆序组")
+        self.setToolTip("相序仪\n顺时针=正序  逆时针=反序")
 
     # ── Public API ────────────────────────────────────────────────────────
     def connect_pt(self, pt_name: str, sequence: str):
@@ -129,11 +129,11 @@ class PhaseSeqMeterWidget(QtWidgets.QWidget):
         if self._connected_pt:
             line1 = self._connected_pt
             if self._sequence in _ABC_FWD:
-                line2, c2 = f"{self._sequence} ↻", '#2ecc71'
+                line2, c2 = "正序 ↻", '#2ecc71'
             elif self._direction == -1:
-                line2, c2 = f"{self._sequence} ↺", '#e74c3c'
+                line2, c2 = "反序 ↺", '#e74c3c'
             else:
-                line2, c2 = "未知", '#aaa'
+                line2, c2 = "异常", '#aaa'
         else:
             line1, line2, c2 = "未接入", "—", '#555'
 

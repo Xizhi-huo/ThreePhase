@@ -1,6 +1,9 @@
 # 用户可见量：额定线电压 RMS (V)
 GRID_AMP  = 10500.0   # 10.5 kV — gen.amp 及所有 UI 控件使用此单位
 GRID_FREQ = 50.0
+SYNC_FREQ_OK_HZ = 0.5
+SYNC_VOLT_OK_V = 490.0
+SYNC_PHASE_OK_DEG = 15.0
 XS = 1.0                         # 线路等效阻抗
 TRIP_CURRENT = 300.0             # 高压系统继电保护跳闸阈值放大为 300A
 MAX_POINTS = 200

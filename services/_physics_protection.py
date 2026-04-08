@@ -7,8 +7,18 @@ import math
 
 import numpy as np
 
-from domain.constants import (TRIP_CURRENT, CT_RATIO, GRID_FREQ, GRID_AMP,
-                               XS, KP_DROOP, KQ_DROOP)
+from domain.constants import (
+    TRIP_CURRENT,
+    CT_RATIO,
+    GRID_FREQ,
+    GRID_AMP,
+    SYNC_FREQ_OK_HZ,
+    SYNC_VOLT_OK_V,
+    SYNC_PHASE_OK_DEG,
+    XS,
+    KP_DROOP,
+    KQ_DROOP,
+)
 from domain.enums import BreakerPosition
 
 # 线电压 RMS → 峰值相电压转换系数（与 _physics_core 中保持一致）
@@ -147,9 +157,9 @@ class ProtectionMixin:
         flash_attr  = 'flash_frames1' if gen_id == 1 else 'flash_frames2'
 
         sync_ok = True if is_isolated and not self.bus_live else (
-            abs(generator.freq - ref_freq) <= 0.5 and
-            abs(ref_amp - a_value) <= 490.0 and
-            abs(diff_deg) <= 15.0
+            abs(generator.freq - ref_freq) <= SYNC_FREQ_OK_HZ and
+            abs(ref_amp - a_value) <= SYNC_VOLT_OK_V and
+            abs(diff_deg) <= SYNC_PHASE_OK_DEG
         )
 
         if generator.mode == "stop":

@@ -257,6 +257,10 @@ class PtExamService:
         """完成第四步：Gen1 和 Gen2 均须完成三相记录，才能锁定结果。"""
         gen1_ok = self._are_pt_exam_records_complete(1)
         gen2_ok = self._are_pt_exam_records_complete(2)
+        if self._ctrl.is_assessment_mode() and not (gen1_ok and gen2_ok):
+            self._set_pt_exam_feedback(1, "", "#444444")
+            self._set_pt_exam_feedback(2, "", "#444444")
+            return
         if not gen1_ok:
             self._set_pt_exam_feedback(
                 1,

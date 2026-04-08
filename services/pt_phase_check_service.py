@@ -24,6 +24,16 @@ class PtPhaseCheckService:
     def __init__(self, ctrl):
         self._ctrl = ctrl
 
+    @staticmethod
+    def _sequence_display_text(seq: str) -> str:
+        if seq in {'ABC', 'BCA', 'CAB'}:
+            return "正序"
+        if seq == 'FAULT':
+            return "异常"
+        if isinstance(seq, str) and len(seq) == 3:
+            return "反序"
+        return "异常"
+
     # ── 状态工厂 ──────────────────────────────────────────────────────────────
     def create_pt_phase_check_state(self) -> PtPhaseCheckState:
         return PtPhaseCheckState()
@@ -235,6 +245,7 @@ class PtPhaseCheckService:
         phase_order = ('A', 'B', 'C')
         is_valid_seq = isinstance(seq, str) and len(seq) == 3 and set(seq) == set(phase_order)
         is_forward_seq = seq in {'ABC', 'BCA', 'CAB'}
+        display_seq = self._sequence_display_text(seq)
         any_fail = False
         for ph in phase_order:
             key = f"{pt_name}_{ph}"
@@ -244,8 +255,7 @@ class PtPhaseCheckService:
             self._ctrl.record_pt_phase_check_result(
                 key,
                 phase_match,
-                f"相序仪检测: {pt_name} → {seq}",
-                actual_phase=actual,
+                f"相序仪检测: {pt_name} → {display_seq}",
             )
 
         if any_fail and self._ctrl.sim_state.fault_config.active:
@@ -261,12 +271,11 @@ class PtPhaseCheckService:
             step=3,
             target=pt_name,
             point='sequence',
-            value=seq,
+            value=display_seq,
+            raw_sequence=seq,
         )
 
-        result_txt = f"{'正序' if is_forward_seq else '逆序'}（{seq}）✓" if is_valid_seq and not any_fail else (
-            f"{'正序' if is_forward_seq else '逆序'}（{seq}）✗" if is_valid_seq else f"异常（{seq}）✗"
-        )
+        result_txt = f"{display_seq}✓" if is_valid_seq and not any_fail else f"{display_seq}✗"
         color = "#15803d" if not any_fail else "#dc2626"
         state.result = 'pass' if not any_fail else 'fail'
         state.feedback = f"{pt_name} 相序已记录：{result_txt}"
