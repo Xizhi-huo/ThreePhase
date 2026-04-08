@@ -656,7 +656,7 @@ def record_all_pt_measurements_quick(self):
 - 控制器不再直接切换 `tab_widget` 或直接写入 PT3 变比数字框；改为登记待处理的 UI 请求，由 `PowerSyncUI` 在 `render_visuals()` / `show_warning()` 中统一消费。
 - `services/assessment_service.py::build_result()` 已拆为“上下文准备 + 分类评分 helper + 汇总组装”三段；评分规则、额外扣分逻辑和 `AssessmentResult` 输出结构保持原样。
 - 死母线首台投入倒计时已改为使用真实帧间隔：控制器在 `_tick()` 中记录 `frame_dt` 并注入 `PhysicsEngine`，`_physics_arbitration.py` 用该 `dt` 取代硬编码 `0.033` 来累加 `dead_bus_timer`。
-- 长期维护与去屎山化重构进度统一记录在 [MAINTENANCE_CHECKLIST.md](/c:/Users/AW57P/Documents/ThreePhase_entier/MAINTENANCE_CHECKLIST.md)，该文件现已包含：总体进度、轮次历史、固定回归清单、下一轮默认起点；后续迭代默认先更新该文件。
+- 长期维护与去屎山化重构进度统一记录在 [MAINTENANCE_CHECKLIST.md](/c:/Users/AW57P/Documents/ThreePhase_entier/MAINTENANCE_CHECKLIST.md)，该文件现已覆盖：总体进度、轮次历史、固定回归清单、UI 解耦阶段、核心逻辑测试原则、未来 UI 替换关系说明，并提供大文件统计脚本入口 `python scripts/report_large_files.py`；后续迭代默认先更新该文件。
 
 - **已完成并验证**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
 - **已实现待验证**：E03 步骤5（Gen2追踪+180°目标，双层拦截，事故弹窗）；E04 步骤2（PT3标红、记录表格标红、检测触发）；E05–E14 物理注入（通用参数驱动，含下列修复）

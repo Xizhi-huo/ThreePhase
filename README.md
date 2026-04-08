@@ -507,7 +507,7 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - 控制器不再直接切换 `tab_widget` 或直接写入 PT3 变比控件；改为登记待处理的 UI 请求，由 `PowerSyncUI` 在 `render_visuals()` / `show_warning()` 中统一消费。
 - `services/assessment_service.py::build_result()` 已拆为“上下文准备 + 分类评分 helper + 汇总组装”三段；评分规则、总分和成绩单输出结构保持不变。
 - 死母线首台投入倒计时已不再假定固定 `33ms` 帧间隔；控制器在 `_tick()` 中记录真实帧间隔并写入 `physics.frame_dt`，仲裁层按真实 `dt` 累加 `dead_bus_timer`。
-- 长期维护与去屎山化重构进度统一记录在 [MAINTENANCE_CHECKLIST.md](/c:/Users/AW57P/Documents/ThreePhase_entier/MAINTENANCE_CHECKLIST.md)，该文件现已包含：总体进度、轮次历史、固定回归清单、下一轮默认起点；后续迭代默认先更新该文件。
+- 长期维护与去屎山化重构进度统一记录在 [MAINTENANCE_CHECKLIST.md](/c:/Users/AW57P/Documents/ThreePhase_entier/MAINTENANCE_CHECKLIST.md)，该文件现已覆盖：总体进度、轮次历史、固定回归清单、UI 解耦阶段、核心逻辑测试原则、未来 UI 替换关系说明，并提供大文件统计脚本入口 `python scripts/report_large_files.py`；后续迭代默认先更新该文件。
 
 - **已完成并验证**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
 - **已实现待验证**：E03 步骤 5；E04 步骤 2；E05–E14 物理注入；物理接线黑盒检查交互修复（第 1～4 步均显示，渐进式逐组件修复）
@@ -515,6 +515,34 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - **现阶段重构**：`FlowModePolicy` 已类型化；`loop_test_service.py` 与 `pt_phase_check_service.py` 已先改为通过控制器语义方法写回状态；控制器已新增 `get_test_progress_snapshot()`、`get_blackbox_runtime_state()`、`finish_assessment_session_if_ready()`、`apply_blackbox_repair_attempt()` 作为最小只读/编排接口，用于收敛 `test_panel.py` 的业务判断
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）
 
+
+
+
+
+
+‘’‘
+
+全面代码审查：三相电源同步模拟器
+
+### 1. 架构概览
+
+
+#### 设计模式
+
+* **Mixin 组合 (物理引擎):** `PhysicsEngine` 继承自 4 个 mixin (`WaveformMixin`, `ArbitrationMixin`, `ProtectionMixin`, `MeasurementMixin`)。每个 mixin 都在独立的文件中。
+* **Mixin 组合 (UI):** `PowerSyncUI` 继承自 8 个以上的 mixin 以及 `QMainWindow`。每个选项卡和面板都是一个 mixin。
+* **中介者/控制器 (Mediator/Controller):** `PowerSyncController` 充当中央中介者。所有服务、物理引擎和 UI 都引用 `ctrl`。服务将跨领域操作委托给控制器。
+* **快照/DTO (Snapshot/DTO):** `RenderState` 数据类提供从物理引擎到 UI 的不可变帧快照。边界清晰。
+* **策略对象 (Policy Object):** `FlowModePolicy` 冻结数据类参数化了教学/工程/评估行为。
+
+#### 数据流向
+
+```
+QTimer (33ms) → ctrl._tick()
+  → physics.update_physics()    [读取/写入 ctrl.sim_state]
+  → physics.build_render_state() → RenderState
+  → ui.render_visuals(rs)       [直接读取 RenderState + ctrl.*]
+```
 
 ---
 
@@ -724,5 +752,3 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 
 
 ’‘’
-
-

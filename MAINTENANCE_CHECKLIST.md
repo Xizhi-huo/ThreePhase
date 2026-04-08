@@ -15,6 +15,7 @@
 - 当前阶段只做两类事：
   - 提高代码可读性
   - 提高代码可靠性
+- 当前阶段重构的终极目的之一，是 `剥离 UI 与业务/物理/评分逻辑`，为未来可能的 `React + Tauri` 或其他 UI 框架替换保留条件。
 
 ### 1.2 文件大小标准
 | 等级 | 标准 |
@@ -33,6 +34,10 @@
 - 不再新增大范围 `try/except Exception` 静默吞异常。
 - 不再新增长期保留的过渡死代码。
 - 每次重构必须同步删除旧实现，不能长期双轨并存。
+- 所有后端计算结果只能写入 `SimulationState / RenderState / AssessmentResult` 这类状态对象。
+- UI 只能读取状态刷新自己，不能反向污染业务状态。
+- Controller 只负责命令下发和编排，禁止新增 `ctrl.xxxWidget.setText()/setValue()` 一类直接控件写入。
+- 重构核心逻辑前，必须先具备最小黑盒回归验证能力；没有验证保护的重构，不进入核心逻辑。
 
 ### 1.4 每轮迭代固定动作
 - 至少拆出 `1` 个明确职责。
@@ -57,14 +62,14 @@
 
 ## 2. 当前高风险文件基线
 
-| 文件 | 当前行数 | 状态 | 本轮目标 |
+| 文件 | 状态 | 本轮目标 |
 |---|---:|---|---|
-| `app/main.py` | `1340` | 高风险 | 逐步降到 `<= 800`，最终 `<= 500` |
-| `ui/test_panel.py` | `2417` | 高风险 | 逐步拆成多文件，主文件最终 `<= 500` |
-| `services/assessment_service.py` | `791` | 需要继续拆 | 先降到 `<= 500`，理想 `<= 300` |
-| `ui/main_window.py` | `528` | 略超标 | 降到 `<= 500` |
-| `services/fault_manager.py` | `147` | 正常 | 保持小文件，继续按职责拆 |
-| `services/physics_engine.py` | `161` | 正常 | 保持小文件 |
+| `app/main.py` | 高风险 | 逐步降到 `<= 800`，最终 `<= 500` |
+| `ui/test_panel.py` | 高风险 | 逐步拆成多文件，主文件最终 `<= 500` |
+| `services/assessment_service.py` | 需要继续拆 | 先降到 `<= 500`，理想 `<= 300` |
+| `ui/main_window.py` | 略超标 | 降到 `<= 500` |
+| `services/fault_manager.py` | 正常 | 保持小文件，继续按职责拆 |
+| `services/physics_engine.py` | 正常 | 保持小文件 |
 
 说明：
 - 当前最需要治理的不是“所有文件”，而是：
@@ -72,6 +77,10 @@
   - `ui/test_panel.py`
   - `services/assessment_service.py`
   - `ui/main_window.py`
+- 具体行数不再手写维护；统一使用脚本入口：
+  - `python scripts/report_large_files.py`
+  - `python scripts/report_large_files.py --top 10`
+- 本清单只记录“重点攻坚对象”和“目标区间”，避免文档与实际代码行数脱节。
 
 ---
 
@@ -139,8 +148,8 @@
 - `build_result()` 只做组装。
 - 每个评分域能单独阅读和修改。
 
-### 60% - 80%：测试面板拆分阶段
-目标：解决 `ui/test_panel.py` 过度臃肿问题。
+### 60% - 80%：UI 视图与状态解耦阶段
+目标：解决 `ui/test_panel.py` 过度臃肿问题，并让 UI 真正回到“只负责显示和交互”。
 
 | 任务 | 状态 | 说明 |
 |---|---|---|
@@ -152,11 +161,14 @@
 | 拆出 `blackbox_dialogs.py` | `未开始` | 黑盒弹窗逻辑集中 |
 | 拆出 `score_dialogs.py` | `未开始` | 成绩单与结果弹窗集中 |
 | 拆出 `panel_common.py` | `未开始` | 公共按钮、提示、文本、状态助手 |
+| 将步骤业务判断从 UI 中迁回状态/服务层 | `未开始` | UI 只读取状态，不直接承担业务决策 |
+| 建立最小 `ViewModel / State Adapter` 层 | `未开始` | 先做轻量适配层，不强上完整 MVVM |
 | 删除旧的重复流程逻辑 | `未开始` | 不允许新旧逻辑长期并存 |
 
 完成标准：
 - `ui/test_panel.py` 主文件降到 `<= 500`。
 - 每一步逻辑有清晰归属。
+- UI 的输入、显示、状态刷新链条清晰，业务逻辑不再散落在控件槽函数里。
 
 ### 80% - 100%：清理与标准化阶段
 目标：把项目从“能跑”变成“人能维护”。
@@ -168,7 +180,8 @@
 | 收口旧键名兼容逻辑 | `未开始` | 清理历史命名债务 |
 | 收口状态真值源 | `未开始` | 明确 `pt_phase_orders` 是否为派生值 |
 | 清理死代码、重复 UI、旧注释块 | `进行中` | 持续执行 |
-| 建立固定回归清单 | `未开始` | 保障每轮重构后可验证 |
+| 建立固定回归清单 | `已完成（第一版）` | 后续继续补细化用例 |
+| 补核心黑盒测试/快照测试 | `未开始` | 优先保护评分、物理、仲裁、保护链 |
 
 完成标准：
 - 核心文件基本满足 `<= 500` 行。
@@ -183,7 +196,7 @@
 | `app/main.py` | `assessment_coordinator.py`、`ui_requests.py`、`phase_order_resolver.py`、`hardware_actions.py` | `app/main.py` 只保留编排层，最终 `<= 500` |
 | `services/assessment_service.py` | `flow_discipline_score.py`、`loop_test_score.py`、`pt_voltage_score.py`、`pt_phase_score.py`、`pt_exam_score.py`、`fault_diagnosis_score.py`、`blackbox_score.py`、`efficiency_score.py` | 主文件只做汇总，最终 `<= 300` |
 | `services/fault_manager.py` | `fault_injector.py`、`fault_repairer.py`、`fault_target_resolver.py` | 注入、修复、目标判断彻底分开 |
-| `ui/test_panel.py` | `step1_panel.py`、`step2_panel.py`、`step3_panel.py`、`step4_panel.py`、`step5_panel.py`、`blackbox_dialogs.py`、`score_dialogs.py`、`panel_common.py` | 主文件最终 `<= 500`，理想 `<= 300` |
+| `ui/test_panel.py` | `step1_panel.py`、`step2_panel.py`、`step3_panel.py`、`step4_panel.py`、`step5_panel.py`、`blackbox_dialogs.py`、`score_dialogs.py`、`panel_common.py`、`view_state_adapter.py` | 主文件最终 `<= 500`，理想 `<= 300` |
 | `ui/main_window.py` | 保留主框架，移出非顶层细节逻辑 | 主文件 `<= 300`，只保留主窗口装配和入口 |
 
 ---
@@ -222,6 +235,15 @@
 
 说明：
 - 没有完成上述回归，不算完成本轮重构。
+
+### 7.1 核心逻辑测试原则
+- 重构 `Assessment / Physics / Arbitration / Protection / Fault` 相关核心逻辑前，必须先补最小黑盒测试。
+- 黑盒测试优先级：
+  1. `输入事件流 -> AssessmentResult`
+  2. `给定 SimulationState -> 仲裁/保护输出`
+  3. `故障注入 -> 修复 -> 状态恢复`
+- 如果短期不写完整自动化测试，至少先做“固定输入 + 固定输出快照”。
+- 没有测试保护，不进入大规模核心逻辑重构。
 
 ---
 
@@ -341,6 +363,8 @@
 ## 12. 本文件使用规则
 
 - 新对话开始时，先读取本文件。
+- 如需刷新大文件基线，先运行：
+  - `python scripts/report_large_files.py`
 - 先看：
   - `第 2 节 当前高风险文件基线`
   - `第 3 节 当前总体进度`
@@ -348,65 +372,3 @@
   - `第 10 节 下一轮默认起点`
 - 未经确认，不得跳过当前迭代阶段直接做大范围重构。
 - 每次完成后，本文件优先级高于临时对话记忆。
-
-
-
-
-‘’‘
-
-
-一、 哪些内容是多余的 / 可以优化的？
-
-整份清单其实没有真正的“废话”，但从长远维护来看，有两处可以优化：
-
-写死的代码行数（可优化）
-
-内容：在“2. 当前高风险文件基线”中，你写死了 app/main.py (1340行)、ui/test_panel.py (2417行)。
-
-问题：每次重构后都要手动来改这个 Markdown 里的数字，非常容易忘记，导致文档与实际脱节。
-
-建议：行数标准（<300优秀，>800高风险）保留。但具体的统计，建议在清单中加一条：“使用简单的 Python 脚本或 cloc 工具定期输出大文件 Top 5 排行榜”，清单里只记录“重点攻坚对象”，不写死具体数字。
-
-二、 哪些内容还需要进一步细化 / 存在盲区？
-
-这是核心部分。你的项目不仅仅是个 CRUD 跑分系统，它底层带仿真计算（波形、继电保护、仲裁），顶层有复杂的 Qt 界面，甚至还有技术栈迁移的打算。清单中缺失了以下几个关键维度：
-
-1. 缺少针对最大痛点 ui/test_panel.py 的具体拆分计划
-
-现状：ui/test_panel.py 高达 2417 行，是你项目里最庞大的文件，但清单里的规划只列到了“60% 评分系统拆分阶段”，完全没有提什么时候、怎么拆这个两千多行的 UI 巨兽。
-
-细化建议：在 4. 20% 迭代清单 之后，补充 “60% - 80%：UI 视图与状态解耦阶段”。
-
-拆分策略：按照 Tab 或模块拆分（例如拆出 loop_test_tab.py, sync_test_tab.py 等，我看你的目录结构里其实已经有 ui/tabs/ 的雏形了，需要落实迁移）。
-
-隔离策略：引入 ViewModel 层，彻底掐断 UI 组件中夹杂的业务逻辑。
-
-2. “防退化测试（回归测试）”策略完全缺失
-
-现状：项目包含 physics_engine.py（物理仿真）、下垂控制、相序仲裁等精密逻辑。在“拆分控制器”或“拆分评分主链”时，极易引入 Bug。
-
-细化建议：在 1.3 必须遵守的工程边界 中必须加上：
-
-“重构核心逻辑（如 Assessment、Physics）前，必须先写快照测试（Snapshot Testing）或输入输出的黑盒测试套件，确保重构前后的输出结果绝对一致。” 没有测试保护的重构等于蒙眼走钢丝。
-
-3. 架构方向上的“大象”：React + Tauri 迁移策略未说明
-
-现状：我注意到你的项目里有一个 demos/ui_compare/react_tauri_demo/，你在做基于 Web 技术的 UI 替代方案评估。
-
-细化建议：这份清单必须明确当前的重构与未来的 Tauri 迁移是什么关系。
-
-如果最终决定要迁移到 React + Tauri，那么现在的重构重点绝对不应该是去精雕细琢 PyQt 的代码，而是应该把重心全放在：将业务逻辑、状态和评分系统抽象成纯 Python API (或 JSON 协议)。
-
-需要在清单开头明确：“本阶段重构的终极目的是为了剥离 UI 与业务，为后续彻底替换 UI 框架（Tauri）做数据接口准备。”
-
-4. 状态同步机制（State Management）需要确立规范
-
-现状：代码里有 adapters/render_state.py 这种数据类，说明你意识到了状态隔离。但由于历史包袱，控制器可能还在直接操作 UI（清单里提到了）。
-
-细化建议：在 1.4 迭代动作 或设计原则中，明确“单向数据流”或“状态机”规则：
-
-所有后端的计算结果只能写入 RenderState 或 SimulationState。
-
-UI 只能“读取”这些 State 去刷新自己，控制器（Controller）只负责下发命令，绝对禁止 ctrl.label_xxx.setText() 这种反向污染。
-
-’‘’
