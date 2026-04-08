@@ -511,37 +511,6 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 
 ### 1. 架构概览
 
-#### 文件结构与模块职责
-
-| 层级 | 模块 | 职责 |
-| :--- | :--- | :--- |
-| **Domain (领域层)** | `models.py` | 核心数据类 (`SimulationState`, `GeneratorState`, `FaultConfig`) |
-| | `enums.py` | 系统模式，断路器状态 |
-| | `constants.py` | 物理常量（电网电压，频率，跳闸阈值） |
-| | `fault_scenarios.py` | 14种故障场景定义（E01–E14） |
-| | `assessment.py` | 评估打分数据类 |
-| | `test_states.py` | 5步测试流程状态数据类 |
-| | `node_map.py` | 万用表探头拓扑坐标 |
-| **Services (服务层)** | `physics_engine.py` | Mixin 枢纽：每帧调度 `update_physics()` |
-| | `_physics_core.py` | 波形生成与历史缓冲 |
-| | `_physics_arbitration.py` | 母线仲裁与自动同步 |
-| | `_physics_protection.py` | 继电保护，下垂控制，断路器状态机 |
-| | `_physics_measurement.py` | PT (电压互感器) 测量，万用表模拟 |
-| | `loop_test_service.py` | 步骤 1：回路导通测试 |
-| | `pt_voltage_check_service.py` | 步骤 2：PT 电压检查 |
-| | `pt_phase_check_service.py` | 步骤 3：PT 相序检查 |
-| | `pt_exam_service.py` | 步骤 4：PT 端电压差测试 |
-| | `sync_test_service.py` | 步骤 5：同步测试 |
-| | `assessment_service.py` | 30 项评分标准引擎 |
-| **Adapters (适配器层)** | `render_state.py` | `RenderState` DTO（数据传输对象）（物理引擎 → UI 的边界） |
-| **UI (界面层)** | `main_window.py` | 通过 8 个 Mixin 组装的 QMainWindow |
-| | `panels/control_panel.py` | 右侧边栏：控件与参数滑块 |
-| | `test_panel.py` | 5步测试模式垂直面板 |
-| | `tabs/waveform_tab.py` | 选项卡 0：实时波形 + 相量图 |
-| | `tabs/circuit_tab.py` | 选项卡 1：母线拓扑图 |
-| | `tabs/loop_test_tab.py`–`sync_test_tab.py` | 选项卡 2–6：测试步骤 UI |
-| | `widgets/phase_seq_meter.py` | 相序指示器组件 |
-| **App (应用层)** | `app/main.py` | `PowerSyncController`（编排器）+ 入口点 |
 
 #### 设计模式
 
@@ -766,32 +735,5 @@ QTimer (33ms) → ctrl._tick()
 | L3 | gen 滑块上 `editingFinished` + `returnPressed` 的双重连接 | 移除 `returnPressed` 的连接；`editingFinished` 已经涵盖了 Enter 键。 |
 | L4 | `app/main.py` 中的 `sys.path.insert(0, ...)` | 替换为合适的包设置 (`pyproject.toml` 或 `setup.py`)，以便可以干净地安装和导入该项目。 |
 
-
-’‘’
-
-
-
-
-‘’‘
-根据上面的代码审查报告，请按优先级顺序逐项修复所有"严重"和"高"级别的问题。
-
-**执行规则：**
-- 每次只修复一个问题，修复完成后明确告诉我"✅ 已完成：[问题描述]"
-- 修改前先引用原代码，修改后展示新代码，并用一句话说明改动原因
-- 每处修改必须做到最小改动原则——只动需要动的地方，不顺手重构无关代码
-- 如果一个修复可能影响其他模块，必须在修复前提示我："⚠️ 此修改会影响 [文件/函数]，请确认后再继续"
-- 修复过程中如果发现新问题，先记录到"待处理清单"，不要立即处理
-
-**修复顺序：**
-1. 先处理所有"严重"级别（静默崩溃、数据错误、线程安全）
-2. 再处理所有"高"级别（错误处理、逻辑缺陷）
-3. 每处理完一个级别，暂停并询问我是否继续
-
-**每次修复结束后输出：**
-- ✅ 本次修复：[问题名称]
-- 📁 涉及文件：[文件名:行号]
-- 🔁 回归检查点：[需要手动验证的功能点]
-- 📋 待处理清单：[本次发现的新问题，如有]
-- ➡️ 下一个待修复：[下一个问题名称]，是否继续？
 
 ’‘’
