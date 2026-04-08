@@ -39,6 +39,7 @@ ThreePhase/
 │   ├── pt_phase_check_service.py    # 第3步：PT相序检查
 │   ├── pt_exam_service.py           # 第4步：PT压差考核
 │   ├── sync_test_service.py         # 第5步：同期功能测试
+│   ├── fault_manager.py             # 故障注入/修复与可修复接线目标管理
 │   └── assessment_service.py        # 考核模式自动评分与成绩汇总
 ├── ui/                      # PyQt5 用户界面（Mixin 拼装）
 │   ├── main_window.py       # PowerSyncUI 主窗口
@@ -75,6 +76,7 @@ PowerSyncUI (View - 多 Mixin)
 PowerSyncController (Application Layer - app/main.py)
   - 持有 SimulationState（唯一数据源）
   - 持有 PhysicsEngine 实例
+  - 持有 FaultManager（故障注入/修复与接线目标判断）
   - 持有 5 个测试服务实例
   - 33ms 定时器驱动主循环
         ↑ build_render_state()
@@ -209,10 +211,10 @@ if fc.scenario_id == 'E03': show_e03_accident_dialog(); return
 **第二层（物理层，_physics_protection.py `_update_breaker_state()`）**：
 ```python
 # 兜底：sync_ok=True 分支（E01/E02/E03 auto 合闸拦截）
-if fc.scenario_id == 'E01': show_e01_accident_dialog()
-elif fc.scenario_id == 'E02': show_e02_accident_dialog()
-elif fc.scenario_id == 'E03': show_e03_accident_dialog()
-# → breaker_closed 保持 False
+if fc.scenario_id == 'E01': queue_accident_dialog('E01')
+elif fc.scenario_id == 'E02': queue_accident_dialog('E02')
+elif fc.scenario_id == 'E03': queue_accident_dialog('E03')
+# → 物理层只登记待显示事故；帧末再统一弹窗
 
 # 额外：E03 sync_ok=False 分支（180°相位差时 manual 强行合闸）
 if fc.scenario_id == 'E03': show_e03_accident_dialog()
@@ -223,6 +225,7 @@ if fc.scenario_id == 'E03': show_e03_accident_dialog()
 
 - `ui/main_window.py::_check_fault_detection()` 现在对 `danger_level == 'accident'` 的场景直接返回，只保留检测状态与横幅，不在步骤 1~4 提前弹修复框。
 - 因此 E01/E02/E03 的修复入口统一保留在第五步真实事故弹窗，不再出现前面步骤“一键修复”绕过流程的行为。
+- 事故弹窗链路已改为“物理层排队、主循环帧末消费”，避免物理更新过程中直接进入模态对话框。
 
 **事故场景步骤 1~4 弹窗策略**：
 - `_check_fault_detection()`（main_window.py）不再在检测阶段弹修复框；事故场景只保留异常数据与状态更新
@@ -643,6 +646,17 @@ def record_all_pt_measurements_quick(self):
   - E06 / E10 的 PT1 二次侧黑盒状态为正常 `['A','B','C']`，错误仅在 PT1 一次侧；这是本轮重新校正后的场景事实。
   - 第三步相序仪快捷记录已改为按真实序列逐相判定，`BCA/CAB` 不再被误记为三相全对。
   - 第五步前和第五步记录时都会检查运行态黑盒是否仍未恢复；E08 这类隐性接线故障现在会被卡在第四步，必须先在黑盒中完成实际修复，不能再穿透到同步测试。
+
+- **2026-04 架构收敛（进行中）**：
+  - 已新增 `services/fault_manager.py`，将故障注入/修复和“可修复接线目标”判断从 `PowerSyncController` 中拆出；控制器目前保留同名转发接口，外部调用无需调整。
+  - `_tick()` 已拆为“物理更新”和“渲染/UI”两个异常边界；连续失败达到 3 次时，主窗口状态栏会显示非模态错误提示。
+- E01/E02/E03 事故弹窗已不再由物理层直接调用，而是通过待显示队列在帧末统一消费。
+- E01/E02/E03 的事故弹窗 UI 已收口到 `ui/main_window.py::_show_accident_dialog(...)` 公共壳层，外部只保留三个轻量包装方法，避免继续维护三套重复对话框实现。
+- 旧的 `_show_e01/_show_e02/_show_e03_accident_dialog_legacy` 死代码已删除，事故弹窗现在只有一套实际实现。
+- 控制器不再直接切换 `tab_widget` 或直接写入 PT3 变比数字框；改为登记待处理的 UI 请求，由 `PowerSyncUI` 在 `render_visuals()` / `show_warning()` 中统一消费。
+- `services/assessment_service.py::build_result()` 已拆为“上下文准备 + 分类评分 helper + 汇总组装”三段；评分规则、额外扣分逻辑和 `AssessmentResult` 输出结构保持原样。
+- 死母线首台投入倒计时已改为使用真实帧间隔：控制器在 `_tick()` 中记录 `frame_dt` 并注入 `PhysicsEngine`，`_physics_arbitration.py` 用该 `dt` 取代硬编码 `0.033` 来累加 `dead_bus_timer`。
+- 长期维护与去屎山化重构进度统一记录在 [MAINTENANCE_CHECKLIST.md](/c:/Users/AW57P/Documents/ThreePhase_entier/MAINTENANCE_CHECKLIST.md)，后续迭代默认先更新该文件。
 
 - **已完成并验证**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
 - **已实现待验证**：E03 步骤5（Gen2追踪+180°目标，双层拦截，事故弹窗）；E04 步骤2（PT3标红、记录表格标红、检测触发）；E05–E14 物理注入（通用参数驱动，含下列修复）

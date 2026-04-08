@@ -20,6 +20,7 @@ import os
 import math
 import random
 import traceback
+import time
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
@@ -30,12 +31,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PyQt5 import QtWidgets, QtCore
 
-from domain.constants import GRID_FREQ, GRID_AMP, TICK_MS
+from domain.constants import GRID_FREQ, GRID_AMP
 from domain.enums import BreakerPosition, SystemMode
 from domain.assessment import AssessmentEvent, AssessmentSession
 from domain.models import GeneratorState, SimulationState, FaultConfig
-from domain.fault_scenarios import SCENARIOS
 from services.assessment_service import AssessmentService
+from services.fault_manager import FaultManager
 from services.physics_engine import PhysicsEngine
 from services.loop_test_service import LoopTestService
 from services.pt_voltage_check_service import PtVoltageCheckService
@@ -181,9 +182,16 @@ class PowerSyncController:
         self._pt_blackbox_mode_proxy = self._BoolProxy(self)
         self.assessment_session = None
         self._last_fault_detected = False
+        self._pending_accident_scene_id = None
+        self._pending_ui_tab_index = None
+        self._pending_pt_ratio_row_updates = {}
+        self._consecutive_tick_failures = 0
+        self._tick_error_notified = False
+        self._last_tick_perf = time.perf_counter()
 
         # ── 业务服务（各服务通过 self._ctrl 回写状态 dataclass）─────────
         self._assessment_svc      = AssessmentService(self)
+        self._fault_mgr           = FaultManager(self)
         self._loop_svc            = LoopTestService(self)
         self._pt_voltage_svc      = PtVoltageCheckService(self)
         self._pt_phase_svc        = PtPhaseCheckService(self)
@@ -208,7 +216,7 @@ class PowerSyncController:
 
         # ── 主循环定时器（33ms ≈ 30fps）──────────────────────────────────
         self._timer = QtCore.QTimer()
-        self._timer.setInterval(TICK_MS)
+        self._timer.setInterval(33)
         self._timer.timeout.connect(self._tick)
         self._timer.start()
 
@@ -692,6 +700,22 @@ class PowerSyncController:
             raise ValueError(f"Unsupported PT ratio attribute: {ratio_attr}")
         setattr(self.sim_state, ratio_attr, ratio)
 
+    def request_ui_tab(self, tab_index: int):
+        self._pending_ui_tab_index = tab_index
+
+    def consume_requested_ui_tab(self):
+        tab_index = self._pending_ui_tab_index
+        self._pending_ui_tab_index = None
+        return tab_index
+
+    def request_pt_ratio_row_update(self, ratio_attr: str, pri_value: int, sec_value: int):
+        self._pending_pt_ratio_row_updates[ratio_attr] = (pri_value, sec_value)
+
+    def consume_requested_pt_ratio_row_updates(self):
+        updates = dict(self._pending_pt_ratio_row_updates)
+        self._pending_pt_ratio_row_updates.clear()
+        return updates
+
     # ════════════════════════════════════════════════════════════════════════
     # PT 节点解析辅助（physics_engine.py 通过 self.ctrl 调用）
     # ════════════════════════════════════════════════════════════════════════
@@ -1056,8 +1080,37 @@ class PowerSyncController:
     def _on_breaker_blocked(self, gen_id: int, title: str, message: str):
         """合闸被拦截时的 UI 响应钩子。由 UI 层覆写以控制弹窗和 Tab 跳转。
         控制器本身只负责状态，不直接操作视图。"""
-        self.ui.tab_widget.setCurrentIndex(5)
+        self.request_ui_tab(5)
         self.ui.show_warning(title, message)
+
+    def queue_accident_dialog(self, scene_id: str):
+        if self._pending_accident_scene_id is None:
+            self._pending_accident_scene_id = scene_id
+
+    def _consume_pending_accident_dialog(self):
+        scene_id = self._pending_accident_scene_id
+        self._pending_accident_scene_id = None
+        if scene_id == 'E01':
+            self.ui.show_e01_accident_dialog()
+        elif scene_id == 'E02':
+            self.ui.show_e02_accident_dialog()
+        elif scene_id == 'E03':
+            self.ui.show_e03_accident_dialog()
+
+    def _handle_tick_failure(self, stage: str):
+        self._consecutive_tick_failures += 1
+        traceback.print_exc()
+        if self._consecutive_tick_failures >= 3 and not self._tick_error_notified:
+            self.ui.statusBar().showMessage(
+                f"物理帧更新连续失败 {self._consecutive_tick_failures} 次（阶段: {stage}），请检查控制台错误日志。"
+            )
+            self._tick_error_notified = True
+
+    def _clear_tick_failure_state(self):
+        if self._consecutive_tick_failures > 0:
+            self.ui.statusBar().clearMessage()
+        self._consecutive_tick_failures = 0
+        self._tick_error_notified = False
 
     def toggle_breaker(self, gen_id: int):
         generator = self._get_generator_state(gen_id)
@@ -1168,52 +1221,16 @@ class PowerSyncController:
         self.rebuild_circuit_view()
 
     def has_unrepaired_wiring_fault(self) -> bool:
-        relevant_orders = self._get_repairable_wiring_orders()
-        if not relevant_orders:
-            return False
-        normal_order = ['A', 'B', 'C']
-        return any(order != normal_order for order in relevant_orders)
+        return self._fault_mgr.has_unrepaired_wiring_fault()
 
     def all_repairable_wiring_targets_normal(self) -> bool:
-        relevant_orders = self._get_repairable_wiring_orders()
-        if not relevant_orders:
-            return False
-        normal_order = ['A', 'B', 'C']
-        return all(order == normal_order for order in relevant_orders)
+        return self._fault_mgr.all_repairable_wiring_targets_normal()
 
     def fault_has_repairable_wiring_targets(self) -> bool:
-        fc = self.sim_state.fault_config
-        if not fc.active:
-            return False
-        return any(
-            fc.params.get(key) is not None
-            for key in (
-                'g1_blackbox_order',
-                'pt1_pri_blackbox_order',
-                'p1_pri_blackbox_order',
-                'pt1_sec_blackbox_order',
-                'pt2_sec_blackbox_order',
-                'g2_blackbox_order',
-            )
-        )
+        return self._fault_mgr.fault_has_repairable_wiring_targets()
 
     def _get_repairable_wiring_orders(self):
-        fc = self.sim_state.fault_config
-        if not (fc.active and not fc.repaired):
-            return []
-
-        relevant_orders = []
-        if fc.params.get('g1_blackbox_order') is not None:
-            relevant_orders.append(self.g1_blackbox_order)
-        if (fc.params.get('pt1_pri_blackbox_order') is not None
-                or fc.params.get('p1_pri_blackbox_order') is not None):
-            relevant_orders.append(self.pt1_pri_blackbox_order)
-        if (fc.params.get('pt1_sec_blackbox_order') is not None
-                or fc.params.get('pt2_sec_blackbox_order') is not None):
-            relevant_orders.append(self.pt1_sec_blackbox_order)
-        if fc.params.get('g2_blackbox_order') is not None:
-            relevant_orders.append(self.g2_blackbox_order)
-        return relevant_orders
+        return self._fault_mgr._get_repairable_wiring_orders()
 
     def on_pt_blackbox_toggle(self, checked: bool):
         self.pt_blackbox_mode_val = checked
@@ -1229,104 +1246,10 @@ class PowerSyncController:
     # 故障训练模式（FaultConfig 管理）
     # ════════════════════════════════════════════════════════════════════════
     def inject_fault(self, scenario_id: str):
-        """注入故障场景（由管理员在训练前设置）。scenario_id='' 清除故障。"""
-        fc = self.sim_state.fault_config
-        fc.scenario_id = scenario_id
-        fc.active = bool(scenario_id)
-        fc.detected = False
-        fc.repaired = False
-        self._last_fault_detected = False
-        scenario = SCENARIOS.get(scenario_id, {})
-        fc.params = dict(scenario.get('params', {}))
-
-        # 重置已有的 fault_reverse_bc（E02 激活时重新设置）
-        self.sim_state.fault_reverse_bc = False
-        self.reset_blackbox_orders()
-
-        # 场景专属注入
-        if scenario_id == 'E01':
-            # PT1 端子相序改为 B/A/C（A 端子连 B 相绕组，B 端子连 A 相绕组）
-            self.pt_phase_orders['PT1'] = ['B', 'A', 'C']
-            # E01 根本原因是 Gen1 机端 A/B 对调，同步更新 PT2（Bus）相序
-            self.pt_phase_orders['PT2'] = ['B', 'A', 'C']
-            self.g1_blackbox_order = ['B', 'A', 'C']
-        elif scenario_id == 'E02':
-            # E02: Gen2 机端 B/C 相端子接线对调，PT3 端子相序同步为 A/C/B。
-            self.g2_blackbox_order = ['A', 'C', 'B']
-            self.sync_g2_blackbox_to_phase_orders()
-        elif scenario_id == 'E04':
-            # E04：PT3 实际变比为 11000:93（= 118.28），控制台同步显示该值
-            self.sim_state.pt3_ratio = 11000.0 / 93.0
-            self.ui.set_pt_ratio_sec_value('pt3_ratio', 93)
-        # E05–E14: Gen1/PT1 接线矩阵场景（通用注入）
-        self.g1_blackbox_order = list(fc.params.get('g1_blackbox_order', self.g1_blackbox_order))
-        self.g2_blackbox_order = list(fc.params.get('g2_blackbox_order', self.g2_blackbox_order))
-        self.pt1_pri_blackbox_order = list(
-            fc.params.get(
-                'pt1_pri_blackbox_order',
-                fc.params.get('p1_pri_blackbox_order', self.pt1_pri_blackbox_order),
-            )
-        )
-        self.pt1_sec_blackbox_order = list(
-            fc.params.get(
-                'pt1_sec_blackbox_order',
-                fc.params.get('pt2_sec_blackbox_order', self.pt1_sec_blackbox_order),
-            )
-        )
-
-        pt1_order = fc.params.get('pt1_phase_order')
-        if pt1_order:
-            self.pt_phase_orders['PT1'] = list(pt1_order)
-        # Gen1 机端换相同时影响母排（Bus）：Bus 端子与 PT2 相序一致，需同步更新
-        # E01 已在上方显式设置 PT2，此处跳过以避免二次交换抵消 E01 的设定
-        swap = fc.params.get('g1_loop_swap')
-        if swap and scenario_id != 'E01':
-            p1, p2 = swap
-            new_pt2 = list(self.pt_phase_orders['PT2'])
-            i1 = ('A', 'B', 'C').index(p1)
-            i2 = ('A', 'B', 'C').index(p2)
-            new_pt2[i1], new_pt2[i2] = new_pt2[i2], new_pt2[i1]
-            self.pt_phase_orders['PT2'] = new_pt2
-
-        if scenario_id == 'E02':
-            self.sync_g2_blackbox_to_phase_orders()
-        if any(
-                fc.params.get(key) is not None
-                for key in (
-                    'g1_blackbox_order',
-                    'pt1_phase_order',
-                    'pt1_pri_blackbox_order',
-                    'p1_pri_blackbox_order',
-                    'pt1_sec_blackbox_order',
-                    'pt2_sec_blackbox_order',
-                )):
-            self.sync_pt1_blackbox_to_phase_orders()
+        self._fault_mgr.inject_fault(scenario_id)
 
     def repair_fault(self, step: int = 4, source: str = 'repair_fault'):
-        """学员完成虚拟修复后调用，消除故障效果并重置检测标志。"""
-        fc = self.sim_state.fault_config
-        sid = fc.scenario_id
-        fc.repaired = True
-        fc.detected = False
-        self.append_assessment_event('fault_repaired', step=step, scene_id=sid, source=source)
-        self.reset_blackbox_orders()
-
-        # 恢复场景专属注入的效果
-        if sid == 'E01':
-            self.pt_phase_orders['PT1'] = ['A', 'B', 'C']
-            self.pt_phase_orders['PT2'] = ['A', 'B', 'C']
-        elif sid == 'E02':
-            self.sim_state.fault_reverse_bc = False
-            self.pt_phase_orders['PT3'] = ['A', 'B', 'C']
-        elif sid == 'E04':
-            # 修复后恢复 PT3 正确变比 11000:193
-            self.sim_state.pt3_ratio = 11000.0 / 193.0
-            self.ui.set_pt_ratio_sec_value('pt3_ratio', 193)
-        # E05–E14: Gen1/PT1 接线矩阵场景（通用恢复）
-        if fc.params.get('pt1_phase_order') is not None:
-            self.pt_phase_orders['PT1'] = ['A', 'B', 'C']
-        if fc.params.get('g1_loop_swap') is not None:
-            self.pt_phase_orders['PT2'] = ['A', 'B', 'C']
+        self._fault_mgr.repair_fault(step=step, source=source)
 
     def reset_for_scenario(self, scenario_id: str):
         """
@@ -1375,43 +1298,26 @@ class PowerSyncController:
     # ════════════════════════════════════════════════════════════════════════
     # 主循环（QTimer 每 33ms 触发）
     # ════════════════════════════════════════════════════════════════════════
-    _tick_error_count = 0          # 连续 tick 失败计数
-
     def _tick(self):
-        rs = None
-        # ── 物理计算 ──
+        now_perf = time.perf_counter()
+        frame_dt = max(0.0, now_perf - self._last_tick_perf)
+        self._last_tick_perf = now_perf
         try:
+            self.physics.frame_dt = frame_dt
             self.physics.update_physics()
             fc = self.sim_state.fault_config
             self._last_fault_detected = bool(fc.detected)
             rs = self.physics.build_render_state()
         except Exception:
-            self._tick_error_count += 1
-            traceback.print_exc()
+            self._handle_tick_failure("physics")
+            return
 
-        # ── UI 渲染（即使物理异常也尝试刷新上一帧状态）──
-        if rs is not None:
-            try:
-                self.ui.render_visuals(rs)
-                self._tick_error_count = 0      # 成功一帧即清零
-            except Exception:
-                self._tick_error_count += 1
-                traceback.print_exc()
-
-        if self._tick_error_count >= 30:        # ~1 秒连续失败
-            print("[CRITICAL] _tick 连续失败 30 帧，仿真可能已崩溃", flush=True)
-            self._tick_error_count = 0           # 避免刷屏，重置后再观察
-
-        # 事故弹窗延迟处理：物理帧完成后再弹窗，避免模态对话框阻塞物理循环
-        accident = self.physics.pending_accident
-        if accident is not None:
-            self.physics.pending_accident = None
-            if accident == 'E01':
-                self.ui.show_e01_accident_dialog()
-            elif accident == 'E02':
-                self.ui.show_e02_accident_dialog()
-            elif accident == 'E03':
-                self.ui.show_e03_accident_dialog()
+        try:
+            self.ui.render_visuals(rs)
+            self._consume_pending_accident_dialog()
+            self._clear_tick_failure_state()
+        except Exception:
+            self._handle_tick_failure("render")
 
 
 # ════════════════════════════════════════════════════════════════════════════

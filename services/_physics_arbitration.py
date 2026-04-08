@@ -7,7 +7,7 @@ import random
 
 import numpy as np
 
-from domain.constants import GRID_FREQ, GRID_AMP, TICK_DT
+from domain.constants import GRID_FREQ, GRID_AMP
 from domain.enums import BreakerPosition, SystemMode
 
 
@@ -114,6 +114,7 @@ class ArbitrationMixin:
         }
 
     def _handle_dead_bus_selection(self, sim, mode1, mode2, g1_ready, g2_ready):
+        frame_dt = max(getattr(self, 'frame_dt', 0.033), 0.0)
         if g1_ready and mode1 == "auto" and self.first_ready != 2:
             self.first_ready = 1
         elif g2_ready and mode2 == "auto" and self.first_ready != 1:
@@ -124,7 +125,7 @@ class ArbitrationMixin:
             self.arb_msg, self.arb_color = "🔍 仲裁器: 等待机组建立额定电压与频率...", "#00ffff"
 
         if self.first_ready == 1:
-            self.dead_bus_timer += TICK_DT * sim.sim_speed
+            self.dead_bus_timer += frame_dt * sim.sim_speed
             remaining = sim.first_start_time - self.dead_bus_timer
             if remaining <= 0:
                 sim.gen1.phase_deg = 0.0
@@ -135,7 +136,7 @@ class ArbitrationMixin:
             else:
                 self.arb_msg, self.arb_color = f"⏳ 仲裁: Gen 1 达标, 准备投入死母线, 延时 {max(0, int(remaining + 1))}s", "#ffcc00"
         elif self.first_ready == 2:
-            self.dead_bus_timer += TICK_DT * sim.sim_speed
+            self.dead_bus_timer += frame_dt * sim.sim_speed
             remaining = sim.first_start_time - self.dead_bus_timer
             if remaining <= 0:
                 sim.gen2.phase_deg = 0.0
