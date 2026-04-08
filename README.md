@@ -514,3 +514,215 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - **最新修复**：E01 double-swap bug；黑盒 params 键名统一（`g1_blackbox_order` / `p1_pri_blackbox_order` / `pt2_sec_blackbox_order` / `g2_blackbox_order`）；PT1 一次侧/二次侧独立修复；Gen2 机端接线黑盒改为终端接线级可交互修复；黑盒对话框运行态回显修复；`teaching / engineering / assessment` 三模式差异已收敛到 `FLOW_MODE_POLICIES`；考核模式事件流与自动评分已接入
 - **现阶段重构**：`FlowModePolicy` 已类型化；`loop_test_service.py` 与 `pt_phase_check_service.py` 已先改为通过控制器语义方法写回状态；控制器已新增 `get_test_progress_snapshot()`、`get_blackbox_runtime_state()`、`finish_assessment_session_if_ready()`、`apply_blackbox_repair_attempt()` 作为最小只读/编排接口，用于收敛 `test_panel.py` 的业务判断
 - **暂时禁用（代码已注释保留，开发中）**：E15（Gen2 过电压 AVR 故障）；E16（强行非同期合闸）
+
+
+---
+
+### 2. 代码质量问题
+
+#### 2.1 废弃代码 / 未使用的导入
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| LOW | `app/main.py:21` | `from dataclasses import dataclass` — 已使用，但第 27 行的 `from typing import Any, Dict, Optional` 导入了仅间接使用的 `Any`。`Dict` 和 `Optional` 被使用了。 |
+| LOW | `app/main.py:20` | `import math` — 仅在第 1034 行使用过一次 (`math.degrees`)。可以使用 `np.degrees`。 |
+| LOW | `app/main.py:22` | 顶部 `import random`，以及 `control_panel.py:15` 中的 `import random as _random` — 在不同的模块中，但命名不一致值得注意。 |
+| MEDIUM | `domain/enums.py:9-14` | `AVAILABLE_MODES` 列出了 4 种模式，但只有 `ISOLATED_BUS` 是有效的。其他 3 种 (`ISLAND`, `GRID_TIED`, `BLACKSTART`) 都是带有 `"(预留)"` 标记的存根，并在 UI 中被禁用。这些是废弃的功能存根。 |
+
+#### 2.2 命名不一致
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| MEDIUM | 贯穿各处 | 语言混合：变量名和文档字符串混合了中文和英文。注释主要使用中文，但代码标识符使用英文。这是有意为之（教育背景），但方法命名不一致 —— 例如，不同服务中的 `_set_loop_test_feedback` 与 `_set_feedback`。 |
+| MEDIUM | `app/main.py:1197` | 旧的键名 `p1_pri_blackbox_order` / `pt2_sec_blackbox_order` 与 `pt1_pri_blackbox_order` / `pt1_sec_blackbox_order` 共存。回退逻辑在多处重复。 |
+| LOW | `services/_physics_measurement.py` | 局部变量如 `_sim_r`, `_pt_ratio`, `_fc_e04` 不一致地使用了下划线前缀（这些不应是私有的模块级名称，而只是局部变量）。 |
+
+#### 2.3 函数过长 / 职责过多
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| HIGH | `app/main.py` `PowerSyncController` | 上帝类 (God Class)：约 1270 行。它拥有 sim_state，委托给 6 个服务，管理故障注入/修复，评估会话生命周期，黑盒接线修复，PT 相位解析，断路器门控以及 UI 回调。这是可维护性的最大风险。 |
+| HIGH | `services/assessment_service.py:19-597` | `build_result()` 是一个 560 多行的单一方法。极难测试或修改。所有 30 个评分项、惩罚计算和总结生成都在一个函数中。 |
+| MEDIUM | `ui/main_window.py` `show_e01/e02/e03_accident_dialog` | 三个几乎相同、各 100 多行的对话框方法（总计约 390 行）。它们仅在故障描述文本上有所不同。应参数化为一个单一方法。 |
+| MEDIUM | `services/_physics_measurement.py` `_update_multimeter` | 65 行的方法，包含深度嵌套的条件分支，用于处理回路/跨PT/无效状态等。 |
+
+#### 2.4 缺失 / 不充分的错误处理
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| MEDIUM | `app/main.py:1384-1392` | `_tick()` 捕获所有异常并使用 `traceback.print_exc()` — **静默吞噬**。物理引擎崩溃会打印到控制台，但在 GUI 中不可见。模拟会静默产生陈旧的帧。 |
+| MEDIUM | `app/main.py:1376-1379` | `rebuild_circuit_view()` 被包裹在裸露的 `except Exception: traceback.print_exc()` 中。电路图可能会在刷新时静默失败。 |
+| LOW | `ui/main_window.py:133-136` | `setTabVisible` 被包裹在裸露的 `except AttributeError: pass` 中。为了 Qt 版本的兼容性这是可以接受的，但应该添加注释说明需要兼容哪个版本。 |
+
+#### 2.5 静默故障风险
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| HIGH | `services/_physics_core.py:131-133` | `interval_dt = max(self.animation_time - prev_animation_time, self.wave_sample_dt)` — 如果 `animation_time` 倒退（例如浮点漂移或重置），`interval_dt` 被限制在 `wave_sample_dt` 而不是被检测为错误。结合 `np.linspace`，这可能产生失真的波形。 |
+| MEDIUM | `services/_physics_measurement.py:66-73` | `_ema_update` 通过 `hasattr` 延迟初始化 `_meter_ema_dict`。如果另一个 mixin 引入了同名的属性，将会发生静默冲突。 |
+
+---
+
+### 3. 架构坏味道
+
+#### 3.1 紧耦合
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| CRITICAL | `services/_physics_protection.py:189-231` | **物理引擎直接调用 UI**：`self.ctrl.ui.show_e01_accident_dialog()` 是从物理引擎的断路器逻辑内部调用的。这意味着物理帧更新可能会在模态对话框上阻塞。物理引擎应该触发一个事件/标志；UI 应该轮询它。 |
+| HIGH | `app/main.py:1059` | 控制器直接操作 UI：`self.ui.tab_widget.setCurrentIndex(5)`。控制器不应该知道选项卡的索引。 |
+| HIGH | `app/main.py:1260-1263` | 针对 E04 的 `inject_fault` 直接触及 UI 数字框控件：`_rows['pt3_ratio']` → `sec_spin.setValue(93)`。控制器不应该接触 UI 控件。 |
+| MEDIUM | 所有服务 | 每个服务都持有 `self._ctrl`，并通过回调控制器来完成所有操作（例如 `self._ctrl.physics.meter_status`）。服务层不是真正独立的 —— 它与控制器内部结构紧密耦合。 |
+
+#### 3.2 上帝类
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| CRITICAL | `app/main.py` `PowerSyncController` | 处理：模拟状态的所有权，6 个服务的编排，故障注入/修复，黑盒修复，评估会话管理，PT 相位解析，流程策略评估，断路器门控，硬件操作，UI 通知。约有 85+ 个公共方法。 |
+| HIGH | `ui/main_window.py` `PowerSyncUI` | 继承自 9 个 mixin。MRO（方法解析顺序）很复杂。mixin 之间的任何方法名冲突都是静默错误。 |
+
+#### 3.3 循环依赖风险
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| MEDIUM | controller ↔ UI ↔ physics | `ctrl` 持有 `physics` 和 `ui`。`physics` 持有 `ctrl` (用于 `ctrl.sim_state`, `ctrl.pt_phase_orders`, `ctrl.ui.show_*`)。`ui` 持有 `ctrl`。这个三角形是一个循环引用图。Python 的垃圾回收器会处理它，但这使得隔离测试变得不可能。 |
+| LOW | `domain/node_map.py:1-4` | 注释写着 "独立为单独模块，避免 physics ↔ ui 循环导入" — 证明团队已经遇到过循环导入问题。 |
+
+#### 3.4 关注点混合
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| CRITICAL | `services/_physics_protection.py:189-231` | 物理引擎直接显示 UI 对话框 (`self.ctrl.ui.show_e01_accident_dialog()`)。物理计算绝对不应该触发模态 UI。 |
+| HIGH | `app/main.py:1260-1263` | 控制器在故障注入期间操作 UI 数字框值。业务逻辑应该更新模型；UI 应该观察模型变化。 |
+| MEDIUM | `ui/panels/control_panel.py:253-254` | UI 直接设置模型状态：`lambda v: setattr(c.sim_state, 'remote_start_signal', v)`。没有验证边界。 |
+
+---
+
+### 4. 物理引擎完整性
+
+#### 4.1 模拟循环鲁棒性
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| HIGH | `app/main.py:1384-1392` | 主 `_tick()` 将整个物理+渲染包裹在 `try/except` 中。任何子步骤（波形，仲裁，保护，测量）的崩溃都会静默导致**整帧失败**，包括渲染。屏幕上会显示旧的状态。如果错误是持续的，模拟器在视觉上冻结，但实际上仍“活着”。 |
+| MEDIUM | `services/_physics_core.py:60-64` | `_advance_time` 将 `animation_time` 增加 `0.002 * sim.sim_speed`。在最大速度（10x，滑块最大值 1000/100）下，这相当于每 33ms 帧 0.02s。波形历史使用 `np.linspace` 进行插值，但是高速会为 50Hz 信号产生每帧 1 个以上的样本 —— 当 `sim_speed > ~5x` 时可能会产生混叠。 |
+| LOW | `services/_physics_arbitration.py:127` | `self.dead_bus_timer += 0.033 * sim.sim_speed` — 硬编码的 0.033s 假定恰好为 30fps。如果定时器触发较晚（系统负载重），死母线倒计时就会漂移。应该使用实际消耗的时间。 |
+
+#### 4.2 故障注入的边缘情况
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| MEDIUM | `app/main.py:1265-1278` | `inject_fault` 在 E01/E02 特定处理**之后**应用 E05–E14 的通用接线。对于 E01，第 1252 行设置 `g1_blackbox_order = ['B','A','C']`，但第 1265 行随后将其**覆盖**为 `fc.params.get('g1_blackbox_order', self.g1_blackbox_order)`。由于 E01 参数没有 `g1_blackbox_order`，它会回退到已经设置的值。这属于巧合有效，但很脆弱 —— 如果向 E01 的参数中添加 `g1_blackbox_order`，将会静默覆盖正确的值。 |
+| LOW | `domain/fault_scenarios.py`: E08 | E08 是一个“完全隐藏”的故障 (`affected_steps: []`, `detection_step: None`)。评估打分通过 `hidden_fault` 逻辑处理，但注释说通过测量无法检测 —— 评估仍然期望学生检查黑盒。如果学生正常完成所有 5 个步骤，网关会阻挡他们，没有任何可见证据说明原因。 |
+
+#### 4.3 相序逻辑
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| LOW | `services/_physics_measurement.py:99-112` | `_resolve_terminal_actual_phase` 正确地仅对 PT3 应用了 `fault_reverse_bc`。对于 B↔C 交换逻辑是健全的。 |
+| LOW | `app/main.py:714-750` | `get_pt_phase_sequence` 正确处理了 g2b/g2c 键交换的 `fault_reverse_bc`。对于 E03 (PT3 A反接) 返回 `FAULT` 是正确的 —— 真实的相序表无法对单相反接信号进行分类。 |
+
+#### 4.4 保护状态机
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| MEDIUM | `services/_physics_protection.py:165-198` | 模式 "stop" 无条件断开断路器 (行 166-167)。但是，如果发电机先前已闭合，且模式由于 UI 竞争条件更改为 "stop"，断路器将在没有继电保护消息的情况下断开。继电消息在第 69-72 行设置，即在过流检查**之前**但模式-"stop"逻辑**之后**，因此 "monitoring" 消息会覆盖任何 stop-trip 消息。 |
+| MEDIUM | `services/_physics_protection.py:256-266` | 闪烁帧使用 `setattr(self, flash_attr, 15)` 并每帧递减。在 30fps 下，这是 0.5 秒的闪烁。但如果模拟暂停，闪烁仍会递减 (暂停只停止 `_advance_time`，不停止 `_update_breaker_logic`)。闪烁在暂停期间会过期。 |
+
+---
+
+### 5. PyQt5 特定问题
+
+#### 5.1 信号/槽问题
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| CRITICAL | `services/_physics_protection.py:189` | `self.ctrl.ui.show_e01_accident_dialog()` 从 `_update_breaker_state()` 调用，后者运行在 `update_physics()` 内，后者又运行在 `_tick()` 内，而 `_tick()` 是一个 QTimer 槽。调用 `.exec_()` (模态对话框) 会阻塞定时器回调。在对话框打开期间，**没有物理帧被计算**，没有 UI 更新发生，所有 QTimer 事件排队。关闭对话框后，排队的定时器会快速连续触发。 |
+| MEDIUM | `ui/panels/control_panel.py:409-429` | 滑块的 `valueChanged` 和 LineEdit 的 `editingFinished` 都会更新同一个模型属性。`_update_generator_buttons` 中的 `blockSignals(True/False)` 保护措施可防止无限循环，但 LineEdit 的 `editingFinished` + `returnPressed` 都连接了 —— 按 Enter 会触发两次，导致重复写入。 |
+| LOW | `ui/panels/control_panel.py:158` | `rb.toggled` 在选中和取消选中时都会触发。处理程序检查是否被选中 (`if checked`)，这没错，但会产生不必要的调用。 |
+
+#### 5.2 组件生命周期
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| MEDIUM | `ui/main_window.py:216-265` | `_show_blackbox_required_dialog` 每次被调用时都创建一个 `QDialog(self)`。对话框执行后被垃圾回收。这是可接受的，但在快速点击下，理论上可能会创建多个对话框实例。 |
+| LOW | `ui/test_panel.py:32-167` | `_GenWiringWidget` 和 `_PTWiringWidget` 使用 `setFixedSize()`。它们无法适应不同的 DPI 或窗口大小。 |
+
+#### 5.3 线程安全
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| LOW | N/A | 所有物理运算都在 UI 线程运行（通过 QTimer）。从线程角度来看这是安全的（无竞争条件），但意味着繁重的物理计算可能导致 UI 卡顿。在 33ms 的间隔下，预算很紧张。Numpy 操作是向量化的，所以对于 200 个数据点可能没问题，但增加更多生成器或更高分辨率可能会导致掉帧。 |
+
+#### 5.4 资源泄漏
+
+| 严重程度 | 位置 | 问题 |
+| :--- | :--- | :--- |
+| MEDIUM | matplotlib 画布 | 波形图和电路图选项卡创建了嵌入 Qt 的 matplotlib 图形。对当前活动选项卡每帧调用 `draw_idle()`。matplotlib 图形永远不会显式关闭。在很长的会话中没问题（图形被复用），但如果重建选项卡，旧的图形可能会泄漏。 |
+
+---
+
+### 6. 回归风险分布图
+
+**排名前 5 的最脆弱区域**
+
+1.  **故障注入/修复链 — `app/main.py:1231-1336`**
+    * **原因:** `inject_fault` 和 `repair_fault` 在每个场景下手动设置/重置 8 个以上的状态变量 (`pt_phase_orders`, `g1_blackbox_order`, `pt1_pri_blackbox_order`, `fault_reverse_bc`, UI 数字框值)。添加 E15 需要修改此方法并确保 `repair_fault` 中所有的清理路径都更新。
+    * **缺失保障:** 无自动化测试。无声明式注入系统 —— 所有逻辑都是过程化的 if/elif 链。在 `repair_fault` 中遗漏一个清理步骤，就会在“修复”后留下幽灵故障效果。
+2.  **物理 → UI 对话框耦合 — `services/_physics_protection.py:185-231`**
+    * **原因:** 物理断路器逻辑直接调用 `self.ctrl.ui.show_e0X_accident_dialog()`。UI 的任何重构（重命名方法、更改对话框流程）都会静默破坏物理行为。模态对话框冻结模拟循环。
+    * **缺失保障:** 物理层与 UI 层之间没有接口/协议。没有事件总线或回调注册。
+3.  **PowerSyncUI 中的 Mixin 命名冲突 — `ui/main_window.py:54-65`**
+    * **原因:** 9 个 mixin 共享一个命名空间。如果两个 mixin 定义了同名的方法，Python 的 MRO 会静默选择一个。没有 `__init_subclass__` 保护或命名约定来防止这种情况。
+    * **缺失保障:** 跨 mixin 无检测方法名冲突的 Lint 规则或测试。
+4.  **`_compute_pt1_net_order` 级联 — `app/main.py:1148-1159`**
+    * **原因:** PT1 的有效相序是通过链接 3 个排列层 (`g1_blackbox_order` → `pt1_pri_blackbox_order` → `pt1_sec_blackbox_order`) 计算得出的。对任何一层的修改都需要通过 `sync_pt1_blackbox_to_phase_orders()` 重新同步。多个调用者在不同时间调用它；遗漏一个同步调用会产生不一致的 PT1 读数。
+    * **缺失保障:** 无不变性检查来确保 `pt_phase_orders['PT1']` 始终等于计算出的净相序。
+5.  **评估打分巨石 — `services/assessment_service.py:19-597`**
+    * **原因:** 一个 560 行的方法计算所有 30 个打分项。事件流的任何结构性更改（重命名事件、更改负载）都会静默改变得分。该方法没有单元测试，并且依赖确切的事件类型字符串。
+    * **缺失保障:** 没有事件类型名称的常量。对事件负载没有 Schema 验证。单个打分项没有单元测试。
+
+---
+
+### 7. 优先级改进建议
+
+#### 紧急 (CRITICAL)
+
+| # | 发现点 | 具体修复建议 |
+| :--- | :--- | :--- |
+| C1 | 物理层调用 UI 对话框 (`_physics_protection.py:189-231`) | 将 `self.ctrl.ui.show_e0X_accident_dialog()` 替换为设置一个标志：`self.ctrl.pending_accident = 'E01'`。在 `render_visuals()` 或 `_tick()` 中，检查该标志并在物理计算**完成后**显示对话框。这将解耦物理与 UI 并防止定时器阻塞。 |
+| C2 | 上帝控制器 (`app/main.py:143`, 1270+ 行) | 将故障管理提取到一个 `FaultManager` 类中 (注入/修复/黑盒/接线顺序)。将评估生命周期提取到一个独立的协调器中。控制器应仅负责将服务连接起来，而不应包含业务逻辑。 |
+
+#### 高级 (HIGH)
+
+| # | 发现点 | 具体修复建议 |
+| :--- | :--- | :--- |
+| H1 | 滴答 (tick) 静默失败 (`app/main.py:1384-1392`) | 添加一个帧错误计数器。如果 >N 个连续帧失败，在 UI 中显示一个非模态的错误横幅。将回溯日志记录到文件。考虑将物理和渲染分成两个 try/except 块，这样渲染失败就不会跳过物理计算。 |
+| H2 | 三重重复的事故对话框 (`main_window.py:268-657`) | 重构为 `_show_accident_dialog(scenario_id)`，从 `SCENARIOS[scenario_id]` 中读取标题/描述/症状/修复内容。消除约 300 行重复代码。 |
+| H3 | 控制器触及 UI 组件 (`app/main.py:1260-1263`) | 控制器应该发出一个信号或更新 `sim_state.pt3_ratio`；UI 应该观察模型并在 `render_visuals()` 中更新数字框。 |
+| H4 | 评估 `build_result` 巨石 (`assessment_service.py:19-597`) | 拆分成按类别的辅助方法：`_score_flow_discipline()`, `_score_loop_test()` 等。在共享模块中定义事件类型常量。按类别添加单元测试。 |
+| H5 | 硬编码的定时器间隔 (`_physics_arbitration.py:127`) | 从 `_tick()` 传递实际的 `dt`，而不是假定为 `0.033`。计算 `dt = current_time - last_tick_time`。 |
+
+#### 中级 (MEDIUM)
+
+| # | 发现点 | 具体修复建议 |
+| :--- | :--- | :--- |
+| M1 | 遗留的参数键名回退 (`p1_pri_blackbox_order`, `pt2_sec_blackbox_order`) | 将所有场景参数迁移到规范名称。移除回退查找逻辑。在 `inject_fault` 中添加一个验证流程，对无法识别的参数键发出警告。 |
+| M2 | 闪烁定时器在暂停期间递减 | 保护闪烁递减逻辑：`if not sim.paused: setattr(self, flash_attr, getattr(self, flash_attr) - 1)`。 |
+| M3 | `.gitignore` 中缺少 `__pycache__` | 将 `__pycache__/` 和 `*.pyc` 添加到 `.gitignore`。目前在 git status 中被追踪。 |
+| M4 | `_ema_update` 通过 `hasattr` 延迟初始化 | 在 `PhysicsEngine.__init__()` 中显式初始化 `_meter_ema_dict = {}`。 |
+| M5 | 缺少测试套件 | 优先级：为故障注入 → 检测 → 修复全流程添加集成测试。为 `assessment_service.build_result()` 添加单元测试。 |
+
+#### 低级 (LOW)
+
+| # | 发现点 | 具体修复建议 |
+| :--- | :--- | :--- |
+| L1 | `AVAILABLE_MODES` 包含 3 个死存根 | 移除或注释掉无功能的模式，以减少混淆。 |
+| L2 | `_GenWiringWidget`/`_PTWiringWidget` 使用固定大小 | 使用 `sizeHint()` 和 `minimumSizeHint()` 配合宽高比策略，以实现更好的 DPI 缩放。 |
+| L3 | gen 滑块上 `editingFinished` + `returnPressed` 的双重连接 | 移除 `returnPressed` 的连接；`editingFinished` 已经涵盖了 Enter 键。 |
+| L4 | `app/main.py` 中的 `sys.path.insert(0, ...)` | 替换为合适的包设置 (`pyproject.toml` 或 `setup.py`)，以便可以干净地安装和导入该项目。 |
+
+
+’‘’
+
+
