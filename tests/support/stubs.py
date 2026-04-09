@@ -9,6 +9,7 @@ import numpy as np
 from domain.assessment import AssessmentEvent, AssessmentSession
 from domain.enums import BreakerPosition, SystemMode
 from domain.models import FaultConfig, GeneratorState, SimulationState
+from services.flow_mode_manager import FlowModeManager
 from domain.test_states import (
     LoopTestState,
     PtExamState,
@@ -30,6 +31,7 @@ class ControllerStub:
         assessment_closed_loop_ready: bool = False,
     ):
         self.sim_state = sim_state or make_sim_state()
+        self._flow_mgr = FlowModeManager()
         self.pt_phase_orders = pt_phase_orders or {
             "PT1": ["A", "B", "C"],
             "PT2": ["A", "B", "C"],
@@ -50,8 +52,31 @@ class ControllerStub:
         self.detected_fault_events: list[dict[str, Any]] = []
         self.queued_accident_dialogs: list[str] = []
 
+    @property
+    def test_flow_mode(self) -> str:
+        return self._flow_mgr.test_flow_mode
+
+    @test_flow_mode.setter
+    def test_flow_mode(self, value: str):
+        self._flow_mgr.test_flow_mode = value
+
+    def flow_policy(self):
+        return self._flow_mgr.flow_policy()
+
+    def flow_policy_flag(self, name: str) -> bool:
+        return self._flow_mgr.flow_policy_flag(name)
+
+    def is_teaching_mode(self) -> bool:
+        return self._flow_mgr.is_teaching_mode()
+
+    def is_engineering_mode(self) -> bool:
+        return self._flow_mgr.is_engineering_mode()
+
+    def is_assessment_mode(self) -> bool:
+        return self._flow_mgr.is_assessment_mode()
+
     def should_show_diagnostic_hints(self) -> bool:
-        return False
+        return self._flow_mgr.should_show_diagnostic_hints()
 
     def mark_fault_detected(self, step: int, source: str, **payload) -> bool:
         self.sim_state.fault_config.detected = True

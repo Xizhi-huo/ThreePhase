@@ -43,26 +43,8 @@ from services.pt_voltage_check_service import PtVoltageCheckService
 from services.pt_phase_check_service import PtPhaseCheckService
 from services.pt_exam_service import PtExamService
 from services.sync_test_service import SyncTestService
+from services.flow_mode_manager import FlowModeManager, FlowModePolicy
 from ui.main_window import PowerSyncUI
-
-
-@dataclass(frozen=True)
-class FlowModePolicy:
-    allow_continue_with_fault: bool
-    require_all_measurements_before_finalize: bool
-    require_step_pass_to_finalize: bool
-    show_fault_detected_banner: bool
-    show_diagnostic_hints: bool
-    block_step5_until_blackbox_fixed: bool
-    hold_at_step4_when_wiring_fault_unrepaired: bool
-    show_blackbox_required_dialog_before_step5: bool
-    allow_blackbox_inspection: bool
-    allow_blackbox_repair: bool
-    auto_clear_fault_only_when_all_blackboxes_normal: bool
-    allow_admin_shortcuts: bool
-    record_assessment_metrics: bool
-    auto_score_assessment: bool
-    assessment_ends_after_step4_closed_loop: bool
 
 
 @dataclass(frozen=True)
@@ -84,61 +66,6 @@ class BlackboxRepairOutcome:
     message: str
     message_color: str
     disable_repair_button: bool = False
-
-
-FLOW_MODE_POLICIES = {
-    'teaching': FlowModePolicy(
-        allow_continue_with_fault=True,
-        require_all_measurements_before_finalize=True,
-        require_step_pass_to_finalize=False,
-        show_fault_detected_banner=True,
-        show_diagnostic_hints=True,
-        block_step5_until_blackbox_fixed=True,
-        hold_at_step4_when_wiring_fault_unrepaired=True,
-        show_blackbox_required_dialog_before_step5=True,
-        allow_blackbox_inspection=True,
-        allow_blackbox_repair=True,
-        auto_clear_fault_only_when_all_blackboxes_normal=True,
-        allow_admin_shortcuts=True,
-        record_assessment_metrics=False,
-        auto_score_assessment=False,
-        assessment_ends_after_step4_closed_loop=False,
-    ),
-    'engineering': FlowModePolicy(
-        allow_continue_with_fault=False,
-        require_all_measurements_before_finalize=True,
-        require_step_pass_to_finalize=True,
-        show_fault_detected_banner=True,
-        show_diagnostic_hints=True,
-        block_step5_until_blackbox_fixed=True,
-        hold_at_step4_when_wiring_fault_unrepaired=True,
-        show_blackbox_required_dialog_before_step5=True,
-        allow_blackbox_inspection=True,
-        allow_blackbox_repair=True,
-        auto_clear_fault_only_when_all_blackboxes_normal=True,
-        allow_admin_shortcuts=True,
-        record_assessment_metrics=False,
-        auto_score_assessment=False,
-        assessment_ends_after_step4_closed_loop=False,
-    ),
-    'assessment': FlowModePolicy(
-        allow_continue_with_fault=False,
-        require_all_measurements_before_finalize=True,
-        require_step_pass_to_finalize=True,
-        show_fault_detected_banner=False,
-        show_diagnostic_hints=False,
-        block_step5_until_blackbox_fixed=True,
-        hold_at_step4_when_wiring_fault_unrepaired=True,
-        show_blackbox_required_dialog_before_step5=True,
-        allow_blackbox_inspection=True,
-        allow_blackbox_repair=True,
-        auto_clear_fault_only_when_all_blackboxes_normal=True,
-        allow_admin_shortcuts=False,
-        record_assessment_metrics=True,
-        auto_score_assessment=True,
-        assessment_ends_after_step4_closed_loop=True,
-    ),
-}
 
 
 class PowerSyncController:
@@ -177,6 +104,7 @@ class PowerSyncController:
         self.g2_blackbox_order = ['A', 'B', 'C']
         self.pt1_pri_blackbox_order = ['A', 'B', 'C']
         self.pt1_sec_blackbox_order = ['A', 'B', 'C']
+        self._flow_mgr = FlowModeManager()
         self.test_flow_mode = 'teaching'
         self.pt_blackbox_mode_val: bool = False
         self._pt_blackbox_mode_proxy = self._BoolProxy(self)
@@ -236,68 +164,76 @@ class PowerSyncController:
     def pt_blackbox_mode(self):
         return self._pt_blackbox_mode_proxy
 
-    def flow_policy(self):
-        return FLOW_MODE_POLICIES.get(self.test_flow_mode, FLOW_MODE_POLICIES['teaching'])
+    @property
+    def test_flow_mode(self):
+        return self._flow_mgr.test_flow_mode
+
+    @test_flow_mode.setter
+    def test_flow_mode(self, value: str):
+        self._flow_mgr.test_flow_mode = value
+
+    def flow_policy(self) -> FlowModePolicy:
+        return self._flow_mgr.flow_policy()
 
     def flow_policy_flag(self, name: str):
-        return bool(getattr(self.flow_policy(), name))
+        return self._flow_mgr.flow_policy_flag(name)
 
     def is_teaching_mode(self):
-        return self.test_flow_mode == 'teaching'
+        return self._flow_mgr.is_teaching_mode()
 
     def is_engineering_mode(self):
-        return self.test_flow_mode == 'engineering'
+        return self._flow_mgr.is_engineering_mode()
 
     def is_assessment_mode(self):
-        return self.test_flow_mode == 'assessment'
+        return self._flow_mgr.is_assessment_mode()
 
     def can_advance_with_fault(self):
-        return self.flow_policy_flag('allow_continue_with_fault')
+        return self._flow_mgr.can_advance_with_fault()
 
     def require_all_measurements_before_finalize(self):
-        return self.flow_policy_flag('require_all_measurements_before_finalize')
+        return self._flow_mgr.require_all_measurements_before_finalize()
 
     def require_step_pass_to_finalize(self):
-        return self.flow_policy_flag('require_step_pass_to_finalize')
+        return self._flow_mgr.require_step_pass_to_finalize()
 
     def should_show_fault_detected_banner(self):
-        return self.flow_policy_flag('show_fault_detected_banner')
+        return self._flow_mgr.should_show_fault_detected_banner()
 
     def should_show_diagnostic_hints(self):
-        return self.flow_policy_flag('show_diagnostic_hints')
+        return self._flow_mgr.should_show_diagnostic_hints()
 
     def should_block_step5_until_blackbox_fixed(self):
-        return self.flow_policy_flag('block_step5_until_blackbox_fixed')
+        return self._flow_mgr.should_block_step5_until_blackbox_fixed()
 
     def should_hold_at_step4_when_wiring_fault_unrepaired(self):
-        return self.flow_policy_flag('hold_at_step4_when_wiring_fault_unrepaired')
+        return self._flow_mgr.should_hold_at_step4_when_wiring_fault_unrepaired()
 
     def should_show_blackbox_required_dialog_before_step5(self):
-        return self.flow_policy_flag('show_blackbox_required_dialog_before_step5')
+        return self._flow_mgr.should_show_blackbox_required_dialog_before_step5()
 
     def can_inspect_blackbox(self):
-        return self.flow_policy_flag('allow_blackbox_inspection')
+        return self._flow_mgr.can_inspect_blackbox()
 
     def can_repair_in_blackbox(self):
-        return self.flow_policy_flag('allow_blackbox_repair')
+        return self._flow_mgr.can_repair_in_blackbox()
 
     def should_auto_clear_fault_only_when_all_blackboxes_normal(self):
-        return self.flow_policy_flag('auto_clear_fault_only_when_all_blackboxes_normal')
+        return self._flow_mgr.should_auto_clear_fault_only_when_all_blackboxes_normal()
 
     def allow_admin_shortcuts(self):
-        return self.flow_policy_flag('allow_admin_shortcuts')
+        return self._flow_mgr.allow_admin_shortcuts()
 
     def can_use_pt_exam_quick_record(self):
-        return self.allow_admin_shortcuts() or self.is_assessment_mode()
+        return self._flow_mgr.can_use_pt_exam_quick_record()
 
     def should_record_assessment_metrics(self):
-        return self.flow_policy_flag('record_assessment_metrics')
+        return self._flow_mgr.should_record_assessment_metrics()
 
     def should_auto_score_assessment(self):
-        return self.flow_policy_flag('auto_score_assessment')
+        return self._flow_mgr.should_auto_score_assessment()
 
     def assessment_ends_after_step4_closed_loop(self):
-        return self.flow_policy_flag('assessment_ends_after_step4_closed_loop')
+        return self._flow_mgr.assessment_ends_after_step4_closed_loop()
 
     def start_assessment_session(self, scene_id: str, preset_mode: str = 'specified'):
         if not self.should_record_assessment_metrics():
