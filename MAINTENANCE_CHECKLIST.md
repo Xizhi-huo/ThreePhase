@@ -1,3 +1,115 @@
+‘’‘
+
+
+# 任务：Phase 1 第一步 — 拆出 FlowModeManager（第 10 轮）
+
+## 你的角色
+你是一位资深 Python 桌面端架构师，正在帮我对一个高耦合的 PyQt5 三相电并网仿真教学系统进行系统级重构。Phase 0（安全网）已闭环，现在正式进入 Phase 1（Controller 瘦身）。
+
+## 第一步：必读文件
+1. `MAINTENANCE_CHECKLIST.md` — 行动纲领，重点看 §4 Phase 1 第一项、§1.4 接口隔离原则、§1.5 单向数据流规范
+2. `app/main.py` — 本轮的手术对象。重点读以下三个区域：
+   - **第 49-66 行**：`FlowModePolicy` dataclass 定义（15 个布尔字段）
+   - **第 89-141 行**：`FLOW_MODE_POLICIES` 字典（teaching / engineering / assessment 三套策略）
+   - **第 239-300 行**：`PowerSyncController` 上的 20 个 flow_policy 包装方法
+3. `tests/support/stubs.py` — ControllerStub，了解测试替身是否也调用了 flow_policy 方法
+4. `tests/test_physics_snapshot.py` + `tests/test_assessment_snapshot.py` — 跑完本轮后必须 PASS
+
+## 本轮背景与上下文
+
+### 要搬走的代码（精确范围）
+
+以下代码**当前全部在 `app/main.py` 中**，需要移入新文件 `services/flow_mode_manager.py`：
+
+1. `FlowModePolicy` dataclass（第 49-65 行）
+2. `FLOW_MODE_POLICIES` 字典（第 89-141 行）
+3. `PowerSyncController` 上的以下 20 个方法（第 239-300 行）：
+   - `flow_policy()` / `flow_policy_flag()`
+   - `is_teaching_mode()` / `is_engineering_mode()` / `is_assessment_mode()`
+   - `can_advance_with_fault()` / `require_all_measurements_before_finalize()` / `require_step_pass_to_finalize()`
+   - `should_show_fault_detected_banner()` / `should_show_diagnostic_hints()`
+   - `should_block_step5_until_blackbox_fixed()` / `should_hold_at_step4_when_wiring_fault_unrepaired()`
+   - `should_show_blackbox_required_dialog_before_step5()`
+   - `can_inspect_blackbox()` / `can_repair_in_blackbox()`
+   - `should_auto_clear_fault_only_when_all_blackboxes_normal()`
+   - `allow_admin_shortcuts()` / `can_use_pt_exam_quick_record()`
+   - `should_record_assessment_metrics()` / `should_auto_score_assessment()`
+   - `assessment_ends_after_step4_closed_loop()`
+
+### 外部调用者（不能断链的 16 处调用点）
+
+以下文件通过 `self._ctrl.xxx()` 或 `self.ctrl.xxx()` 调用了上述方法：
+
+| 文件 | 调用的方法 | 次数 |
+|---|---|---|
+| `app/main.py`（Controller 内部自用） | `is_assessment_mode` / `can_repair_in_blackbox` | 6 |
+| `ui/test_panel.py` | `can_inspect_blackbox` / `allow_admin_shortcuts` / `can_advance_with_fault` / `is_assessment_mode` / `can_repair_in_blackbox` | 11 |
+| `ui/tabs/circuit_tab.py` | `is_assessment_mode` | 1 |
+| `services/loop_test_service.py` | `can_advance_with_fault` | 1 |
+| `services/pt_voltage_check_service.py` | `can_advance_with_fault` | 1 |
+| `services/pt_phase_check_service.py` | `can_advance_with_fault` | 1 |
+| `services/pt_exam_service.py` | `is_assessment_mode` | 1 |
+
+**关键约束**：这些调用者当前都通过 `ctrl.xxx()` 访问。本轮的目标是**搬走实现，保留 Controller 上的转发接口**，确保调用者零改动。
+
+## 本轮唯一主攻目标
+**将 FlowModePolicy / FLOW_MODE_POLICIES / 20 个策略查询方法从 `app/main.py` 中抽出，形成独立的 `services/flow_mode_manager.py`。Controller 持有 FlowModeManager 实例，只转发查询。**
+
+## 具体交付物
+
+### 交付物 1：新建 `services/flow_mode_manager.py`
+
+```python
+# 最终文件结构应该是：
+# - FlowModePolicy dataclass
+# - FLOW_MODE_POLICIES 字典
+# - FlowModeManager 类
+#     - __init__(self)：内部持有 test_flow_mode: str = 'teaching'
+#     - flow_policy() -> FlowModePolicy
+#     - flow_policy_flag(name: str) -> bool
+#     - is_teaching_mode() / is_engineering_mode() / is_assessment_mode()
+#     - 其余 15 个策略查询方法
+接口设计要求：
+
+输入：FlowModeManager 只依赖一个字符串 test_flow_mode，不持有 ctrl 引用
+输出：纯布尔查询，无副作用
+test_flow_mode 由 Controller 在切换模式时写入 FlowModeManager
+can_use_pt_exam_quick_record() 依赖 allow_admin_shortcuts() 和 is_assessment_mode()，逻辑留在 FlowModeManager 内部自洽
+交付物 2：修改 app/main.py
+删除从 main.py 中搬走的代码：FlowModePolicy / FLOW_MODE_POLICIES / 20 个方法体
+新增 from services.flow_mode_manager import FlowModeManager, FlowModePolicy 导入
+在 __init__ 中实例化 self._flow_mgr = FlowModeManager()
+将 self.test_flow_mode 改为代理：读写都转发到 self._flow_mgr.test_flow_mode
+保留 Controller 上的 20 个方法签名作为转发壳：
+
+def is_assessment_mode(self):
+    return self._flow_mgr.is_assessment_mode()
+这确保所有外部调用者（UI / Service）零改动。
+交付物 3：更新 ControllerStub
+tests/support/stubs.py 中的 ControllerStub 如果有任何调用者需要 flow_policy 方法（检查 should_show_diagnostic_hints 已经在 stub 中），确保 stub 也能正常工作。
+两种方式均可：stub 直接实例化 FlowModeManager，或继续手动实现那几个方法。
+交付物 4：验证
+运行 python -m pytest tests/ -v 确保快照测试全部 PASS（python路径：/Users/promise/opt/anaconda3/envs/power_gui/bin/python，如果这个环境没有 pytest，先 pip install pytest）
+确认 app/main.py 行数下降（预计减少 ~80 行）
+交付物 5：更新 MAINTENANCE_CHECKLIST.md
+§4 Phase 1 第一项 拆出 FlowModeManager 打勾 [x]
+§9 新增第 10 轮记录（使用 §11 模板）
+§10 更新下一轮起点为 拆出 AssessmentCoordinator
+§2 更新 app/main.py 的行数
+工程约束
+不改变任何外部调用者的代码（ui/.py、services/.py 零改动）
+Controller 上保留同名转发方法，保证调用链不断
+FlowModeManager 不持有 ctrl 引用，只依赖 test_flow_mode 字符串
+StepProgressSnapshot 和 BlackboxRepairOutcome 这两个 dataclass 暂时留在 main.py（它们不属于本轮范围）
+不顺手做其他重构
+完成后跑快照测试
+
+
+
+
+
+’‘’
+
 # 维护与重构清单 v2
 
 最后更新：`2026-04-09`
