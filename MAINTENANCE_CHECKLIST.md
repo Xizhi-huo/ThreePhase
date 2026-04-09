@@ -59,7 +59,7 @@
 
 ### 交付物 1：新建 `services/flow_mode_manager.py`
 
-```python
+python
 # 最终文件结构应该是：
 # - FlowModePolicy dataclass
 # - FLOW_MODE_POLICIES 字典
