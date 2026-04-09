@@ -285,7 +285,7 @@
 
 | 属性名 | 创建者 | 被哪些其他模块访问 | 访问方式 |
 |---|---|---|---|
-| `self.ctrl` | `main_window`（同时被 `WidgetBuilderMixin`、`TestPanelMixin` 重复赋值） | 全部 9 个 Mixin | 读；另有重复写入 |
+| `self.ctrl` | `main_window` | 全部 9 个 Mixin | 高频读 |
 | `self.tab_widget` | `main_window` | `WaveformTabMixin`, `CircuitTabMixin`, `LoopTestTabMixin`, `PtVoltageCheckTabMixin`, `PtPhaseCheckTabMixin`, `PtExamTabMixin`, `SyncTestTabMixin`, `TestPanelMixin` | 读 |
 | `self.ctrl_layout` | `main_window` | `WidgetBuilderMixin` | 读 |
 | `self.ctrl_container` | `main_window` | `TestPanelMixin` | 读 |
@@ -350,9 +350,9 @@
 
 ### 拆分高风险点
 
-1. **`self.ctrl` 存在多处重复赋值**
-   - 创建/赋值位置：`main_window`、`WidgetBuilderMixin`、`TestPanelMixin`
-   - 风险：这是当前 UI 继承链里唯一明确的“写入式交叉引用”热点；后续转组合时必须先统一 `ctrl` 注入方式。
+1. **`self.ctrl` 是宿主注入的全局共享入口**
+   - 实际赋值位置：仅 `main_window`
+   - 风险：所有 Mixin 都通过 `self.ctrl` 高频读取控制器能力，这是当前 UI 继承链的最大耦合入口；后续转组合时必须先统一 `ctrl` 注入方式。
 
 2. **`CircuitTabMixin` 依赖 `WidgetBuilderMixin` 的 4 个状态标签**
    - `self.bus_status_lbl`
