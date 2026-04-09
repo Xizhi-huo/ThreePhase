@@ -1,98 +1,125 @@
 ‘’‘
 
-# 任务：Phase 0 收尾 — Mixin 属性交叉引用扫描
+你现在要做的是“阶段进展核查”，不是继续开发，不是继续重构。
 
-## 你的角色
-你是一位资深 Python 桌面端架构师，正在帮我对一个高耦合的 PyQt5 三相电并网仿真教学系统进行系统级重构。
+项目路径：
+C:\Users\AW57P\Documents\ThreePhase_entier
 
-## 背景
-Phase 0（安全网建设）已完成 75%：
-- ✅ ControllerStub 无 UI 替身
-- ✅ PhysicsEngine 快照测试（2 场景 + 2 基线 JSON）
-- ✅ AssessmentService 快照测试（2 场景 + 2 基线 JSON）
-- ✅ `tests/` 目录已提交 git
-- ❌ Mixin 属性交叉引用扫描（`docs/mixin_dependency_map.md`）
+本次核查范围只限于：
+**Phase 0 收尾 — Mixin 属性交叉引用扫描**
 
-本轮闭环 Phase 0 后，项目将正式进入 Phase 1（Controller 瘦身）。
+不要回头检查早期的 C1/H1/H2/H3/H4/H5 修复历史，也不要检查 Phase 1 以后的任务。
 
-## 第一步：必读文件
+## 第一步：先读文件
+请先阅读以下文件：
 
-在做任何事之前，请先阅读以下文件：
+1. MAINTENANCE_CHECKLIST.md
+   - 重点看：
+     - §3 当前总体进度
+     - §4 Phase 0 最后一项
+     - §7 回归清单
+     - §9 第 9 轮记录
+     - §10 下一轮默认起点
+2. ui/main_window.py
+3. ui/panels/control_panel.py
+4. ui/tabs/waveform_tab.py
+5. ui/tabs/circuit_tab.py
+6. ui/tabs/loop_test_tab.py
+7. ui/tabs/pt_voltage_check_tab.py
+8. ui/tabs/pt_phase_check_tab.py
+9. ui/tabs/pt_exam_tab.py
+10. ui/tabs/sync_test_tab.py
+11. ui/test_panel.py
+12. docs/mixin_dependency_map.md
 
-1. `MAINTENANCE_CHECKLIST.md` — 重点看 §4 Phase 0 最后一项、§7 Mixin 迁移规范、§10 下一轮起点
-2. `ui/main_window.py` — PowerSyncUI 的 9-Mixin 继承链入口，理解哪些 Mixin 被组合
-3. 以下 9 个 Mixin 源文件（每个都要读）：
-   - `ui/panels/control_panel.py` — WidgetBuilderMixin
-   - `ui/tabs/waveform_tab.py` — WaveformTabMixin
-   - `ui/tabs/circuit_tab.py` — CircuitTabMixin
-   - `ui/tabs/loop_test_tab.py` — LoopTestTabMixin
-   - `ui/tabs/pt_voltage_check_tab.py` — PtVoltageCheckTabMixin
-   - `ui/tabs/pt_phase_check_tab.py` — PtPhaseCheckTabMixin
-   - `ui/tabs/pt_exam_tab.py` — PtExamTabMixin
-   - `ui/tabs/sync_test_tab.py` — SyncTestTabMixin
-   - `ui/test_panel.py` — TestPanelMixin
+## 核查目标
+请核实当前项目是否已经完成 **Phase 0 的最后一项：Mixin 属性交叉引用扫描**。
 
-## 本轮唯一主攻目标
-**完成 Mixin 属性交叉引用扫描，输出 `docs/mixin_dependency_map.md`，闭环 Phase 0。**
+### A. 文档交付物是否存在
+核查：
+1. 是否存在 `docs/mixin_dependency_map.md`
+2. 该文件是否是新建文档，而不是空文件或占位文件
 
-## 具体交付物
+### B. 依赖图文档内容是否完整
+请核查 `docs/mixin_dependency_map.md` 是否包含以下 4 个部分：
 
-### 交付物 1：`docs/mixin_dependency_map.md`
+1. `1A. 每个 Mixin 创建的 self.xxx 属性清单`
+   - 是否覆盖了 9 个 Mixin
+   - 是否包含宿主 `main_window / PowerSyncUI` 创建的共享属性
+2. `1B. 属性交叉引用矩阵`
+   - 是否列出了“属性名 / 创建者 / 被哪些其他 Mixin 访问 / 访问方式”
+   - 是否把 `self.ctrl` 单独统计，而不是逐条展开调用路径
+   - 是否识别了被 >= 3 个 Mixin 访问的共享热点属性
+3. `1C. Mixin 解耦难度评估`
+   - 是否对每个 Mixin 给出低/中/高难度
+   - 是否给出了推荐的迁移顺序
+4. `1D. 关键风险标注`
+   - 是否明确标出了写入式交叉引用风险
+   - 是否明确标出了 `TestPanelMixin` 与其他 Tab/Mixin 的共享风险
 
-对 PowerSyncUI 继承链中的 9 个 Mixin，进行以下分析并输出为结构化文档：
+### C. 扫描范围是否完整
+请核查依赖图是否真的覆盖了以下 9 个 Mixin，而不是漏掉其中一部分：
 
-#### 1A. 每个 Mixin 创建的 `self.xxx` 属性清单
-- 扫描每个 Mixin 中所有 `self.xxx = ...` 赋值语句
-- 只记录属性名，不需要记录类型或值
-- 按 Mixin 分组列出
+- WidgetBuilderMixin
+- WaveformTabMixin
+- CircuitTabMixin
+- LoopTestTabMixin
+- PtVoltageCheckTabMixin
+- PtPhaseCheckTabMixin
+- PtExamTabMixin
+- SyncTestTabMixin
+- TestPanelMixin
 
-#### 1B. 属性交叉引用矩阵
-- 对每个 Mixin 创建的属性，检查是否被**其他** Mixin 读取或写入
-- 输出一个交叉引用表格，格式如下：
+同时检查是否参考了 `ui/main_window.py` 中的宿主共享属性（如 `self.ctrl`、`self.tab_widget`、`self.ctrl_container`）。
 
-```markdown
-| 属性名 | 创建者 Mixin | 被哪些其他 Mixin 访问 | 访问方式(读/写) |
-|---|---|---|---|
-| self.tab_widget | main_window | WaveformTabMixin, CircuitTabMixin, ... | 读 |
-| self.ctrl | main_window | 全部 Mixin | 读 |
-| ... | ... | ... | ... |
+### D. 静态分析要求是否满足
+请核查当前结果是否符合本轮约束：
+1. 没有修改任何 `.py` 业务逻辑文件
+2. 本轮只新增/修改了文档文件
+3. 这是静态分析结果，而不是运行时代码执行结果
+4. `README.md` 和 `context.md` 不需要在本轮同步更新
+   - 当前规则：每轮只更新 `MAINTENANCE_CHECKLIST.md`，阶段目标实现后再统一更新 README/context
 
+### E. 维护清单状态是否闭环
+请核查 `MAINTENANCE_CHECKLIST.md` 是否已经正确反映本轮完成状态：
 
-重点关注：
+1. §3 当前总体进度是否已经更新为：
+   - `Phase 0 已完成，准备进入 Phase 1`
+2. §4 Phase 0 最后一项：
+   - `Mixin 属性交叉引用扫描` 是否已打勾 `[x]`
+3. §9 是否已新增：
+   - `第 9 轮 (2026-04-09)：Phase 0 收尾（Mixin 属性交叉引用扫描）`
+4. §10 下一轮默认起点是否已更新为：
+   - `Phase 1 — 拆出 FlowModeManager`
+5. “当前未完成但已明确方向”中是否已删除：
+   - `Phase 0 安全网尚未建设`
 
-被 >= 3 个 Mixin 访问的"共享热点属性"
-存在写入的交叉引用（比读取更危险）
-self.ctrl 的直接使用频率（按 Mixin 统计数量）
-1C. Mixin 解耦难度评估
-基于交叉引用数据，为每个 Mixin 评估"独立化难度"（低/中/高）
-难度标准：
-低：只读取 self.ctrl + self.tab_widget，不读写其他 Mixin 的属性
-中：读取 2-3 个其他 Mixin 创建的属性
-高：读写 >= 4 个其他 Mixin 创建的属性，或存在写入式交叉引用
-输出推荐的 Phase 3 迁移顺序（从易到难）
-1D. 关键风险标注
-如果发现任何 Mixin 在暗中修改了其他 Mixin 创建的属性（写入式交叉引用），明确标红为"拆分高风险点"
-如果发现某些属性既被 TestPanelMixin 又被其他 Tab Mixin 使用，也需要标注
-交付物 2：更新 MAINTENANCE_CHECKLIST.md
-§3 当前总体进度：更新为 "Phase 0 已完成，准备进入 Phase 1"
-§4 Phase 0 最后一项 Mixin 扫描打勾 [x]
-§9 新增第 9 轮记录（使用 §11 的模板格式）
-§10 更新下一轮默认起点为 Phase 1 第一项：拆出 FlowModeManager
-"当前未完成但已明确方向"中删除"Phase 0 安全网尚未建设"
-工程约束
-不修改任何现有业务逻辑代码（.py 源文件零改动）
-Mixin 扫描是静态分析，不需要运行代码
-docs/mixin_dependency_map.md 是新建文件，放在项目根目录的 docs/ 下
-扫描要覆盖所有 9 个 Mixin，不能遗漏
-交叉引用表格中，self.ctrl 的访问不需要逐一列出具体调用路径（太多了），只需统计每个 Mixin 的 self.ctrl 引用总数
-除 self.ctrl 之外的属性交叉引用才是重点，需要逐一列出
-完成标准
-docs/mixin_dependency_map.md 存在且包含上述 4 个部分（1A-1D）
-MAINTENANCE_CHECKLIST.md §4 Phase 0 四项全部 [x]
-Phase 0 正式闭环，项目可安全进入 Phase 1
+## 输出要求
+请按以下格式输出：
 
+### 1. 总结
+- Phase 0 最后一项是否已经完成
+- 当前是否可以认定“Phase 0 正式闭环”
+- 还缺什么（如果有）
 
+### 2. 核查表格
+列：
+- 核查项
+- 结论（属实 / 部分属实 / 不属实）
+- 证据文件
+- 备注
 
+### 3. 最终结论
+只回答两句话：
+1. 当前 Phase 0 的真实完成度
+2. 下一步最合理的起点
+
+## 注意事项
+- 不要修改代码
+- 不要修改文档
+- 不要提出新的重构建议
+- 不要回头检查旧的严重/高问题
+- 这次只做“Phase 0 收尾完成进度核查”
 ’‘’
 
 
