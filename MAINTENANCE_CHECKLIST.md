@@ -138,10 +138,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 0 — 安全网建设（尚未开始） |
+| 当前阶段 | Phase 0 — 安全网建设（进行中：快照安全网已完成，Mixin 依赖图未完成） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/test_panel.py`(2417)、`app/main.py`(1340) |
-| 下一轮默认起点 | Phase 0 — 物理引擎快照测试 |
+| 下一轮默认起点 | Phase 0 — Mixin 属性交叉引用扫描 |
 
 ---
 
@@ -151,17 +151,17 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 **目标：** 在不动任何核心逻辑的前提下，建立最小回归保护网。这是后续所有重构的前提。
 
-- [ ] **PhysicsEngine 可脱离 UI 独立实例化**
+- [x] **PhysicsEngine 可脱离 UI 独立实例化**
   - 构造一个不含 UI 的最小 ctrl 替身（只含 `sim_state` + `pt_phase_orders` 等纯数据属性）
   - 验证 `PhysicsEngine(stub).update_physics()` + `build_render_state()` 可以独立运行
   - 如果不行，先修到能独立实例化（这本身就是在解耦）
-- [ ] **PhysicsEngine 快照测试**
+- [x] **PhysicsEngine 快照测试**
   - 创建 `tests/test_physics_snapshot.py`
   - 基线场景 1：正常状态（双机空载）→ `tests/snapshots/physics_normal.json`
   - 基线场景 2：E01 故障注入后 → `tests/snapshots/physics_fault_E01.json`
   - RenderState 序列化为 JSON，float 精度小数点后 4 位
   - 首次运行生成基线，后续比对差异
-- [ ] **AssessmentService 快照测试**
+- [x] **AssessmentService 快照测试**
   - 创建 `tests/test_assessment_snapshot.py`
   - 基线场景 1：正常满分流程 → `tests/snapshots/assessment_normal.json`
   - 基线场景 2：随机故障考核流程 → `tests/snapshots/assessment_fault_random.json`
@@ -463,6 +463,22 @@ class PowerSyncUI(QMainWindow):
 - `services/assessment_service.py` 仍需继续拆成多文件。
 - `ui/test_panel.py` 仍是当前最大风险文件。
 
+### 第 8 轮 (2026-04-09)：Phase 0 安全网建设（快照测试）
+- 本轮唯一主攻目标：为 PhysicsEngine 和 AssessmentService 建立最小回归安全网
+- 实际完成：
+  - 新增 `tests/support/stubs.py`，构造无 UI 的 `ControllerStub`
+  - 新增 `tests/test_physics_snapshot.py`
+  - 新增 `tests/test_assessment_snapshot.py`
+  - 生成 4 份快照基线：`physics_normal.json`、`physics_fault_E01.json`、`assessment_normal.json`、`assessment_fault_random.json`
+- 删除了哪些旧代码：无（本轮只新增测试，不动业务逻辑）
+- 接口变化：无业务接口变化；仅新增测试侧替身与快照序列化工具
+- 耦合度变化：
+  - 已验证 `PhysicsEngine` 可脱离 PyQt5/UI 实例化并运行
+  - 已验证 `AssessmentService.build_result()` 可在最小 ctrl 替身下独立运行
+- 快照测试：PASS（`python -m pytest tests/`）
+- 回归清单：PASS（基于快照与测试入口验证）
+- 下一轮起点：完成 `docs/mixin_dependency_map.md`
+
 ### 早期摘要（第 1 - 4 轮）
 - 已完成：`C1`、`C2（第一步）`、`H1`、`H2`
 - 关键结果：
@@ -499,18 +515,16 @@ class PowerSyncUI(QMainWindow):
 如果后续没有新的明确指令，默认按以下顺序继续：
 
 **Phase 0（最优先，必须先完成）：**
-1. 构造 PhysicsEngine 的无 UI 替身，验证可独立运行
-2. 编写物理引擎快照测试
-3. 编写评分服务快照测试
+1. 输出 `docs/mixin_dependency_map.md`
 
 **Phase 1（安全网就绪后）：**
-4. 拆出 `FlowModeManager`
-5. 拆出 `AssessmentCoordinator`
-6. 拆出 `BlackboxRepairHandler`
+2. 拆出 `FlowModeManager`
+3. 拆出 `AssessmentCoordinator`
+4. 拆出 `BlackboxRepairHandler`
 
 **Phase 2（Controller 瘦身完成后）：**
-7. 定义 `AssessmentContext`，切断评分对 ctrl 的依赖
-8. 按评分域拆分纯函数模块
+5. 定义 `AssessmentContext`，切断评分对 ctrl 的依赖
+6. 按评分域拆分纯函数模块
 
 ---
 

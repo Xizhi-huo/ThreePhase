@@ -22,6 +22,12 @@ pip install PyQt5 matplotlib numpy
 python app/main.py
 ```
 
+**测试**
+
+```bash
+python -m pytest tests/
+```
+
 ---
 
 ## 项目结构
@@ -96,6 +102,18 @@ PhysicsEngine  (4 个 Mixin 组合)
   ├─ ProtectionMixin    — 继电保护 & 断路器联锁
   └─ MeasurementMixin   — PT 二次侧电压 & 万用表读数
 ```
+
+## Phase 0 安全网
+
+- 已新增 `tests/` 回归安全网
+- `PhysicsEngine` 现在可在无 PyQt5/UI 的 `ControllerStub` 下独立运行
+- `AssessmentService.build_result()` 现在可在最小替身控制器下独立运行
+- 当前基线快照：
+  - `tests/snapshots/physics_normal.json`
+  - `tests/snapshots/physics_fault_E01.json`
+  - `tests/snapshots/assessment_normal.json`
+  - `tests/snapshots/assessment_fault_random.json`
+- 下一步默认起点：`docs/mixin_dependency_map.md`
 
 ---
 
