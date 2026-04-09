@@ -1,3 +1,112 @@
+‘’‘
+
+ 任务：Phase 0 收尾 — Mixin 属性交叉引用扫描 + tests 入版本控制
+
+## 你的角色
+你是一位资深 Python 桌面端架构师，正在帮我对一个高耦合的 PyQt5 三相电并网仿真教学系统进行系统级重构。
+
+## 背景
+Phase 0（安全网建设）已完成 75%：
+- ✅ ControllerStub 无 UI 替身
+- ✅ PhysicsEngine 快照测试（2 场景 + 2 基线 JSON）
+- ✅ AssessmentService 快照测试（2 场景 + 2 基线 JSON）
+- ❌ Mixin 属性交叉引用扫描（`docs/mixin_dependency_map.md`）
+- ❌ `tests/` 目录未提交 git（当前为 untracked 状态）
+
+本轮闭环 Phase 0 后，项目将正式进入 Phase 1（Controller 瘦身）。
+
+## 第一步：必读文件
+
+在做任何事之前，请先阅读以下文件：
+
+1. `MAINTENANCE_CHECKLIST.md` — 重点看 §4 Phase 0 最后一项、§7 Mixin 迁移规范、§10 下一轮起点
+2. `ui/main_window.py` — PowerSyncUI 的 9-Mixin 继承链入口，理解哪些 Mixin 被组合
+3. 以下 9 个 Mixin 源文件（每个都要读）：
+   - `ui/panels/control_panel.py` — WidgetBuilderMixin
+   - `ui/tabs/waveform_tab.py` — WaveformTabMixin
+   - `ui/tabs/circuit_tab.py` — CircuitTabMixin
+   - `ui/tabs/loop_test_tab.py` — LoopTestTabMixin
+   - `ui/tabs/pt_voltage_check_tab.py` — PtVoltageCheckTabMixin
+   - `ui/tabs/pt_phase_check_tab.py` — PtPhaseCheckTabMixin
+   - `ui/tabs/pt_exam_tab.py` — PtExamTabMixin
+   - `ui/tabs/sync_test_tab.py` — SyncTestTabMixin
+   - `ui/test_panel.py` — TestPanelMixin
+
+## 本轮唯一主攻目标
+**完成 Mixin 属性交叉引用扫描，输出 `docs/mixin_dependency_map.md`，闭环 Phase 0。**
+
+## 具体交付物
+
+### 交付物 1：`docs/mixin_dependency_map.md`
+
+对 PowerSyncUI 继承链中的 9 个 Mixin，进行以下分析并输出为结构化文档：
+
+#### 1A. 每个 Mixin 创建的 `self.xxx` 属性清单
+- 扫描每个 Mixin 中所有 `self.xxx = ...` 赋值语句
+- 只记录属性名，不需要记录类型或值
+- 按 Mixin 分组列出
+
+#### 1B. 属性交叉引用矩阵
+- 对每个 Mixin 创建的属性，检查是否被**其他** Mixin 读取或写入
+- 输出一个交叉引用表格，格式如下：
+
+```markdown
+| 属性名 | 创建者 Mixin | 被哪些其他 Mixin 访问 | 访问方式(读/写) |
+|---|---|---|---|
+| self.tab_widget | main_window | WaveformTabMixin, CircuitTabMixin, ... | 读 |
+| self.ctrl | main_window | 全部 Mixin | 读 |
+| ... | ... | ... | ... |
+重点关注：
+
+被 >= 3 个 Mixin 访问的"共享热点属性"
+存在写入的交叉引用（比读取更危险）
+self.ctrl 的直接使用频率（按 Mixin 统计数量）
+1C. Mixin 解耦难度评估
+基于交叉引用数据，为每个 Mixin 评估"独立化难度"（低/中/高）
+难度标准：
+低：只读取 self.ctrl + self.tab_widget，不读写其他 Mixin 的属性
+中：读取 2-3 个其他 Mixin 创建的属性
+高：读写 >= 4 个其他 Mixin 创建的属性，或存在写入式交叉引用
+输出推荐的 Phase 3 迁移顺序（从易到难）
+1D. 关键风险标注
+如果发现任何 Mixin 在暗中修改了其他 Mixin 创建的属性（写入式交叉引用），明确标红为"拆分高风险点"
+如果发现某些属性既被 TestPanelMixin 又被其他 Tab Mixin 使用，也需要标注
+交付物 2：将 tests/ 提交到 git
+将 tests/ 目录（不含 __pycache__/ 和 .DS_Store）加入 git 追踪
+提交信息：Phase 0: add snapshot tests for PhysicsEngine and AssessmentService
+如果项目有 .gitignore，确认 __pycache__/ 已在忽略列表中；如果没有 .gitignore，创建一个最小版本
+交付物 3：更新 MAINTENANCE_CHECKLIST.md
+§3 当前总体进度：更新为 "Phase 0 已完成，准备进入 Phase 1"
+§4 Phase 0 最后一项 Mixin 扫描打勾 [x]
+§9 新增第 9 轮记录（使用 §11 的模板格式）
+§10 更新下一轮默认起点为 Phase 1 第一项：拆出 FlowModeManager
+"当前未完成但已明确方向"中删除"Phase 0 安全网尚未建设"
+工程约束
+不修改任何现有业务逻辑代码（.py 源文件零改动）
+Mixin 扫描是静态分析，不需要运行代码
+docs/mixin_dependency_map.md 是新建文件，放在项目根目录的 docs/ 下
+扫描要覆盖所有 9 个 Mixin，不能遗漏
+交叉引用表格中，self.ctrl 的访问不需要逐一列出具体调用路径（太多了），只需统计每个 Mixin 的 self.ctrl 引用总数
+除 self.ctrl 之外的属性交叉引用才是重点，需要逐一列出
+完成标准
+docs/mixin_dependency_map.md 存在且包含上述 4 个部分（1A-1D）
+tests/ 已提交到 git
+MAINTENANCE_CHECKLIST.md §4 Phase 0 四项全部 [x]
+Phase 0 正式闭环，项目可安全进入 Phase 1
+
+
+---
+
+核心思路：
+- **1A/1B 是客观数据**，让 AI 扫描 9 个文件中的 `self.xxx =` 赋值和 `self.xxx` 读取，输出交叉引用矩阵
+- **1C/1D 是判断输出**，基于矩阵数据评估每个 Mixin 的拆分难度，为 Phase 3 的迁移顺序提供依据
+- 同时把之前遗漏的 `tests/` 入 git 也补上，两个遗留问题一轮解决
+
+’‘’
+
+
+
+
 # ThreePhase 项目上下文文档
 
 > 供新对话快速理解项目全貌，可直接作为 Claude 对话开头的参考材料。详细的用户文档见 README.md。
