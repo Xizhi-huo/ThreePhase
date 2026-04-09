@@ -1,6 +1,6 @@
-# 维护与重构清单
+# 维护与重构清单 v2
 
-最后更新：`2026-04-08`
+最后更新：`2026-04-09`
 
 用途：
 - 给人看：明确当前项目的维护边界、阶段目标、已完成进度。
@@ -15,83 +15,122 @@
 - 当前阶段只做两类事：
   - 提高代码可读性
   - 提高代码可靠性
-- 当前阶段重构的终极目的之一，是 `剥离 UI 与业务/物理/评分逻辑`，为未来可能的 `React + Tauri` 或其他 UI 框架替换保留条件。
+- 重构的终极目的：`剥离 UI 与业务/物理/评分逻辑`，使核心引擎可独立测试，UI 可被整体替换。
 
-### 1.2 文件大小标准
-| 等级 | 标准 |
-|---|---|
-| 优秀 | `<= 300` 行 |
-| 可接受 | `301 - 500` 行 |
-| 需要拆分 | `> 500` 行 |
-| 高风险 | `> 800` 行 |
+### 1.2 文件大小参考标准
 
-### 1.3 必须遵守的工程边界
+| 等级 | 标准 | 行动 |
+|---|---|---|
+| 健康 | `<= 500` 行 | 无需操作 |
+| 需要审查 | `501 - 800` 行 | 评估是否存在多职责 |
+| 必须拆分 | `> 800` 行 | 列入本轮或下轮攻坚目标 |
+
+说明：
+- 纯数据声明文件（如 `fault_scenarios.py`、`styles.py`）不适用此标准，除非其中混入了逻辑代码。
+- 行数下降是接口隔离的副产品，不是目标本身。**核心度量标准是"模块间接口是否隔离"。**
+- 大文件基线使用脚本入口：`python scripts/report_large_files.py --top 10`。
+
+### 1.3 工程边界红线
 - 不再往大文件里继续堆新逻辑。
 - 不再新增上帝类。
-- 不再新增巨石函数。
+- 不再新增巨石函数（单函数 > 80 行应审查）。
 - 不再新增 `physics -> ui` 的直接调用。
 - 不再新增 `controller -> 具体 UI 控件` 的直接写入。
 - 不再新增大范围 `try/except Exception` 静默吞异常。
 - 不再新增长期保留的过渡死代码。
 - 每次重构必须同步删除旧实现，不能长期双轨并存。
-- 所有后端计算结果只能写入 `SimulationState / RenderState / AssessmentResult` 这类状态对象。
-- UI 只能读取状态刷新自己，不能反向污染业务状态。
-- Controller 只负责命令下发和编排，禁止新增 `ctrl.xxxWidget.setText()/setValue()` 一类直接控件写入。
+- Controller 只负责命令下发和编排，禁止 `ctrl.xxxWidget.setText()/setValue()` 一类直接控件写入。
 - 重构核心逻辑前，必须先具备最小黑盒回归验证能力；没有验证保护的重构，不进入核心逻辑。
 
-### 1.4 每轮迭代固定动作
-- 至少拆出 `1` 个明确职责。
-- 至少让 `1` 个高风险文件明显变小。
-- 至少删除 `1` 批旧代码、重复代码或兼容残留。
-- 必须同步更新：
-  - `README.md`
-  - `context.md`
-  - 本文件
-- 必须记录：
-  - 本轮完成项
-  - 本轮未完成项
-  - 下一轮起点
+### 1.4 接口隔离原则
+- Service 不再新增对 `self._ctrl` 的穿透式属性访问（如 `self._ctrl.sim_state.gen1.xxx`）。
+- 每个 Service 的公开方法应只接收它真正需要的数据，而非整个 ctrl。
+- 过渡期做法：新增或修改的 Service 方法，优先改为显式参数传入，旧方法暂时保留。
+- 最终目标：Service 的构造函数只接收自己负责的 State 切片 + 有限的回调接口，不再持有 ctrl 引用。
+- 验证方式：新增的 Service 方法中 `self._ctrl` 引用数不增长。
 
-### 1.5 禁止事项
-- 禁止“顺手加功能”。
-- 禁止“只抽函数，不删旧逻辑”。
-- 禁止“因为赶进度继续把逻辑塞回 app/main.py 或 ui/test_panel.py”。
-- 禁止“未记录进度就结束本轮重构”。
+### 1.5 单向数据流规范
+
+严格的数据流方向：
+
+```
+User Action (槽函数)
+    │
+    ▼
+Controller.command_xxx()        ← UI 只调用 Controller 的命令方法
+    │
+    ▼
+Service / PhysicsEngine         ← Controller 委托给 Service 处理
+    │
+    ▼
+State 对象变更                  ← Service 只写入自己负责的 State
+    │
+    ▼
+_tick() → build_render_state()  → RenderState
+    │
+    ▼
+UI.render_visuals(rs)           ← UI 只从 RenderState 读取并刷新
+```
+
+违禁模式（新代码中禁止）：
+- UI 槽函数里直接修改 `sim_state`。
+- Service 里读取其他 Service 的状态。
+- UI 里调用 Service 的内部方法。
+- 任何组件绕过 Controller 直接修改状态。
+
+所有后端计算结果只能写入 `SimulationState / RenderState / AssessmentResult` 这类状态对象。
+UI 只能读取状态刷新自己，不能反向污染业务状态。
+
+### 1.6 每轮迭代固定动作
+- 每轮有且只有一个主攻目标。做深做透，不蜻蜓点水。
+- 新实现落地后，同轮就删旧实现。
+- 每轮结束必须更新本文件（§9 轮次历史 + §10 下一轮起点）。
+- 每轮结束必须通过回归清单（§8）验证。
+
+### 1.7 禁止事项
+- 禁止"顺手加功能"。
+- 禁止"只抽函数，不删旧逻辑"。
+- 禁止"因为赶进度继续把逻辑塞回 `app/main.py` 或 `ui/test_panel.py`"。
+- 禁止"只搬方法，不定义接口边界"。每次拆分的第一步是定义新模块的输入/输出边界，再动手搬代码。
+- 禁止"未记录进度就结束本轮重构"。
 
 ---
 
 ## 2. 当前高风险文件基线
 
-| 文件 | 状态 | 本轮目标 |
+| 文件 | 行数 | 状态 | 核心问题 |
 |---|---:|---|---|
-| `app/main.py` | 高风险 | 逐步降到 `<= 800`，最终 `<= 500` |
-| `ui/test_panel.py` | 高风险 | 逐步拆成多文件，主文件最终 `<= 500` |
-| `ui/styles.py` | 高风险 | 按主题变量 / 组件样式 / 布局样式拆分 |
-| `ui/tabs/circuit_tab.py` | 高风险 | 拆出绘图、状态标注、记录表渲染逻辑 |
-| `services/assessment_service.py` | 需要继续拆 | 先降到 `<= 500`，理想 `<= 300` |
-| `ui/panels/control_panel.py` | 需要拆分 | 拆出构建器、参数行、模式切换逻辑 |
-| `ui/tabs/waveform_tab.py` | 需要拆分 | 拆出摘要卡、图区布局、同期判定面板 |
-| `ui/main_window.py` | 略超标 | 降到 `<= 500` |
-| `services/_physics_measurement.py` | 可接受，持续观察 | 保持 `<= 500`，避免重新膨胀 |
-| `services/pt_exam_service.py` | 可接受，持续观察 | 保持 `<= 500` |
-| `ui/widgets/multimeter_widget.py` | 可接受，持续观察 | 保持 `<= 500` |
-| `services/fault_manager.py` | 正常 | 保持小文件，继续按职责拆 |
-| `services/physics_engine.py` | 正常 | 保持小文件 |
+| `ui/test_panel.py` | 2417 | 必须拆分 | 9 个 Mixin 中最大的，111 处 ctrl 引用 |
+| `app/main.py` | 1340 | 必须拆分 | 上帝类控制器，策略/考核/黑盒/硬件全塞在一起 |
+| `ui/styles.py` | 1007 | 纯数据，暂缓 | 纯静态样式声明，无逻辑耦合，优先级低 |
+| `services/assessment_service.py` | 791 | 必须拆分 | 单体 `build_result()` + 穿透 ctrl 读状态 |
+| `ui/main_window.py` | 528 | 需要审查 | 9-Mixin 继承入口，待迁移为组合式 |
+| `domain/fault_scenarios.py` | 520 | 纯数据，暂缓 | 纯场景定义字典，不含逻辑 |
+| `services/pt_exam_service.py` | 385 | 健康，观察 | 48 处 `self._ctrl` 引用需逐步收口 |
+| `services/_physics_measurement.py` | 372 | 健康，观察 | 保持稳定 |
+| `services/pt_phase_check_service.py` | 345 | 健康，观察 | 37 处 `self._ctrl` 引用需逐步收口 |
 
 说明：
-- 当前最需要治理的不是“所有文件”，而是：
-  - `app/main.py`
-  - `ui/test_panel.py`
-  - `ui/styles.py`
-  - `ui/tabs/circuit_tab.py`
-  - `services/assessment_service.py`
-  - `ui/panels/control_panel.py`
-  - `ui/tabs/waveform_tab.py`
-  - `ui/main_window.py`
-- 具体行数不再手写维护；统一使用脚本入口：
-  - `python scripts/report_large_files.py`
-  - `python scripts/report_large_files.py --top 10`
-- 本清单只记录“重点攻坚对象”和“目标区间”，避免文档与实际代码行数脱节。
+- 核心攻坚对象：`ui/test_panel.py`、`app/main.py`、`services/assessment_service.py`。
+- **耦合度指标比行数更重要**。各文件的 `self._ctrl` / `self.ctrl` 引用数是关键度量。
+
+### 当前耦合度基线（2026-04-09）
+
+| 层 | 文件 | `ctrl` 引用数 |
+|---|---|---:|
+| services | `pt_exam_service.py` | 48 |
+| services | `fault_manager.py` | 39 |
+| services | `pt_phase_check_service.py` | 37 |
+| services | `sync_test_service.py` | 26 |
+| services | `pt_voltage_check_service.py` | 23 |
+| services | `loop_test_service.py` | 20 |
+| services | `assessment_service.py` | 12 |
+| ui | `test_panel.py` | 111 |
+| ui | `pt_exam_tab.py` | 20 |
+| ui | `sync_test_tab.py` | 16 |
+| ui | `loop_test_tab.py` | 14 |
+| ui | `control_panel.py` | 12 |
+| ui | 其余 Tab | 各 5-10 |
 
 ---
 
@@ -99,153 +138,287 @@
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前维护阶段 | `20% - 40%` |
-| 当前主目标 | 收缩控制器，继续拆出独立职责 |
+| 当前阶段 | Phase 0 — 安全网建设（尚未开始） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
-| 当前最大风险文件 | `ui/test_panel.py`、`app/main.py` |
-| 下一轮默认起点 | `AssessmentCoordinator` |
-
-说明：
-- 现在还没有进入“大规模 UI 文件拆分”阶段。
-- 当前仍处在“先收控制器和评分主链”的阶段。
+| 当前最大风险文件 | `ui/test_panel.py`(2417)、`app/main.py`(1340) |
+| 下一轮默认起点 | Phase 0 — 物理引擎快照测试 |
 
 ---
 
-## 4. 20% 迭代清单
+## 4. 重构路线图
 
-### 0% - 20%：止血阶段
-目标：停止继续制造新的屎山。
+### Phase 0: 安全网建设（1-2 轮）
 
-| 任务 | 状态 | 说明 |
-|---|---|---|
-| 冻结新功能开发 | `进行中` | 只允许重构、删除、收口、补验证 |
-| 建立维护边界文件 | `已完成` | 本文件即为统一入口 |
-| 清点高风险文件 | `已完成` | 已记录当前核心文件行数 |
-| 明确后续只做结构治理 | `已完成` | 后续对话以本文件为准 |
+**目标：** 在不动任何核心逻辑的前提下，建立最小回归保护网。这是后续所有重构的前提。
 
-完成标准：
-- 新一轮对话不再默认加功能。
-- 大文件拆分目标已明确。
-- 大文件基线以 `python scripts/report_large_files.py --top 10` 为准。
-
-### 20% - 40%：控制器收缩阶段
-目标：把 `PowerSyncController` 从上帝类收回到编排层。
-
-| 任务 | 状态 | 说明 |
-|---|---|---|
-| 拆出 `FaultManager` | `已完成（第一步）` | 故障注入/修复已迁出 |
-| 拆出 `AssessmentCoordinator` | `未开始` | 负责考核会话生命周期 |
-| 拆出 `UiRequests / UiActions` | `部分完成` | 已收口部分 UI 请求；需继续 |
-| 拆出 `PhaseOrderResolver` | `未开始` | 相序/相别/黑盒顺序解析集中化 |
-| 拆出 `HardwareActions` | `未开始` | 发电机、断路器、即时同期动作独立 |
-| 删除控制器中已迁出的旧方法 | `未开始` | 避免保留多余转发壳层 |
+- [ ] **PhysicsEngine 可脱离 UI 独立实例化**
+  - 构造一个不含 UI 的最小 ctrl 替身（只含 `sim_state` + `pt_phase_orders` 等纯数据属性）
+  - 验证 `PhysicsEngine(stub).update_physics()` + `build_render_state()` 可以独立运行
+  - 如果不行，先修到能独立实例化（这本身就是在解耦）
+- [ ] **PhysicsEngine 快照测试**
+  - 创建 `tests/test_physics_snapshot.py`
+  - 基线场景 1：正常状态（双机空载）→ `tests/snapshots/physics_normal.json`
+  - 基线场景 2：E01 故障注入后 → `tests/snapshots/physics_fault_E01.json`
+  - RenderState 序列化为 JSON，float 精度小数点后 4 位
+  - 首次运行生成基线，后续比对差异
+- [ ] **AssessmentService 快照测试**
+  - 创建 `tests/test_assessment_snapshot.py`
+  - 基线场景 1：正常满分流程 → `tests/snapshots/assessment_normal.json`
+  - 基线场景 2：随机故障考核流程 → `tests/snapshots/assessment_fault_random.json`
+  - 构造固定的 `AssessmentSession`（预填事件流），调用 `build_result(session)` 比对输出
+- [ ] **Mixin 属性交叉引用扫描**
+  - 列出每个 Mixin 创建的 `self.xxx` 属性
+  - 标注哪些属性被其他 Mixin 访问
+  - 输出为 `docs/mixin_dependency_map.md`
+  - 这是 Phase 3 UI 组件化的前置依赖图
 
 完成标准：
-- `app/main.py` 不再承载故障、考核、UI 请求、相序解析四类细节。
-- 验证方式：
-  - `AssessmentCoordinator / PhaseOrderResolver / HardwareActions` 已有独立文件入口
-  - `app/main.py` 中不再新增上述三类实现细节，只保留编排和转发
+- `pytest tests/` 可以跑通，物理和评分快照全部 PASS。
+- PhysicsEngine 可以不依赖 PyQt5 实例化。
+- Mixin 属性依赖图已输出。
 
-### 40% - 60%：评分系统拆分阶段
-目标：让成绩单和评分逻辑可读、可维护。
+### Phase 1: Controller 瘦身 — 接口隔离（3-5 轮）
 
-| 任务 | 状态 | 说明 |
-|---|---|---|
-| 拆 `build_result()` 主体 | `已完成（第一步）` | 已改为“上下文 + helper + 汇总” |
-| 评分事件常量化 | `未开始` | 消除魔法字符串 |
-| 拆出流程纪律评分模块 | `未开始` | A 类评分独立 |
-| 拆出步骤 1-5 评分模块 | `未开始` | B/C/D/E 类评分独立 |
-| 拆出故障定位评分模块 | `未开始` | F 类评分独立 |
-| 拆出黑盒与效率评分模块 | `未开始` | G/H 类评分独立 |
-| 让 `assessment_service.py` 主文件降到 `<= 500` | `未完成` | 当前仍 `791` 行 |
+**目标：** 把 `PowerSyncController` 从上帝类收回到纯编排层。关键不是"搬方法"，而是"定义接口边界"。
 
-完成标准：
-- `build_result()` 只做组装。
-- 每个评分域能单独阅读和修改。
-- 验证方式：
-  - `services/assessment_service.py` 主文件不再直接堆叠 A-H 全部评分细节
-  - 评分事件名统一从常量入口读取
-
-### 60% - 80%：UI 视图与状态解耦阶段
-目标：解决 `ui/test_panel.py` 过度臃肿问题，并让 UI 真正回到“只负责显示和交互”。
-
-| 任务 | 状态 | 说明 |
-|---|---|---|
-| 拆出 `step1_panel.py` | `未开始` | 第一步 UI 与交互逻辑 |
-| 拆出 `step2_panel.py` | `未开始` | 第二步 UI 与交互逻辑 |
-| 拆出 `step3_panel.py` | `未开始` | 第三步 UI 与交互逻辑 |
-| 拆出 `step4_panel.py` | `未开始` | 第四步 UI 与交互逻辑 |
-| 拆出 `step5_panel.py` | `未开始` | 第五步 UI 与交互逻辑 |
-| 拆出 `blackbox_dialogs.py` | `未开始` | 黑盒弹窗逻辑集中 |
-| 拆出 `score_dialogs.py` | `未开始` | 成绩单与结果弹窗集中 |
-| 拆出 `panel_common.py` | `未开始` | 公共按钮、提示、文本、状态助手 |
-| 收口 Mixin 边界，逐步转向组合式装配 | `未开始` | 不再继续新增“宿主对象隐式共享一切状态”的 Mixin |
-| 将步骤业务判断从 UI 中迁回状态/服务层 | `未开始` | UI 只读取状态，不直接承担业务决策 |
-| 建立最小 `ViewModel / State Adapter` 层 | `未开始` | 先做轻量适配层，不强上完整 MVVM |
-| 删除旧的重复流程逻辑 | `未开始` | 不允许新旧逻辑长期并存 |
+- [ ] **拆出 `FlowModeManager`**
+  - 将 `FlowModePolicy` + `FLOW_MODE_POLICIES` 字典 + 30+ 个 `flow_policy_flag` 包装方法移出
+  - 输入接口：`test_flow_mode: str`
+  - 输出接口：`FlowModePolicy` 查询
+  - Controller 持有实例，只转发查询
+- [ ] **拆出 `AssessmentCoordinator`**
+  - 将考核会话生命周期管理（`start/finish/capture_snapshot/submit_guess` 等）移出
+  - 输入接口：`AssessmentSession` + `SimulationState`（只读快照）+ 各步骤 `completed` 状态
+  - 输出接口：`AssessmentResult` + 事件列表
+  - **不允许**持有 ctrl 引用，不允许直接读写其他 Service 的状态
+- [ ] **拆出 `BlackboxRepairHandler`**
+  - 将 `get_blackbox_runtime_state` / `apply_blackbox_repair_attempt` 及相关方法移出
+  - 输入接口：`fault_config` + `blackbox_orders` + `pt_phase_orders`
+  - 输出接口：`BlackboxRepairOutcome`
+  - 修复结果通过返回值传回 Controller，由 Controller 写入状态
+- [ ] **拆出 `PhaseOrderResolver`**
+  - 将 `resolve_pt_node_plot_key` / `get_pt_phase_sequence` / `resolve_loop_node_phase` 移出
+  - 输入接口：`pt_phase_orders` + `blackbox_orders` + `fault_config`（只读）
+  - 输出接口：纯函数返回值
+- [ ] **拆出 `HardwareActions`**
+  - 将发电机启停、断路器合分、即时同期动作移出
+  - 输入接口：`SimulationState`（读写）
+  - 输出接口：状态变更直接写入传入的 State 对象
+- [ ] **删除 Controller 中已迁出的旧方法**
+  - 不保留纯转发壳层（如 `def is_loop_test_complete(self): return self._loop_svc.is_loop_test_complete()`）
+  - UI 直接调用对应 Service 的方法，或通过 Controller 暴露的有限接口
+- [ ] **每步完成后跑快照测试验证**
 
 完成标准：
-- `ui/test_panel.py` 主文件降到 `<= 500`。
-- 每一步逻辑有清晰归属。
-- UI 的输入、显示、状态刷新链条清晰，业务逻辑不再散落在控件槽函数里。
-- 验证方式：
-  - `ui/test_panel.py` 不再同时承载步骤逻辑、黑盒弹窗、成绩单弹窗三大块实现
-  - 新增 UI 逻辑优先落在拆出的子模块中，而不是回写主文件
+- `app/main.py` 降到 ~600 行以下。
+- Controller 中不再堆叠策略查询、考核生命周期、黑盒修复、相序解析四类实现细节。
+- 新拆出的模块之间无直接引用，只通过 Controller 编排。
+- 快照测试全部 PASS。
 
-### 80% - 100%：清理与标准化阶段
-目标：把项目从“能跑”变成“人能维护”。
+### Phase 2: 评分系统模块化（2-3 轮）
 
-| 任务 | 状态 | 说明 |
-|---|---|---|
-| 清理 `ui/main_window.py` 剩余杂项逻辑 | `进行中` | 事故弹窗已收口，仍需继续减重 |
-| 故障系统进一步拆成注入/修复/目标解析 | `未开始` | 当前 `FaultManager` 仍可继续拆 |
-| 收口 service 对 `ctrl` 的直接访问 | `未开始` | 新代码优先改为显式参数 / State 注入，旧代码逐步迁移 |
-| 拆分 `ui/styles.py` 为主题/组件/布局三层 | `未开始` | 主文件只保留 `build_app_stylesheet()` 汇总 |
-| 收口旧键名兼容逻辑 | `未开始` | 清理历史命名债务 |
-| 收口状态真值源 | `未开始` | 明确 `pt_phase_orders` 是否为派生值 |
-| 清理死代码、重复 UI、旧注释块 | `进行中` | 持续执行 |
-| 建立固定回归清单 | `已完成（第一版）` | 后续继续补细化用例 |
-| 补核心黑盒测试/快照测试 | `未开始` | 优先保护评分、物理、仲裁、保护链 |
-| 补核心 domain/services 类型标注与静态检查入口 | `未开始` | 先从 domain / services 开始，不急着覆盖 UI 层 |
+**目标：** `assessment_service.py` 变成可独立测试的评分管道。
+
+- [ ] **定义 `AssessmentContext` dataclass**
+  - 将 `build_result()` 中从 `self._ctrl` 读取的所有数据（loop_records、voltage_records 等）封装为一个 dataclass
+  - Controller 在调用 `build_result()` 之前打包好 Context 传入
+  - `build_result(session, context)` 不再访问 `self._ctrl`
+- [ ] **评分事件常量化**
+  - 消除 `build_result()` 内部的魔法字符串（`"fault_detected"` / `"step_entered"` 等）
+  - 集中到 `domain/assessment.py` 的常量类中
+- [ ] **按评分域拆分为纯函数模块**
+  - `services/scoring/discipline.py` — A 类：流程纪律评分
+  - `services/scoring/step_quality.py` — B/C/D/E 类：步骤 1-4 质量评分
+  - `services/scoring/fault_diagnosis.py` — F 类：故障定位评分
+  - `services/scoring/blackbox_efficiency.py` — G/H 类：黑盒与效率评分
+  - 每个模块暴露纯函数：`score_xxx(context) -> List[AssessmentScoreItem]`
+- [ ] **`assessment_service.py` 主文件降到 <= 500 行**
+  - 主文件只做组装：调用各评分域函数，合并结果
+- [ ] **为每个评分域补充独立快照测试**
 
 完成标准：
+- `build_result()` 只做组装，不含具体评分逻辑。
+- 每个评分域能单独阅读、修改、测试。
+- `assessment_service.py` 中 `self._ctrl` 引用数 = 0。
+- 快照测试全部 PASS。
+
+### Phase 3: UI 组件化 — 告别 Mixin（5-8 轮）
+
+**目标：** `PowerSyncUI` 从 9-Mixin 深度继承变成组合式装配。
+
+#### 迁移策略
+
+每个 Tab 从 Mixin 变为独立的 `QWidget` 子类：
+- 定义该 Tab 需要的最小 Protocol 接口
+- Controller 实现该 Protocol
+- `PowerSyncUI` 实例化独立 Tab，而非继承 Mixin
+- 迁移完成后从继承链中删除对应 Mixin
+
+#### 迁移顺序（从简到繁）
+
+- [ ] **概念验证：`LoopTestTab`（14 处 ctrl 引用）**
+  - 从 `LoopTestTabMixin` 改为独立 `QWidget` 子类
+  - 定义 `LoopTestTabAPI(Protocol)`：`get_loop_test_state()` / `record_loop_measurement()` / `is_loop_test_complete()`
+  - 从 `PowerSyncUI` 继承链中删除 `LoopTestTabMixin`
+  - 验证全流程正常
+- [ ] **`PtVoltageCheckTab`（10 处 ctrl 引用）**
+- [ ] **`PtPhaseCheckTab`（10 处 ctrl 引用）**
+- [ ] **`SyncTestTab`（16 处 ctrl 引用）**
+- [ ] **`PtExamTab`（20 处 ctrl 引用）**
+- [ ] **`WaveformTab`（5 处 ctrl 引用，注意 matplotlib canvas 生命周期）**
+- [ ] **`CircuitTab`（10 处 ctrl 引用）**
+- [ ] **`ControlPanel`（12 处 ctrl 引用）**
+- [ ] **`TestPanel`（111 处 ctrl 引用）— 最后做，最复杂**
+  - 先按步骤拆成 5 个独立 StepWidget
+  - 每个 StepWidget 接收自己步骤的 State + 有限命令回调
+  - TestPanel 本身变成纯容器：装配 5 个 StepWidget + 步骤导航
+
+#### TestPanel 子拆分明细
+
+- [ ] `ui/test_steps/step1_loop.py` — 第一步 UI 与交互
+- [ ] `ui/test_steps/step2_voltage.py` — 第二步 UI 与交互
+- [ ] `ui/test_steps/step3_phase.py` — 第三步 UI 与交互
+- [ ] `ui/test_steps/step4_exam.py` — 第四步 UI 与交互
+- [ ] `ui/test_steps/step5_sync.py` — 第五步 UI 与交互
+- [ ] `ui/test_steps/blackbox_dialogs.py` — 黑盒弹窗逻辑
+- [ ] `ui/test_steps/score_dialogs.py` — 成绩单与结果弹窗
+- [ ] `ui/test_steps/common.py` — 公共按钮、提示、文本助手
+- [ ] 将步骤业务判断从 UI 中迁回状态/服务层，UI 只读取状态
+
+完成标准：
+- `PowerSyncUI` 不再使用 Mixin 多重继承，改为组合式装配。
+- `ui/test_panel.py` 主文件降到 <= 500 行。
+- 每个 Tab 组件是独立的 `QWidget`，可脱离其他 Tab 理解。
+- 新增 UI 逻辑落在拆出的子模块中，不回写主文件。
+
+### Phase 4: 通信标准化与清理（2-3 轮）
+
+**目标：** 建立清晰的 Controller <-> UI 通信管道，完成最终清理。
+
+- [ ] **引入 Qt Signal/Slot 通信**
+  - 定义 `ControllerSignals(QObject)` 信号集
+  - 核心信号：`render_state_updated(RenderState)` / `step_state_changed(int, object)` / `assessment_finished(AssessmentResult)`
+  - 各 Tab 组件连接自己关心的信号，替代轮询式刷新
+- [ ] **收口 Service 对 ctrl 的剩余直接访问**
+  - 逐步将旧 Service 的 `self._ctrl` 改为显式参数/State 注入
+  - 目标：所有 Service 的 `self._ctrl` 引用数归零
+- [ ] **收口旧键名兼容逻辑**
+  - 清理历史命名债务
+- [ ] **收口状态真值源**
+  - 明确 `pt_phase_orders` 是否为派生值
+  - 消除 `blackbox_order` 与 `pt_phase_orders` 之间的隐式同步
+- [ ] **清理死代码、重复 UI、旧注释块**
+- [ ] **补核心 `domain/services` 类型标注**
+  - 从 `domain/` 开始，逐步覆盖 `services/`
+  - 不急着覆盖 UI 层
+
+完成标准：
+- UI 与 Controller 之间通过 Signal/Slot 通信，无直接属性访问。
+- 所有 Service 的 `self._ctrl` 引用数 = 0。
 - 核心文件基本满足 `<= 500` 行。
-- 主体架构边界清晰。
-- 验证方式：
-  - 高风险文件 Top 10 中，核心主干文件尽量压到 `<= 500`
-  - service 新增逻辑不再默认通过 `self._ctrl.xxx` 扩散耦合
+- 主体架构边界清晰，新人可以在 30 分钟内理解系统分层。
 
 ---
 
-## 5. 补充拆分目标表（仅列第 4 节未展开的大文件）
-
-| 源文件 | 目标拆分结果 | 完成标准 |
-|---|---|---|
-| `ui/styles.py` | `styles/theme.py`、`styles/components.py`、`styles/layout.py` | 主文件只保留样式组装入口 |
-| `ui/tabs/circuit_tab.py` | `circuit_plot.py`、`circuit_status_overlay.py`、`circuit_record_tables.py` | 主文件只保留 Tab 装配与渲染入口 |
-| `ui/panels/control_panel.py` | `generator_controls.py`、`system_mode_controls.py`、`panel_builders.py` | 主文件只保留右侧面板装配 |
-| `ui/tabs/waveform_tab.py` | `waveform_cards.py`、`waveform_plots.py`、`sync_panel.py` | 主文件只保留页面布局与刷新入口 |
-
----
-
-## 6. 优先删除清单
+## 5. 优先删除清单
 
 | 优先级 | 删除对象 | 原因 |
 |---|---|---|
-| P1 | 已迁出后仅剩转发意义的旧方法 | 防止控制器继续变回上帝类 |
-| P1 | 旧键名兼容回退逻辑 | 防止参数读取继续双轨并存 |
+| P1 | 已迁出后仅剩转发意义的旧方法 | 防止 Controller 继续变回上帝类 |
 | P1 | 重复评分 helper 或旧评分拼装残留 | 防止评分系统继续臃肿 |
 | P1 | `ui/test_panel.py` 中已被新子模块取代的旧步骤逻辑 | 防止步骤逻辑双轨并存 |
-| P2 | 多余的旧注释块、临时注释代码 | 降低认知噪音 |
-| P2 | 仅为过渡保留的旧 UI 包装方法 | 防止主窗口与测试面板继续变胖 |
-| P3 | 零散样式残留和局部重复提示文本 | 作为后期清理项 |
+| P2 | 旧键名兼容回退逻辑 | 防止参数读取双轨并存 |
+| P2 | 仅为过渡保留的旧 UI 包装方法 | 防止主窗口继续变胖 |
 
-规则：
-- 新实现落地后，同轮就删旧实现。
+规则：新实现落地后，同轮就删旧实现。
 
 ---
 
-## 7. 固定回归清单
+## 6. 核心引擎快照测试规范
+
+### 6.1 测试目录结构
+
+```
+tests/
+├── snapshots/
+│   ├── physics_normal.json
+│   ├── physics_fault_E01.json
+│   ├── assessment_normal.json
+│   └── assessment_fault_random.json
+├── test_physics_snapshot.py
+└── test_assessment_snapshot.py
+```
+
+### 6.2 物理引擎快照流程
+1. 构造最小 ctrl 替身（只含 `sim_state` + `pt_phase_orders` 等纯数据属性，不含 UI）。
+2. 调用 `PhysicsEngine(stub).update_physics()` + `build_render_state()`。
+3. 将 `RenderState` 序列化为 JSON（float 精度到小数点后 4 位）。
+4. 首次运行生成基线文件，后续运行比对差异。
+
+### 6.3 评分快照流程
+1. 构造固定的 `AssessmentSession`，预填确定性事件流。
+2. 调用 `AssessmentService.build_result(session)`。
+3. 将 `AssessmentResult` 序列化比对。
+
+### 6.4 何时必须跑
+- 任何修改 `services/` 或 `domain/` 下文件的轮次。
+- 快照不通过 = 要么是 Bug，要么需要更新基线并说明原因。
+- 没有通过快照测试，不算完成本轮重构。
+
+---
+
+## 7. Mixin → 组合式组件 迁移规范
+
+### 7.1 最终目标
+`PowerSyncUI` 不再使用 Mixin 多重继承，改为组合式装配。
+
+### 7.2 迁移模式
+
+每个 Tab 从 Mixin 变为独立的 `QWidget` 子类：
+
+```python
+# 旧模式（Mixin，所有 self.xxx 共享命名空间）
+class LoopTestTabMixin:
+    def _build_loop_test_tab(self):
+        self.loop_xxx = ...        # 污染宿主命名空间
+        self.ctrl.xxx()            # 穿透式访问
+
+# 新模式（独立 QWidget，隔离命名空间）
+class LoopTestTab(QWidget):
+    def __init__(self, api: LoopTestTabAPI):
+        self._api = api            # 只接收最小接口
+        self._loop_xxx = ...       # 属性自己持有
+```
+
+### 7.3 PowerSyncUI 最终形态
+
+```python
+class PowerSyncUI(QMainWindow):
+    def __init__(self, ctrl):
+        # ...
+        self._waveform_tab = WaveformTab(ctrl)
+        self._circuit_tab = CircuitTab(ctrl)
+        self._loop_test_tab = LoopTestTab(ctrl)
+        # ... 其余 Tab
+        self.tab_widget.addTab(self._waveform_tab, "波形/相量")
+        self.tab_widget.addTab(self._circuit_tab, "母排拓扑")
+        # ...
+
+    def render_visuals(self, rs: RenderState):
+        self._waveform_tab.update_from(rs)
+        self._circuit_tab.update_from(rs)
+        # ...
+```
+
+### 7.4 过渡期规则
+- 新增的 Tab 组件必须用独立 `QWidget` 类实现。
+- 旧 Mixin 暂时保留，按 Phase 3 顺序逐个迁移。
+- 每迁移完一个 Mixin，从继承链中删除。
+- 不允许新增"宿主对象隐式共享一切状态"的 Mixin。
+
+---
+
+## 8. 固定回归清单
 
 每轮重构后，至少人工验证以下项目：
 
@@ -259,21 +432,19 @@
 | 事故弹窗流程 | `E01/E02/E03` 在预期触发点弹出；点击修复后可继续流程 |
 | 同期与波形页 | UI 能正常刷新，不出现明显回归；无参考源时 `Δf/ΔV/Δθ` 显示 `--` |
 
-说明：
-- 没有完成上述回归，不算完成本轮重构。
+说明：没有完成上述回归，不算完成本轮重构。
 
-### 7.1 核心逻辑测试原则
+### 8.1 核心逻辑测试原则
 - 重构 `Assessment / Physics / Arbitration / Protection / Fault` 相关核心逻辑前，必须先补最小黑盒测试。
 - 黑盒测试优先级：
   1. `输入事件流 -> AssessmentResult`
   2. `给定 SimulationState -> 仲裁/保护输出`
   3. `故障注入 -> 修复 -> 状态恢复`
-- 如果短期不写完整自动化测试，至少先做“固定输入 + 固定输出快照”。
 - 没有测试保护，不进入大规模核心逻辑重构。
 
 ---
 
-## 8. 当前已完成进度
+## 9. 已完成进度与轮次历史
 
 ### 已完成
 - `C1`：物理层不再直接弹事故对话框，改为帧末统一消费。
@@ -285,15 +456,12 @@
 - `H5`：死母线倒计时已改为使用真实 `frame_dt`，不再写死 `0.033`。
 
 ### 当前未完成但已明确方向
+- Phase 0 安全网尚未建设。
 - `AssessmentCoordinator` 尚未拆出。
 - `PhaseOrderResolver` 尚未拆出。
 - `HardwareActions` 尚未拆出。
 - `services/assessment_service.py` 仍需继续拆成多文件。
 - `ui/test_panel.py` 仍是当前最大风险文件。
-
----
-
-## 9. 真实轮次历史
 
 ### 早期摘要（第 1 - 4 轮）
 - 已完成：`C1`、`C2（第一步）`、`H1`、`H2`
@@ -322,7 +490,7 @@
 - 实际完成：`H5`
 - 删除了哪些旧代码：移除死母线逻辑里的固定帧时间假设
 - 当前阻塞：主文件体积依旧过大
-- 下一轮起点：继续 `AssessmentCoordinator`
+- 下一轮起点：Phase 0 安全网建设
 
 ---
 
@@ -330,30 +498,35 @@
 
 如果后续没有新的明确指令，默认按以下顺序继续：
 
-1. `app/main.py`
-   - 拆出 `AssessmentCoordinator`
-2. `app/main.py`
-   - 拆出 `PhaseOrderResolver`
-3. `services/assessment_service.py`
-   - 评分事件常量化
-4. `services/assessment_service.py`
-   - 按评分域拆文件
-5. `ui/test_panel.py`
-   - 先拆 `blackbox_dialogs.py`
+**Phase 0（最优先，必须先完成）：**
+1. 构造 PhysicsEngine 的无 UI 替身，验证可独立运行
+2. 编写物理引擎快照测试
+3. 编写评分服务快照测试
+
+**Phase 1（安全网就绪后）：**
+4. 拆出 `FlowModeManager`
+5. 拆出 `AssessmentCoordinator`
+6. 拆出 `BlackboxRepairHandler`
+
+**Phase 2（Controller 瘦身完成后）：**
+7. 定义 `AssessmentContext`，切断评分对 ctrl 的依赖
+8. 按评分域拆分纯函数模块
 
 ---
 
 ## 11. 每轮更新模板
 
-后续每一轮重构结束后，必须更新本节：
+后续每一轮重构结束后，必须更新 §9 的轮次历史：
 
 ```text
-### 轮次：YYYY-MM-DD / 第 N 轮
-- 本轮目标：
+### 第 N 轮 (YYYY-MM-DD)：[主攻目标名]
+- 本轮唯一主攻目标：
 - 实际完成：
 - 删除了哪些旧代码：
-- 哪个文件行数下降了：
-- 当前阻塞：
+- 接口变化：（新模块的输入/输出边界是什么）
+- 耦合度变化：（哪个文件的 ctrl 引用数下降了多少）
+- 快照测试：PASS / FAIL（失败原因）
+- 回归清单：PASS / FAIL
 - 下一轮起点：
 ```
 
@@ -362,12 +535,10 @@
 ## 12. 本文件使用规则
 
 - 新对话开始时，先读取本文件。
-- 如需刷新大文件基线，先运行：
-  - `python scripts/report_large_files.py`
+- 如需刷新大文件基线，先运行 `python scripts/report_large_files.py`。
 - 先看：
-  - `第 2 节 当前高风险文件基线`
-  - `第 3 节 当前总体进度`
-  - `第 8 节 当前已完成进度`
-  - `第 10 节 下一轮默认起点`
-- 未经确认，不得跳过当前迭代阶段直接做大范围重构。
+  - §3 当前总体进度
+  - §9 已完成进度
+  - §10 下一轮默认起点
+- 未经确认，不得跳过当前 Phase 直接做后续 Phase 的大范围重构。
 - 每次完成后，本文件优先级高于临时对话记忆。
