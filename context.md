@@ -1,3 +1,73 @@
+‘’‘
+
+# 任务：Phase 0 — 安全网建设（第 8 轮）
+
+## 你的角色
+你是一位资深 Python 桌面端架构师，正在帮我对一个高耦合的 PyQt5 三相电并网仿真教学系统进行系统级重构。
+
+## 第一步：必读文件
+在做任何事之前，请先按顺序阅读以下文件，建立对项目的完整理解：
+
+1. `MAINTENANCE_CHECKLIST.md` — 维护清单（这是你的行动纲领，重点看 §3 当前进度、§4 Phase 0 任务列表、§6 快照测试规范、§10 下一轮起点）
+2. `app/main.py` — 控制器层（重点理解 `PowerSyncController` 的 `__init__` 和 `_tick` 方法，以及它如何实例化 PhysicsEngine 和各 Service）
+3. `services/physics_engine.py` — 物理引擎（理解它对 ctrl 的依赖面）
+4. `services/_physics_core.py` — 物理核心计算
+5. `services/_physics_measurement.py` — 物理测量
+6. `services/_physics_arbitration.py` — 仲裁逻辑
+7. `services/_physics_protection.py` — 保护逻辑
+8. `adapters/render_state.py` — RenderState 定义
+9. `domain/models.py` — SimulationState / GeneratorState / FaultConfig 定义
+10. `domain/test_states.py` — 各步骤测试状态 dataclass
+11. `domain/assessment.py` — AssessmentSession / AssessmentResult 定义
+12. `services/assessment_service.py` — 评分服务（理解 `build_result()` 对 ctrl 的依赖面）
+
+## 本轮唯一主攻目标
+**构建最小回归安全网：让 PhysicsEngine 和 AssessmentService 可以脱离 PyQt5/UI 独立实例化并运行快照测试。**
+
+这是后续所有重构的前提。本轮不动任何现有业务逻辑，只建测试。
+
+## 具体交付物
+
+### 交付物 1：PhysicsEngine 无 UI 替身
+- 分析 `PhysicsEngine.__init__(self, ctrl)` 中实际访问了 ctrl 的哪些属性和方法。
+- 构造一个最小的 `ControllerStub` 类（纯 Python dataclass 或普通类），只包含 PhysicsEngine 真正需要的属性（如 `sim_state`、`pt_phase_orders`、`g1_blackbox_order` 等），不依赖 PyQt5。
+- 验证 `PhysicsEngine(stub).update_physics()` + `build_render_state()` 可以独立运行，不报错。
+- 如果发现某些依赖无法用替身满足，记录下来并提出最小改动方案（改 PhysicsEngine 的接口，而非在替身里模拟整个 Controller）。
+
+### 交付物 2：物理引擎快照测试
+- 创建 `tests/test_physics_snapshot.py`
+- 创建 `tests/snapshots/` 目录
+- 基线场景 1：正常状态（双机空载，标准初始参数）→ 生成 `tests/snapshots/physics_normal.json`
+- 基线场景 2：E01 故障注入后 → 生成 `tests/snapshots/physics_fault_E01.json`
+- 使用确定性初始参数（不要用 random），确保快照可复现。
+- RenderState 序列化为 JSON，float 精度到小数点后 4 位。
+- 测试逻辑：首次运行生成基线文件（如果不存在），后续运行比对差异。
+
+### 交付物 3：评分服务快照测试
+- 分析 `AssessmentService.build_result()` 中实际访问了 `self._ctrl` 的哪些属性。
+- 扩展 `ControllerStub`（或创建新的替身）以满足 AssessmentService 的需要。
+- 创建 `tests/test_assessment_snapshot.py`
+- 基线场景 1：正常满分流程（构造预填事件流的 AssessmentSession）→ `tests/snapshots/assessment_normal.json`
+- 基线场景 2：随机故障考核流程 → `tests/snapshots/assessment_fault_random.json`
+
+## 工程约束
+- **不修改任何现有业务逻辑代码**。如果需要微调接口以支持测试，请先说明改动范围并征求我的确认。
+- 测试用 `pytest` 框架。
+- 不要引入新的第三方依赖（标准库 + pytest 足够）。
+- ControllerStub 使用确定性参数（固定的 freq/amp/phase_deg），不用 random。
+- 先完成交付物 1（验证可行性），再做交付物 2 和 3。如果交付物 1 遇到阻塞，暂停并向我报告。
+
+## 完成后
+- 确保 `pytest tests/` 可以跑通。
+- 更新 `MAINTENANCE_CHECKLIST.md`：
+  - §3 当前总体进度
+  - §9 新增第 8 轮记录（使用 §11 的模板）
+  - §10 更新下一轮起点
+  - Phase 0 中完成的任务打勾
+
+
+’‘’
+
 # ThreePhase 项目上下文文档
 
 > 供新对话快速理解项目全貌，可直接作为 Claude 对话开头的参考材料。详细的用户文档见 README.md。
