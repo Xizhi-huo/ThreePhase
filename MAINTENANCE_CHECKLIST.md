@@ -66,8 +66,15 @@
 |---|---:|---|---|
 | `app/main.py` | 高风险 | 逐步降到 `<= 800`，最终 `<= 500` |
 | `ui/test_panel.py` | 高风险 | 逐步拆成多文件，主文件最终 `<= 500` |
+| `ui/styles.py` | 高风险 | 按主题变量 / 组件样式 / 布局样式拆分 |
+| `ui/tabs/circuit_tab.py` | 高风险 | 拆出绘图、状态标注、记录表渲染逻辑 |
 | `services/assessment_service.py` | 需要继续拆 | 先降到 `<= 500`，理想 `<= 300` |
+| `ui/panels/control_panel.py` | 需要拆分 | 拆出构建器、参数行、模式切换逻辑 |
+| `ui/tabs/waveform_tab.py` | 需要拆分 | 拆出摘要卡、图区布局、同期判定面板 |
 | `ui/main_window.py` | 略超标 | 降到 `<= 500` |
+| `services/_physics_measurement.py` | 可接受，持续观察 | 保持 `<= 500`，避免重新膨胀 |
+| `services/pt_exam_service.py` | 可接受，持续观察 | 保持 `<= 500` |
+| `ui/widgets/multimeter_widget.py` | 可接受，持续观察 | 保持 `<= 500` |
 | `services/fault_manager.py` | 正常 | 保持小文件，继续按职责拆 |
 | `services/physics_engine.py` | 正常 | 保持小文件 |
 
@@ -75,7 +82,11 @@
 - 当前最需要治理的不是“所有文件”，而是：
   - `app/main.py`
   - `ui/test_panel.py`
+  - `ui/styles.py`
+  - `ui/tabs/circuit_tab.py`
   - `services/assessment_service.py`
+  - `ui/panels/control_panel.py`
+  - `ui/tabs/waveform_tab.py`
   - `ui/main_window.py`
 - 具体行数不再手写维护；统一使用脚本入口：
   - `python scripts/report_large_files.py`
@@ -115,6 +126,7 @@
 完成标准：
 - 新一轮对话不再默认加功能。
 - 大文件拆分目标已明确。
+- 大文件基线以 `python scripts/report_large_files.py --top 10` 为准。
 
 ### 20% - 40%：控制器收缩阶段
 目标：把 `PowerSyncController` 从上帝类收回到编排层。
@@ -130,6 +142,9 @@
 
 完成标准：
 - `app/main.py` 不再承载故障、考核、UI 请求、相序解析四类细节。
+- 验证方式：
+  - `AssessmentCoordinator / PhaseOrderResolver / HardwareActions` 已有独立文件入口
+  - `app/main.py` 中不再新增上述三类实现细节，只保留编排和转发
 
 ### 40% - 60%：评分系统拆分阶段
 目标：让成绩单和评分逻辑可读、可维护。
@@ -147,6 +162,9 @@
 完成标准：
 - `build_result()` 只做组装。
 - 每个评分域能单独阅读和修改。
+- 验证方式：
+  - `services/assessment_service.py` 主文件不再直接堆叠 A-H 全部评分细节
+  - 评分事件名统一从常量入口读取
 
 ### 60% - 80%：UI 视图与状态解耦阶段
 目标：解决 `ui/test_panel.py` 过度臃肿问题，并让 UI 真正回到“只负责显示和交互”。
@@ -161,6 +179,7 @@
 | 拆出 `blackbox_dialogs.py` | `未开始` | 黑盒弹窗逻辑集中 |
 | 拆出 `score_dialogs.py` | `未开始` | 成绩单与结果弹窗集中 |
 | 拆出 `panel_common.py` | `未开始` | 公共按钮、提示、文本、状态助手 |
+| 收口 Mixin 边界，逐步转向组合式装配 | `未开始` | 不再继续新增“宿主对象隐式共享一切状态”的 Mixin |
 | 将步骤业务判断从 UI 中迁回状态/服务层 | `未开始` | UI 只读取状态，不直接承担业务决策 |
 | 建立最小 `ViewModel / State Adapter` 层 | `未开始` | 先做轻量适配层，不强上完整 MVVM |
 | 删除旧的重复流程逻辑 | `未开始` | 不允许新旧逻辑长期并存 |
@@ -169,6 +188,9 @@
 - `ui/test_panel.py` 主文件降到 `<= 500`。
 - 每一步逻辑有清晰归属。
 - UI 的输入、显示、状态刷新链条清晰，业务逻辑不再散落在控件槽函数里。
+- 验证方式：
+  - `ui/test_panel.py` 不再同时承载步骤逻辑、黑盒弹窗、成绩单弹窗三大块实现
+  - 新增 UI 逻辑优先落在拆出的子模块中，而不是回写主文件
 
 ### 80% - 100%：清理与标准化阶段
 目标：把项目从“能跑”变成“人能维护”。
@@ -177,27 +199,32 @@
 |---|---|---|
 | 清理 `ui/main_window.py` 剩余杂项逻辑 | `进行中` | 事故弹窗已收口，仍需继续减重 |
 | 故障系统进一步拆成注入/修复/目标解析 | `未开始` | 当前 `FaultManager` 仍可继续拆 |
+| 收口 service 对 `ctrl` 的直接访问 | `未开始` | 新代码优先改为显式参数 / State 注入，旧代码逐步迁移 |
+| 拆分 `ui/styles.py` 为主题/组件/布局三层 | `未开始` | 主文件只保留 `build_app_stylesheet()` 汇总 |
 | 收口旧键名兼容逻辑 | `未开始` | 清理历史命名债务 |
 | 收口状态真值源 | `未开始` | 明确 `pt_phase_orders` 是否为派生值 |
 | 清理死代码、重复 UI、旧注释块 | `进行中` | 持续执行 |
 | 建立固定回归清单 | `已完成（第一版）` | 后续继续补细化用例 |
 | 补核心黑盒测试/快照测试 | `未开始` | 优先保护评分、物理、仲裁、保护链 |
+| 补核心 domain/services 类型标注与静态检查入口 | `未开始` | 先从 domain / services 开始，不急着覆盖 UI 层 |
 
 完成标准：
 - 核心文件基本满足 `<= 500` 行。
 - 主体架构边界清晰。
+- 验证方式：
+  - 高风险文件 Top 10 中，核心主干文件尽量压到 `<= 500`
+  - service 新增逻辑不再默认通过 `self._ctrl.xxx` 扩散耦合
 
 ---
 
-## 5. 文件拆分目标表
+## 5. 补充拆分目标表（仅列第 4 节未展开的大文件）
 
 | 源文件 | 目标拆分结果 | 完成标准 |
 |---|---|---|
-| `app/main.py` | `assessment_coordinator.py`、`ui_requests.py`、`phase_order_resolver.py`、`hardware_actions.py` | `app/main.py` 只保留编排层，最终 `<= 500` |
-| `services/assessment_service.py` | `flow_discipline_score.py`、`loop_test_score.py`、`pt_voltage_score.py`、`pt_phase_score.py`、`pt_exam_score.py`、`fault_diagnosis_score.py`、`blackbox_score.py`、`efficiency_score.py` | 主文件只做汇总，最终 `<= 300` |
-| `services/fault_manager.py` | `fault_injector.py`、`fault_repairer.py`、`fault_target_resolver.py` | 注入、修复、目标判断彻底分开 |
-| `ui/test_panel.py` | `step1_panel.py`、`step2_panel.py`、`step3_panel.py`、`step4_panel.py`、`step5_panel.py`、`blackbox_dialogs.py`、`score_dialogs.py`、`panel_common.py`、`view_state_adapter.py` | 主文件最终 `<= 500`，理想 `<= 300` |
-| `ui/main_window.py` | 保留主框架，移出非顶层细节逻辑 | 主文件 `<= 300`，只保留主窗口装配和入口 |
+| `ui/styles.py` | `styles/theme.py`、`styles/components.py`、`styles/layout.py` | 主文件只保留样式组装入口 |
+| `ui/tabs/circuit_tab.py` | `circuit_plot.py`、`circuit_status_overlay.py`、`circuit_record_tables.py` | 主文件只保留 Tab 装配与渲染入口 |
+| `ui/panels/control_panel.py` | `generator_controls.py`、`system_mode_controls.py`、`panel_builders.py` | 主文件只保留右侧面板装配 |
+| `ui/tabs/waveform_tab.py` | `waveform_cards.py`、`waveform_plots.py`、`sync_panel.py` | 主文件只保留页面布局与刷新入口 |
 
 ---
 
@@ -215,7 +242,6 @@
 
 规则：
 - 新实现落地后，同轮就删旧实现。
-- 不允许把“以后再删”作为长期状态。
 
 ---
 
@@ -225,13 +251,13 @@
 
 | 回归项 | 必查内容 |
 |---|---|
-| 正常场景全流程 | 五步流程可完成，结果正确 |
-| 指定故障流程 | 指定故障注入、检测、修复、成绩单正常 |
-| 随机故障考核流程 | 随机场景判定、第四步前后门禁、成绩单正常 |
-| 黑盒修复流程 | 黑盒打开、保存接线、复测、修复闭环正常 |
-| 成绩单流程 | `score_items / penalties / metrics / summary` 正常显示 |
-| 事故弹窗流程 | `E01/E02/E03` 弹窗触发时机、修复入口正常 |
-| 同期与波形页 | UI 能正常刷新，不出现明显回归 |
+| 正常场景全流程 | 五步流程可完成；最终成绩单 `total_score >= 80`；`veto_reason` 为空 |
+| 指定故障流程 | 指定故障注入、检测、修复、成绩单正常；修复后相关故障状态已清除 |
+| 随机故障考核流程 | 随机场景判定、第四步前后门禁、成绩单正常；场景判错时额外扣 `10` 分 |
+| 黑盒修复流程 | 黑盒打开、保存接线、复测、修复闭环正常；考核模式不直接泄露修复结果 |
+| 成绩单流程 | `score_items / penalties / metrics / summary` 正常显示；总分与扣分说明一致 |
+| 事故弹窗流程 | `E01/E02/E03` 在预期触发点弹出；点击修复后可继续流程 |
+| 同期与波形页 | UI 能正常刷新，不出现明显回归；无参考源时 `Δf/ΔV/Δθ` 显示 `--` |
 
 说明：
 - 没有完成上述回归，不算完成本轮重构。
@@ -269,59 +295,32 @@
 
 ## 9. 真实轮次历史
 
-### 第 1 轮：严重/高问题第一批修复
-- 本轮目标：切断 `physics -> ui` 事故弹窗直连。
-- 实际完成：`C1`
-- 删除了哪些旧代码：无
-- 哪个文件行数下降了：无显著变化
-- 当前阻塞：控制器仍过大
-- 下一轮起点：拆出 `FaultManager`
-
-### 第 2 轮：控制器第一阶段收缩
-- 本轮目标：从控制器中拆出故障管理职责。
-- 实际完成：`C2（第一步）`
-- 删除了哪些旧代码：控制器中故障实现改为转发
-- 哪个文件行数下降了：`app/main.py` 职责下降，但行数未显著下降
-- 当前阻塞：控制器仍未拆出考核、相序、硬件动作
-- 下一轮起点：修 `_tick()` 静默失败
-
-### 第 3 轮：主循环可靠性修复
-- 本轮目标：修复 `_tick()` 静默失败。
-- 实际完成：`H1`
-- 删除了哪些旧代码：无
-- 哪个文件行数下降了：无
-- 当前阻塞：事故弹窗重复代码仍在
-- 下一轮起点：收口事故对话框
-
-### 第 4 轮：事故弹窗收口
-- 本轮目标：收口 `E01/E02/E03` 事故对话框。
-- 实际完成：`H2`
-- 删除了哪些旧代码：三段 `_legacy` 事故对话框实现
-- 哪个文件行数下降了：`ui/main_window.py`
-- 当前阻塞：控制器仍直接触 UI 组件
-- 下一轮起点：修 `H3`
+### 早期摘要（第 1 - 4 轮）
+- 已完成：`C1`、`C2（第一步）`、`H1`、`H2`
+- 关键结果：
+  - 切断 `physics -> ui` 事故弹窗直连
+  - 拆出 `FaultManager`
+  - `_tick()` 拆成物理 / 渲染两个异常边界
+  - `E01/E02/E03` 事故弹窗收口为统一入口，并删除 `_legacy` 死代码
 
 ### 第 5 轮：控制器与 UI 解耦
-- 本轮目标：去掉控制器对具体 UI 控件的直接写入。
+- 本轮目标：去掉控制器对具体 UI 控件的直接写入
 - 实际完成：`H3`
 - 删除了哪些旧代码：E04 中对 PT3 比率控件的直接写入
-- 哪个文件行数下降了：无显著变化
 - 当前阻塞：评分主函数仍过长
 - 下一轮起点：修 `H4`
 
 ### 第 6 轮：评分主函数第一阶段拆分
-- 本轮目标：拆 `build_result()` 巨石函数。
+- 本轮目标：拆 `build_result()` 巨石函数
 - 实际完成：`H4（第一步）`
 - 删除了哪些旧代码：无功能删除，完成 helper 化收口
-- 哪个文件行数下降了：主函数变短，但文件总行数仍高
 - 当前阻塞：评分系统仍未按文件拆开
 - 下一轮起点：修 `H5`
 
 ### 第 7 轮：仲裁时间步长修复
-- 本轮目标：去掉死母线倒计时中的固定 `0.033`。
+- 本轮目标：去掉死母线倒计时中的固定 `0.033`
 - 实际完成：`H5`
 - 删除了哪些旧代码：移除死母线逻辑里的固定帧时间假设
-- 哪个文件行数下降了：无
 - 当前阻塞：主文件体积依旧过大
 - 下一轮起点：继续 `AssessmentCoordinator`
 
