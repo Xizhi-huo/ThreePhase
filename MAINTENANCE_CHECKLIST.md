@@ -60,15 +60,17 @@
 ### 交付物 1：新建 `services/flow_mode_manager.py`
 
 python
-# 最终文件结构应该是：
-# - FlowModePolicy dataclass
-# - FLOW_MODE_POLICIES 字典
-# - FlowModeManager 类
-#     - __init__(self)：内部持有 test_flow_mode: str = 'teaching'
-#     - flow_policy() -> FlowModePolicy
-#     - flow_policy_flag(name: str) -> bool
-#     - is_teaching_mode() / is_engineering_mode() / is_assessment_mode()
-#     - 其余 15 个策略查询方法
+最终文件结构应该是：
+ - FlowModePolicy dataclass
+ - FLOW_MODE_POLICIES 字典
+ - FlowModeManager 类
+     - __init__(self)：内部持有 test_flow_mode: str = 'teaching'
+     - flow_policy() -> FlowModePolicy
+     - flow_policy_flag(name: str) -> bool
+     - is_teaching_mode() / is_engineering_mode() / is_assessment_mode()
+     - 其余 15 个策略查询方法
+
+
 接口设计要求：
 
 输入：FlowModeManager 只依赖一个字符串 test_flow_mode，不持有 ctrl 引用
