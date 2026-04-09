@@ -138,10 +138,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 0 — 安全网建设（进行中：快照安全网已完成，Mixin 依赖图未完成） |
+| 当前阶段 | Phase 0 — 安全网建设（已完成，准备进入 Phase 1） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/test_panel.py`(2417)、`app/main.py`(1340) |
-| 下一轮默认起点 | Phase 0 — Mixin 属性交叉引用扫描 |
+| 下一轮默认起点 | Phase 1 — 拆出 `FlowModeManager` |
 
 ---
 
@@ -166,7 +166,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
   - 基线场景 1：正常满分流程 → `tests/snapshots/assessment_normal.json`
   - 基线场景 2：随机故障考核流程 → `tests/snapshots/assessment_fault_random.json`
   - 构造固定的 `AssessmentSession`（预填事件流），调用 `build_result(session)` 比对输出
-- [ ] **Mixin 属性交叉引用扫描**
+- [x] **Mixin 属性交叉引用扫描**
   - 列出每个 Mixin 创建的 `self.xxx` 属性
   - 标注哪些属性被其他 Mixin 访问
   - 输出为 `docs/mixin_dependency_map.md`
@@ -456,12 +456,26 @@ class PowerSyncUI(QMainWindow):
 - `H5`：死母线倒计时已改为使用真实 `frame_dt`，不再写死 `0.033`。
 
 ### 当前未完成但已明确方向
-- Phase 0 安全网尚未建设。
 - `AssessmentCoordinator` 尚未拆出。
 - `PhaseOrderResolver` 尚未拆出。
 - `HardwareActions` 尚未拆出。
 - `services/assessment_service.py` 仍需继续拆成多文件。
 - `ui/test_panel.py` 仍是当前最大风险文件。
+
+### 第 9 轮 (2026-04-09)：Phase 0 收尾（Mixin 属性交叉引用扫描）
+- 本轮唯一主攻目标：输出 `docs/mixin_dependency_map.md`，闭环 Phase 0
+- 实际完成：
+  - 新增 `docs/mixin_dependency_map.md`
+  - 扫描 `main_window + 9 个 Mixin` 的显式 `self.xxx` 创建属性
+  - 输出共享属性交叉引用表
+  - 统计各 Mixin 的 `self.ctrl` 使用次数
+  - 给出 Phase 3 的迁移顺序与拆分风险点
+- 删除了哪些旧代码：无（本轮只做静态分析文档）
+- 接口变化：无业务接口变化
+- 耦合度变化：无代码耦合变化；已形成 UI 继承链依赖基线，后续可按图拆分
+- 快照测试：未执行（本轮未修改业务代码）
+- 回归清单：未执行（本轮未修改业务代码）
+- 下一轮起点：Phase 1 — 拆出 `FlowModeManager`
 
 ### 第 8 轮 (2026-04-09)：Phase 0 安全网建设（快照测试）
 - 本轮唯一主攻目标：为 PhysicsEngine 和 AssessmentService 建立最小回归安全网
@@ -514,17 +528,14 @@ class PowerSyncUI(QMainWindow):
 
 如果后续没有新的明确指令，默认按以下顺序继续：
 
-**Phase 0（最优先，必须先完成）：**
-1. 输出 `docs/mixin_dependency_map.md`
-
-**Phase 1（安全网就绪后）：**
-2. 拆出 `FlowModeManager`
-3. 拆出 `AssessmentCoordinator`
-4. 拆出 `BlackboxRepairHandler`
+**Phase 1（安全网已闭环，当前最优先）：**
+1. 拆出 `FlowModeManager`
+2. 拆出 `AssessmentCoordinator`
+3. 拆出 `BlackboxRepairHandler`
 
 **Phase 2（Controller 瘦身完成后）：**
-5. 定义 `AssessmentContext`，切断评分对 ctrl 的依赖
-6. 按评分域拆分纯函数模块
+4. 定义 `AssessmentContext`，切断评分对 ctrl 的依赖
+5. 按评分域拆分纯函数模块
 
 ---
 
