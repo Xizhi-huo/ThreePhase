@@ -1,5 +1,148 @@
 ‘’‘
 
+你现在要做的是“阶段进展核查”，不是继续开发，不是继续重构。
+
+项目路径：
+C:\Users\AW57P\Documents\ThreePhase_entier
+
+本次核查范围只限于：
+**Phase 1 第一步 — 拆出 FlowModeManager**
+
+不要回头检查 Phase 0 安全网建设，也不要检查更早的 C1/H1/H2/H3/H4/H5 问题修复历史。  
+这次只核查：FlowModePolicy / FLOW_MODE_POLICIES / 20 个 flow mode 查询方法，是否已经从 `app/main.py` 抽到 `services/flow_mode_manager.py`，并保持外部调用链不断。
+
+## 第一步：先读文件
+请先阅读以下文件：
+
+1. MAINTENANCE_CHECKLIST.md
+   - 重点看：
+     - §4 Phase 1 第一项
+     - §9 第 10 轮记录
+     - §10 下一轮默认起点
+2. app/main.py
+   - 重点核查：
+     - 是否还保留 `FlowModePolicy` dataclass
+     - 是否还保留 `FLOW_MODE_POLICIES`
+     - `PowerSyncController.__init__`
+     - `test_flow_mode` 读写方式
+     - 那 20 个方法是否只剩转发壳
+3. services/flow_mode_manager.py
+4. tests/support/stubs.py
+5. tests/test_physics_snapshot.py
+6. tests/test_assessment_snapshot.py
+
+## 核查目标
+
+### A. 新文件是否存在且职责正确
+请核查：
+
+1. 是否存在：
+   - `services/flow_mode_manager.py`
+2. 该文件是否包含：
+   - `FlowModePolicy` dataclass
+   - `FLOW_MODE_POLICIES`
+   - `FlowModeManager` 类
+3. `FlowModeManager` 是否只依赖：
+   - `test_flow_mode: str`
+   - 不持有 `ctrl`
+   - 不依赖 PyQt5 / UI
+4. `FlowModeManager` 是否实现了以下能力：
+   - `flow_policy()`
+   - `flow_policy_flag(name)`
+   - `is_teaching_mode() / is_engineering_mode() / is_assessment_mode()`
+   - 其余策略查询方法
+5. `can_use_pt_exam_quick_record()` 是否仍在 `FlowModeManager` 内部自洽，不依赖 Controller
+
+### B. app/main.py 是否完成瘦身
+请核查：
+
+1. `FlowModePolicy` 是否已经从 `app/main.py` 删除
+2. `FLOW_MODE_POLICIES` 是否已经从 `app/main.py` 删除
+3. `PowerSyncController.__init__` 中是否已实例化：
+   - `self._flow_mgr = FlowModeManager()`
+4. `test_flow_mode` 是否已经改成代理：
+   - `getter/setter` 转发到 `self._flow_mgr.test_flow_mode`
+5. 原本那 20 个 flow mode 方法是否仍保留在 Controller 上，但已经变成简单转发壳
+6. `StepProgressSnapshot` 和 `BlackboxRepairOutcome` 是否仍留在 `main.py`
+   - 这两者不属于本轮范围，不能误删或顺手迁走
+
+### C. 外部调用链是否零改动
+请核查以下调用方是否仍然通过 `ctrl.xxx()` 正常调用，而没有被迫改代码：
+
+1. `ui/test_panel.py`
+2. `ui/tabs/circuit_tab.py`
+3. `services/loop_test_service.py`
+4. `services/pt_voltage_check_service.py`
+5. `services/pt_phase_check_service.py`
+6. `services/pt_exam_service.py`
+
+重点判断：
+- 是否真的做到了“搬走实现，保留 Controller 接口”
+- 是否没有要求 UI / services 改调用方式
+
+### D. ControllerStub 是否已适配
+请核查：
+
+1. `tests/support/stubs.py` 是否已适配新的 flow mode 结构
+2. 如果 stub 需要 flow mode 查询能力：
+   - 是直接复用 `FlowModeManager`
+   - 还是手工实现最小方法集合
+3. 当前 stub 是否足够支撑快照测试继续通过
+
+### E. 快照测试是否仍可通过
+如果本地环境允许，请实际运行：
+
+`python -m pytest tests/ -v -p no:cacheprovider`
+
+核查：
+1. 是否可以跑通
+2. `test_physics_snapshot.py` 是否通过
+3. `test_assessment_snapshot.py` 是否通过
+4. 本轮修改后是否没有破坏 Phase 0 建立的安全网
+
+### F. 维护清单是否正确更新
+请核查 `MAINTENANCE_CHECKLIST.md`：
+
+1. §4 Phase 1 第一项：
+   - `拆出 FlowModeManager` 是否已打勾 `[x]`
+2. §9 是否已新增：
+   - `第 10 轮：拆出 FlowModeManager`
+3. §10 下一轮默认起点是否已更新为：
+   - `拆出 AssessmentCoordinator`
+4. §2 是否已更新 `app/main.py` 的行数
+   - 如果清单里仍保留该字段，请检查是否同步
+5. 当前规则下：
+   - 不要求本轮同步 `README.md` 和 `context.md`
+   - 不要把没更新这两个文件当成缺陷
+
+## 输出要求
+请按以下格式输出：
+
+### 1. 总结
+- FlowModeManager 是否已经真正拆出
+- 当前是否可以认定“Phase 1 第一步已完成”
+- 还缺什么（如果有）
+
+### 2. 核查表格
+列：
+- 核查项
+- 结论（属实 / 部分属实 / 不属实）
+- 证据文件
+- 备注
+
+### 3. 最终结论
+只回答两句话：
+1. 当前 `Phase 1 第一步` 的真实完成度
+2. 下一步最合理的起点
+
+## 注意事项
+- 不要修改代码
+- 不要修改文档
+- 不要提出新的重构建议
+- 这次只做“Phase 1 第一步完成进度核查”
+
+
+‘’‘
 
 # 任务：Phase 1 第一步 — 拆出 FlowModeManager（第 10 轮）
 
