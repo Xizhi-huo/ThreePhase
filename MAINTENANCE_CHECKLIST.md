@@ -1,3 +1,194 @@
+'''
+
+任务：Phase 1 第四步 — 拆出 PhaseOrderResolver（第 13 轮）
+角色与背景
+你现在是一位拥有 10 年桌面端重构经验的资深架构师，当前项目是一个 PyQt5 三相电并网仿真教学系统。Phase 0 已闭环，Phase 1 前三步（FlowModeManager / AssessmentCoordinator / BlackboxRepairHandler）已完成。本轮按维护清单 §10 继续执行 Phase 1 第四步 — 拆出 PhaseOrderResolver。
+
+项目路径：
+C:\Users\AW57P\Documents\ThreePhase_entier
+
+本轮方法论与前三轮保持完全一致："搬走实现，保留转发壳，外部调用者零改动，本轮允许新模块持有 ctrl"。
+
+第一步：先读文件
+请按顺序阅读，建立上下文：
+
+MAINTENANCE_CHECKLIST.md
+§1.3 / §1.4 / §1.6（工程边界红线 / 接口隔离 / 每轮迭代固定动作）
+§3 当前总体进度
+§4 Phase 1 第四项 拆出 PhaseOrderResolver 描述
+§9 第 10-12 轮记录（前三轮方法学参考）
+§10 下一轮默认起点
+app/main.py
+PowerSyncController.__init__（字段 pt_phase_orders / g1_blackbox_order / g2_blackbox_order / sim_state）
+本轮要搬走的 3 个方法（第 302-372 行）：
+resolve_pt_node_plot_key(self, node_name) — app/main.py:302-316
+get_pt_phase_sequence(self, pt_name: str) -> str — app/main.py:318-354
+resolve_loop_node_phase(self, node_name) — app/main.py:356-372
+注意：get_pt_phase_sequence 内部调用 self.resolve_pt_node_plot_key(node) → 搬运后要变成 模块内互调 self.resolve_pt_node_plot_key(node)
+services/blackbox_repair_handler.py（第 12 轮蓝本）
+参考"模块内互调 vs 跨模块走 self._ctrl"的写法
+tests/support/stubs.py
+重点：ControllerStub 里也有这 3 个方法的实现（第 88-134 行），它们是独立的手工实现，不是转发壳
+这 3 个方法被 PhysicsEngine 通过 self.ctrl.resolve_pt_node_plot_key() / self.ctrl.resolve_loop_node_phase() 直接调用，是快照测试的关键路径
+重要决策：本轮搬运 Controller 侧的实现到新模块 + 保留转发壳后，ControllerStub 有两种选择：
+方案 A（推荐）：让 stub 也持有 PhaseOrderResolver 实例、stub 上的 3 个方法改成转发壳（与 Controller 保持结构对齐）
+方案 B：stub 保留手工实现（能跑通，但结构与 Controller 不对齐；如果搬运时改变了任何行为细节，stub 不会被同步暴露出来）
+本轮采用 方案 A：让 stub 上的 3 个方法也改成转发到 PhaseOrderResolver 实例的壳。这样快照测试既验证新模块的正确性，又保持了 stub ⇄ Controller 的结构一致性
+外部调用方（本轮绝对不允许被迫改动）：
+services/_physics_measurement.py:144-145
+
+phase1 = self.ctrl.resolve_loop_node_phase(n1)
+phase2 = self.ctrl.resolve_loop_node_phase(n2)
+ui/tabs/circuit_tab.py:550 / :849
+
+seq = self.ctrl.get_pt_phase_sequence(pt_name)
+app/main.py 内部 get_pt_phase_sequence 调用 self.resolve_pt_node_plot_key(node) → 改成转发壳后此路径自动走 Controller → PhaseOrderResolver → resolve_pt_node_plot_key，无需额外处理
+tests/test_physics_snapshot.py、tests/test_assessment_snapshot.py
+第二步：明确本轮范围（禁止越界）
+2.1 本轮要做的事
+主攻目标：将 Controller 上的"PT 节点解析 + 相序判定 + 回路节点相位解析"逻辑抽成独立解析器 services/phase_order_resolver.py，app/main.py 上的相关代码只剩转发壳。
+
+具体动作：
+
+新增文件 services/phase_order_resolver.py：
+
+新增类 PhaseOrderResolver：
+构造签名：__init__(self, ctrl) —— 与前三轮一致，本轮允许持有 ctrl
+迁入以下 3 个方法：
+resolve_pt_node_plot_key(self, node_name)
+get_pt_phase_sequence(self, pt_name: str) -> str
+resolve_loop_node_phase(self, node_name)
+迁入后，原 self.xxx 访问替换规则：
+状态字段：pt_phase_orders → self._ctrl.pt_phase_orders；g2_blackbox_order → self._ctrl.g2_blackbox_order；sim_state → self._ctrl.sim_state
+模块内互调：get_pt_phase_sequence 内部调用 self.resolve_pt_node_plot_key(node) → 保留为 self.resolve_pt_node_plot_key(node)（新模块内互调，不走 self._ctrl）
+注意：resolve_pt_node_plot_key 中的 {'PT1': 'g1', 'PT2': 'g'} 映射必须原样搬运
+注意：get_pt_phase_sequence 中的 E03 特判（fc.scenario_id == 'E03' and pt_name == 'PT3'）、fault_reverse_bc 对调逻辑必须原样搬运
+注意：resolve_loop_node_phase 中 G2 分支的 fault_reverse_bc B/C 互换逻辑必须原样搬运
+改造 app/main.py：
+
+顶部新增 import：
+
+from services.phase_order_resolver import PhaseOrderResolver
+在 PowerSyncController.__init__ 中新增（推荐紧邻 self._blackbox_handler 之后）：
+
+self._phase_resolver = PhaseOrderResolver(self)
+将 3 个方法改成一行转发壳：
+
+def resolve_pt_node_plot_key(self, node_name):
+    return self._phase_resolver.resolve_pt_node_plot_key(node_name)
+
+def get_pt_phase_sequence(self, pt_name: str) -> str:
+    return self._phase_resolver.get_pt_phase_sequence(pt_name)
+
+def resolve_loop_node_phase(self, node_name):
+    return self._phase_resolver.resolve_loop_node_phase(node_name)
+删除原方法体（含注释和 docstring），只保留一行转发
+适配 tests/support/stubs.py：
+
+顶部新增 import：
+
+from services.phase_order_resolver import PhaseOrderResolver
+在 ControllerStub.__init__ 中新增：
+
+self._phase_resolver = PhaseOrderResolver(self)
+将 stub 上现有的 resolve_pt_node_plot_key / get_pt_phase_sequence / resolve_loop_node_phase 三个方法的手工实现替换为转发壳：
+
+def resolve_pt_node_plot_key(self, node_name: str) -> str | None:
+    return self._phase_resolver.resolve_pt_node_plot_key(node_name)
+
+def get_pt_phase_sequence(self, pt_name: str) -> str:
+    return self._phase_resolver.get_pt_phase_sequence(pt_name)
+
+def resolve_loop_node_phase(self, node_name: str) -> str:
+    return self._phase_resolver.resolve_loop_node_phase(node_name)
+删除 stub 中这 3 个方法的旧手工实现（约 47 行）
+这样做的意义：快照测试路径（PhysicsEngine(stub).update_physics() → build_render_state() → 内部调用 self.ctrl.resolve_pt_node_plot_key() / self.ctrl.resolve_loop_node_phase()）会真正经过新的 PhaseOrderResolver 实现，从而验证搬运正确性
+2.2 本轮不要做的事
+不要搬 set_g2_terminal_fault / reset_blackbox_orders / reshuffle_pt_phase_orders / reset_pt_phase_orders（属于 HardwareActions 范畴）
+不要搬 _get_generator_state / _expected_pt_probe_pair / _get_current_pt_phase_match / _get_current_loop_phase_match / _is_gen_synced 等小型辅助方法（它们不属于相序解析，跟业务服务绑定）
+不要动 services/blackbox_repair_handler.py / services/assessment_coordinator.py / services/flow_mode_manager.py / services/fault_manager.py
+不要动 services/_physics_measurement.py / ui/tabs/circuit_tab.py 中的调用方式
+不要动 services/assessment_service.py
+不要同步 README.md / context.md
+不要新增测试文件、Protocol 接口、dataclass
+不要把 pt_phase_orders / g2_blackbox_order 等字段的所有权搬进新模块
+2.3 行为必须不变
+resolve_pt_node_plot_key：输入 "PT1_A" → 输出 "g1a"（正常情况）；输入非法节点 → 返回 None；PT3 始终使用 "g2" 前缀
+get_pt_phase_sequence：E03 + PT3 特判返回 'FAULT'；fault_reverse_bc 下 g2b/g2c 对调；三相不完整返回 'FAULT'；正常返回三字母大写相序
+resolve_loop_node_phase：G1 走 pt_phase_orders['PT2']；G2 走 g2_blackbox_order + fault_reverse_bc B/C 互换；非 G1/G2 直接返回 terminal
+ControllerStub 上这三个方法的行为必须与原手工实现一致（因为改成了转发到 PhaseOrderResolver，而 PhaseOrderResolver 的实现从 Controller 原样搬来，ControllerStub 持有的数据字段与原来相同 → 行为守恒）
+第三步：实施顺序建议
+新建 services/phase_order_resolver.py：
+from __future__ import annotations
+写 PhaseOrderResolver 骨架：__init__(self, ctrl): self._ctrl = ctrl
+按原顺序复制 3 个方法，逐个把外部状态访问改成 self._ctrl.xxx，内部互调保留 self.xxx
+改 app/main.py：
+顶部 import
+__init__ 中新增 self._phase_resolver = PhaseOrderResolver(self)
+3 个方法改转发壳
+改 tests/support/stubs.py：
+顶部 import PhaseOrderResolver
+ControllerStub.__init__ 中新增 self._phase_resolver = PhaseOrderResolver(self)
+3 个方法改转发壳，删除旧手工实现
+自查：
+services/phase_order_resolver.py 里不得出现 from PyQt5 / from ui.xxx
+app/main.py 里不得再出现 pt_phase_orders[pt_name][terminal_index] / phase_map[ph] = actual 等相序解析具体实现
+grep 确认 services/_physics_measurement.py / ui/tabs/circuit_tab.py 中的 ctrl.resolve_xxx() / ctrl.get_pt_phase_sequence() 调用均未被修改
+tests/support/stubs.py 中 3 个方法必须已变成转发壳，不得保留旧手工实现
+运行回归：
+
+/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -v -p no:cacheprovider
+目标：5 个快照测试全部 PASS
+特别注意：test_physics_snapshot_normal / test_physics_snapshot_fault_e01 会经过 PhysicsEngine → resolve_pt_node_plot_key / resolve_loop_node_phase 路径，这是本轮搬运的核心验证覆盖
+行数核对：
+app/main.py 从 910 继续下降（3 个方法体约 70 行，预计降到 845 附近）
+更新 MAINTENANCE_CHECKLIST.md：
+§2 app/main.py 行数基线 → 新行数
+§3
+当前阶段 → "Phase 1 — Controller 瘦身（进行中：PhaseOrderResolver 已完成，下一步 HardwareActions）"
+当前最大风险文件中的 app/main.py 行数同步
+下一轮默认起点 → "Phase 1 — 拆出 HardwareActions"
+§4 Phase 1 第四项 [ ] 拆出 PhaseOrderResolver → [x]
+在该条目下补充与前几轮对齐的文字："本轮落地策略：允许持有 ctrl 引用，仅做搬走实现、Controller 保留转发壳；后续收口目标：Phase 4 再逐步移除 ctrl 直连"
+§9 在第 12 轮记录之前新增 "第 13 轮 (2026-04-10)：Phase 1 第四步（拆出 PhaseOrderResolver）"，按 §11 模板填写
+§10 顺序表前移一位：
+
+1. 拆出 HardwareActions
+不要提交 git，不要修改 README.md 和 context.md
+第四步：输出要求
+完成后请按以下格式汇报：
+
+新文件清单：services/phase_order_resolver.py 行数、包含符号列表
+app/main.py 变化：
+删除的符号（方法名）
+新增的 import / 字段 / 转发壳
+行数变化（从 910 降到多少）
+ControllerStub 适配变化：
+说明 tests/support/stubs.py 做了什么变更
+确认 3 个旧手工实现是否已完全替换为转发壳
+外部调用方未改动清单：
+services/_physics_measurement.py:144-145
+ui/tabs/circuit_tab.py:550 / :849
+确认均为 unchanged
+模块内互调核查：
+get_pt_phase_sequence 内部对 self.resolve_pt_node_plot_key() 的调用是否为模块内直调（非 self._ctrl.xxx）
+回归测试结果：pytest 输出摘要（通过数 / 失败数 / 跳过数）
+维护清单更新点：§2 / §3 / §4 / §9 / §10 各自改了哪一行
+注意事项
+本轮严格遵守"一轮只做一个主攻目标"：只拆相序解析，不要顺手做 HardwareActions
+PhaseOrderResolver 允许持有 ctrl，但新增的 ctrl 访问点必须只是把原来就已经存在的访问"搬家"
+get_pt_phase_sequence 内部调用 self.resolve_pt_node_plot_key(node) 时，因为它们已经搬到同一个类里，应该直接写 self.resolve_pt_node_plot_key(node)，不要绕一圈写成 self._ctrl.resolve_pt_node_plot_key(node)
+但是读 self._ctrl.sim_state / self._ctrl.pt_phase_orders / self._ctrl.g2_blackbox_order 则必须走 self._ctrl，因为这些字段的所有权仍在 Controller
+tests/support/stubs.py 的适配是本轮必须做的（与前三轮的"stub 不需要适配"不同），因为这 3 个方法在快照测试的关键路径上
+如果在搬运过程中发现任何原代码 bug，记录下来但不要顺手修
+完成后，下一轮是 Phase 1 第五步：拆出 HardwareActions
+
+
+
+'''
+
+
+
 # 维护与重构清单 v2
 
 最后更新：`2026-04-09`
