@@ -1,3 +1,194 @@
+‘’‘
+
+任务：Phase 1 第三步 — 拆出 BlackboxRepairHandler（第 12 轮）
+角色与背景
+你现在是一位拥有 10 年桌面端重构经验的资深架构师，当前项目是一个 PyQt5 三相电并网仿真教学系统。Phase 0 已闭环，Phase 1 第一步（FlowModeManager）和第二步（AssessmentCoordinator）已完成。本轮按维护清单 §10 继续执行 Phase 1 第三步 — 拆出 BlackboxRepairHandler。
+
+项目路径：
+C:\Users\AW57P\Documents\ThreePhase_entier
+
+本轮方法论与前两轮保持完全一致："搬走实现，保留转发壳，外部调用者零改动，本轮允许新模块持有 ctrl"。
+
+第一步：先读文件
+请按顺序阅读，建立上下文：
+
+MAINTENANCE_CHECKLIST.md
+§1.3 工程边界红线
+§1.4 接口隔离原则
+§1.6 每轮迭代固定动作
+§3 当前总体进度
+§4 Phase 1 第三项 拆出 BlackboxRepairHandler 描述
+§9 第 10 轮 / 第 11 轮记录（本轮请保持同样的方法学）
+§10 下一轮默认起点
+app/main.py
+PowerSyncController.__init__（字段 pt_phase_orders / g1_blackbox_order / g2_blackbox_order / pt1_pri_blackbox_order / pt1_sec_blackbox_order）
+顶部 BlackboxRepairOutcome dataclass（第 48-55 行）
+本轮要搬走的 5 个方法 + 1 个私有 helper：
+get_blackbox_runtime_state(target) — app/main.py:259-300
+apply_blackbox_repair_attempt(...) — app/main.py:302-429
+_compute_pt1_net_order(...) — app/main.py:937-944
+sync_pt1_blackbox_to_phase_orders() — app/main.py:946-948
+sync_g2_blackbox_to_phase_orders() — app/main.py:950-951
+同轮要注意不要动的邻居方法：
+set_g2_terminal_fault(enabled) — app/main.py:953-957（属于故障注入，留给后续 HardwareActions 轮次）
+reset_blackbox_orders() / reshuffle_pt_phase_orders() / reset_pt_phase_orders() — 属于相序重置，不是修复
+repair_fault(...) — 已在 FaultManager 里
+has_unrepaired_wiring_fault() / all_repairable_wiring_targets_normal() / fault_has_repairable_wiring_targets() — 已在 FaultManager 里
+services/assessment_coordinator.py（第 11 轮的蓝本）
+作为"本轮新模块应该长成什么样"的参考
+services/fault_manager.py
+重点看它通过 self._ctrl.sync_g2_blackbox_to_phase_orders() 和 self._ctrl.sync_pt1_blackbox_to_phase_orders() 调用 sync 方法的三处（第 78 / 112 / 123 行）
+本轮这三处必须零改动
+外部调用方：
+ui/test_panel.py
+第 2224 行：self.ctrl.get_blackbox_runtime_state(target)
+第 2333 行：self.ctrl.apply_blackbox_repair_attempt(...)
+services/fault_manager.py 第 78 / 112 / 123 行
+app/main.py 中 set_g2_terminal_fault() 内部 self.sync_g2_blackbox_to_phase_orders()（本身就在 Controller 文件内，调用转发壳即可）
+tests/support/stubs.py、tests/test_physics_snapshot.py、tests/test_assessment_snapshot.py
+判断 ControllerStub 是否需要适配（预期：不需要，本轮快照测试路径不触达黑盒修复逻辑）
+第二步：明确本轮范围（禁止越界）
+2.1 本轮要做的事
+主攻目标：将 Controller 上的"黑盒运行态构造 + 黑盒修复执行 + 黑盒→相序同步"逻辑抽成独立处理器 services/blackbox_repair_handler.py，app/main.py 上的相关代码只剩转发壳。
+
+具体动作：
+
+新增文件 services/blackbox_repair_handler.py：
+搬入 BlackboxRepairOutcome dataclass（原 app/main.py:48-55）
+新增类 BlackboxRepairHandler：
+构造签名：__init__(self, ctrl) —— 与 FaultManager / AssessmentCoordinator 一致，本轮允许持有 ctrl
+迁入以下方法：
+get_blackbox_runtime_state(self, target: str) -> dict
+apply_blackbox_repair_attempt(self, target, step, *, initial_order=None, new_order=None, initial_pri_order=None, new_pri_order=None, initial_sec_order=None, new_sec_order=None) -> BlackboxRepairOutcome
+sync_pt1_blackbox_to_phase_orders(self)
+sync_g2_blackbox_to_phase_orders(self)
+_compute_pt1_net_order(self, bus_order=None, pri_order=None, sec_order=None)
+迁入后，原 self.xxx 访问全部替换为 self._ctrl.xxx：
+状态字段：pt_phase_orders / g1_blackbox_order / g2_blackbox_order / pt1_pri_blackbox_order / pt1_sec_blackbox_order / sim_state.fault_config
+策略查询：can_repair_in_blackbox() / should_auto_clear_fault_only_when_all_blackboxes_normal()
+故障查询：all_repairable_wiring_targets_normal()
+事件记录：append_assessment_event(...)（注意：此时走 self._ctrl.append_assessment_event 转发壳，最终落到 AssessmentCoordinator.append_assessment_event）
+故障修复：repair_fault(...)（走 self._ctrl.repair_fault 转发壳，最终落到 FaultManager.repair_fault）
+内部互调：apply_blackbox_repair_attempt 里调用的 self.sync_pt1_blackbox_to_phase_orders() / self.sync_g2_blackbox_to_phase_orders() 要改成 self.sync_pt1_blackbox_to_phase_orders()（新模块内互调，不是 self._ctrl.xxx）；sync_pt1_blackbox_to_phase_orders 内部的 self._compute_pt1_net_order() 同理。
+改造 app/main.py：
+顶部新增 import：
+
+from services.blackbox_repair_handler import BlackboxRepairHandler, BlackboxRepairOutcome
+删除顶部的 BlackboxRepairOutcome dataclass 定义（第 48-55 行）
+在 PowerSyncController.__init__ 中，紧邻 self._assessment_coord 的位置新增：
+
+self._blackbox_handler = BlackboxRepairHandler(self)
+完全删除 _compute_pt1_net_order 方法（Controller 不再需要它，grep 过已确认只有 sync_pt1_blackbox_to_phase_orders 用）
+将以下 4 个方法改成一行转发壳：
+
+def get_blackbox_runtime_state(self, target: str) -> dict:
+    return self._blackbox_handler.get_blackbox_runtime_state(target)
+
+def apply_blackbox_repair_attempt(self, target, step, *, initial_order=None, new_order=None,
+                                  initial_pri_order=None, new_pri_order=None,
+                                  initial_sec_order=None, new_sec_order=None) -> BlackboxRepairOutcome:
+    return self._blackbox_handler.apply_blackbox_repair_attempt(
+        target, step,
+        initial_order=initial_order, new_order=new_order,
+        initial_pri_order=initial_pri_order, new_pri_order=new_pri_order,
+        initial_sec_order=initial_sec_order, new_sec_order=new_sec_order,
+    )
+
+def sync_pt1_blackbox_to_phase_orders(self):
+    return self._blackbox_handler.sync_pt1_blackbox_to_phase_orders()
+
+def sync_g2_blackbox_to_phase_orders(self):
+    return self._blackbox_handler.sync_g2_blackbox_to_phase_orders()
+set_g2_terminal_fault(enabled) 内部继续通过 self.sync_g2_blackbox_to_phase_orders() 调用（即走转发壳），不要改它的调用形式。
+2.2 本轮不要做的事
+不要搬 set_g2_terminal_fault / reset_blackbox_orders / reshuffle_pt_phase_orders / reset_pt_phase_orders
+不要搬 has_unrepaired_wiring_fault / all_repairable_wiring_targets_normal / fault_has_repairable_wiring_targets（已属 FaultManager）
+不要搬 repair_fault（已属 FaultManager）
+不要搬 PT 节点解析相关（resolve_pt_node_plot_key / get_pt_phase_sequence / resolve_loop_node_phase 属于下一轮 PhaseOrderResolver）
+不要动 services/fault_manager.py 中三处 self._ctrl.sync_xxx() 的调用方式
+不要动 ui/test_panel.py 中两处 self.ctrl.xxx() 的调用方式
+不要动 services/assessment_service.py、services/assessment_coordinator.py、services/flow_mode_manager.py
+不要同步 README.md / context.md
+不要顺手抽 Protocol / 新增 dataclass / 补测试 / 重构评分逻辑
+不要把 _compute_pt1_net_order 保留在 Controller（它是纯私有 helper，没有外部调用者）
+2.3 行为必须不变
+PowerSyncController 对外暴露的 4 个方法（get_blackbox_runtime_state / apply_blackbox_repair_attempt / sync_pt1_blackbox_to_phase_orders / sync_g2_blackbox_to_phase_orders）签名、返回值、参数默认值、副作用顺序必须与原来一致
+apply_blackbox_repair_attempt 的事件写入顺序：blackbox_swap（每一层）→ 状态字段写回 → 同步调用 → blackbox_confirm_attempted → 成功路径的 repair_fault 调用 → 返回 BlackboxRepairOutcome，必须与原实现逐字节对应
+BlackboxRepairOutcome 的字段顺序和默认值不变
+get_blackbox_runtime_state 对 G1 / G2 / PT1 / PT3 四个 target 的分支、fault_reverse_bc 特判、repair_target 计算方式完全一致
+_compute_pt1_net_order 的映射算法（primary_actual / 二次绕组重映射）保持一致
+Unsupported target 抛出 ValueError 的文案保持不变
+第三步：实施顺序建议
+新建 services/blackbox_repair_handler.py：
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Optional
+搬入 BlackboxRepairOutcome
+写 BlackboxRepairHandler 骨架：__init__(self, ctrl): self._ctrl = ctrl
+按原顺序复制 5 个方法 + 1 个 helper，逐个把 self.xxx（状态/策略/事件/修复）改成 self._ctrl.xxx；新模块内部互调保留 self.xxx
+改 app/main.py：
+顶部 import
+删 BlackboxRepairOutcome dataclass
+__init__ 中新增 self._blackbox_handler = BlackboxRepairHandler(self)
+4 个方法改转发壳
+删除 _compute_pt1_net_order
+自查：
+services/blackbox_repair_handler.py 里不得出现 from PyQt5 / from ui.xxx
+app/main.py 里不得再出现 BlackboxRepairOutcome( 构造 / self.pt_phase_orders['PT2'] = list(...) 这类黑盒修复的具体实现细节
+grep 确认 ui/test_panel.py / services/fault_manager.py / services/_physics_measurement.py / services/* 中任意 ctrl.(get_blackbox_runtime_state|apply_blackbox_repair_attempt|sync_pt1_blackbox_to_phase_orders|sync_g2_blackbox_to_phase_orders) 调用均未被修改
+运行回归：
+
+/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -v -p no:cacheprovider
+目标：5 个快照测试全部 PASS（tests/test_physics_snapshot.py 3 个 + tests/test_assessment_snapshot.py 2 个）
+行数核对：
+app/main.py 从 1076 继续下降（预计降到 920 附近，按 apply_blackbox_repair_attempt 的体量）
+更新 MAINTENANCE_CHECKLIST.md：
+§2 app/main.py 行数基线 → 新行数
+§3
+当前阶段 → "Phase 1 — Controller 瘦身（进行中：BlackboxRepairHandler 已完成，下一步 PhaseOrderResolver）"
+当前最大风险文件中的 app/main.py 行数同步
+下一轮默认起点 → "Phase 1 — 拆出 PhaseOrderResolver"
+§4 Phase 1 第三项 [ ] 拆出 BlackboxRepairHandler → [x]
+在该条目下补一行："本轮落地策略：允许持有 ctrl 引用，仅做搬走实现、Controller 保留转发壳；后续收口目标：Phase 4 再逐步移除 ctrl 直连"（与第二项对齐的文字）
+§9 在第 11 轮记录之前新增 "第 12 轮 (2026-04-10)：Phase 1 第三步（拆出 BlackboxRepairHandler）"，按 §11 模板填写
+§9 "当前未完成但已明确方向" 列表中移除 BlackboxRepairHandler —— 注意：检查当前列表是否已经写了它（上一轮审计时我没看到，请你确认）；如果没有就不用删
+§10 顺序表前移一位：
+
+1. 拆出 PhaseOrderResolver
+2. 拆出 HardwareActions
+不要提交 git，不要修改 README.md 和 context.md
+第四步：输出要求
+完成后请按以下格式汇报：
+
+新文件清单：services/blackbox_repair_handler.py 行数、包含符号列表
+app/main.py 变化：
+删除的符号（类/方法名）
+新增的 import / 字段 / 转发壳
+行数变化（从 1076 降到多少）
+外部调用方未改动清单：
+ui/test_panel.py:2224 / :2333
+services/fault_manager.py:78 / :112 / :123
+明确每个调用点文件的 git 状态：unchanged
+模块内互调点：列出 apply_blackbox_repair_attempt 内部对 self.sync_xxx() / self._compute_pt1_net_order() 的调用是否已正确改为 self.xxx（新模块内互调），而不是错误地改成 self._ctrl.xxx
+ControllerStub 是否需要适配：给出结论与理由
+回归测试结果：pytest 输出摘要（通过数 / 失败数 / 跳过数）
+维护清单更新点：§2 / §3 / §4 / §9 / §10 各自改了哪一行
+注意事项
+本轮严格遵守"一轮只做一个主攻目标"：只拆黑盒修复，不要顺手做 PhaseOrderResolver 或 HardwareActions
+BlackboxRepairHandler 允许持有 ctrl，但新增的 ctrl 访问点必须只是把原来就已经存在的访问"搬家"，不得新增任何未在原 Controller 方法里出现过的 self._ctrl.xxx 引用
+apply_blackbox_repair_attempt 内部调用 self.sync_pt1_blackbox_to_phase_orders() / self.sync_g2_blackbox_to_phase_orders() 时，因为它们已经搬到同一个类里，应该直接写 self.sync_xxx()，不要绕一圈写成 self._ctrl.sync_xxx() —— 后者会触发"新模块→Controller→新模块"的无意义绕路
+sync_pt1_blackbox_to_phase_orders 内部调用 self._compute_pt1_net_order() 同理，直接走 self.xxx
+但是 repair_fault(step=step, source=...) 必须走 self._ctrl.repair_fault(...)，因为它在 FaultManager 里，属于跨模块调用
+append_assessment_event(...) 同理，必须走 self._ctrl.append_assessment_event(...)
+如果在搬运过程中发现任何原代码 bug，记录下来但不要顺手修
+完成后，下一轮是 Phase 1 第四步：拆出 PhaseOrderResolver
+
+
+
+
+’‘’
+
+
 # 维护与重构清单 v2
 
 最后更新：`2026-04-09`
