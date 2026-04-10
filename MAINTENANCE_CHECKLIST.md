@@ -190,7 +190,8 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
   - 将考核会话生命周期管理（`start/finish/capture_snapshot/submit_guess` 等）移出
   - 输入接口：`AssessmentSession` + `SimulationState`（只读快照）+ 各步骤 `completed` 状态
   - 输出接口：`AssessmentResult` + 事件列表
-  - **不允许**持有 ctrl 引用，不允许直接读写其他 Service 的状态
+  - 本轮落地策略：**允许**持有 `ctrl` 引用，仅做“搬走实现、Controller 保留转发壳”
+  - 后续收口目标：Phase 4 再逐步移除 `ctrl` 直连，改为显式状态/接口注入
 - [ ] **拆出 `BlackboxRepairHandler`**
   - 将 `get_blackbox_runtime_state` / `apply_blackbox_repair_attempt` 及相关方法移出
   - 输入接口：`fault_config` + `blackbox_orders` + `pt_phase_orders`
