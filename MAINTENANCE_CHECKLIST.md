@@ -1,233 +1,3 @@
-‘’‘
-
-
-任务：核查 Phase 1 第二步 — 拆出 AssessmentCoordinator（第 11 轮）是否正确完成
-
-你的角色：
-你是一位资深 Python 桌面端架构审查员。你当前不是来继续开发，而是严格核查这一轮重构是否符合任务要求、是否存在越界修改、是否保持行为不变。
-
-项目背景：
-这是一个 PyQt5 三相电并网仿真教学系统，当前处于维护清单驱动的重构阶段。
-Phase 0 已闭环。
-Phase 1 第一步（拆出 FlowModeManager）已完成。
-本轮目标是：将 Controller 上的“评分会话生命周期 + 测试进度门禁”逻辑抽成独立协调器 `services/assessment_coordinator.py`，并让 `app/main.py` 只保留转发壳。
-
-你要做的事情只有一件：
-严格核查“Phase 1 第二步 — 拆出 AssessmentCoordinator”是否按要求完成。
-
-第一步：先读这些文件
-请按顺序阅读并建立核查上下文：
-
-1. `MAINTENANCE_CHECKLIST.md`
-重点看：
-- §1.3 工程边界红线
-- §1.4 接口隔离原则
-- §1.6 每轮迭代固定动作
-- §3 当前总体进度
-- §4 Phase 1 路线图
-- §9 第 11 轮记录
-- §10 下一轮默认起点
-
-2. `app/main.py`
-重点核查：
-- `PowerSyncController.__init__`
-- 是否还保留 `self.assessment_session = None`
-- 是否新增 `self._assessment_coord = AssessmentCoordinator(self)`
-- 原本属于 Controller 的 11 个方法是否已变成“纯转发壳”
-- `StepProgressSnapshot` 是否已从本文件删除
-
-3. `services/assessment_coordinator.py`
-重点核查：
-- 是否为新文件
-- 是否包含 `StepProgressSnapshot`
-- 是否包含 `AssessmentCoordinator`
-- 是否完整承接了原 Controller 的 11 个方法实现
-- 是否没有引入 PyQt5 / UI 依赖
-- 是否只是在搬运原逻辑，没有新增行为
-
-4. `services/assessment_service.py`
-重点核查：
-- 本轮是否未修改其核心评分逻辑
-- `AssessmentCoordinator.finish_assessment_session()` 是否仍然通过原路径调用 `build_result()`
-
-5. `services/flow_mode_manager.py`
-6. `services/fault_manager.py`
-用途：
-- 作为本轮模块拆分风格参考
-- 判断 `AssessmentCoordinator` 是否遵循了相同的“模块承接实现、Controller 保留转发”的方法学
-
-7. 以下外部调用方文件
-核查这些文件是否被改动，原则上应保持零改动：
-- `ui/test_panel.py`
-- `services/loop_test_service.py`
-- `services/pt_voltage_check_service.py`
-- `services/pt_phase_check_service.py`
-- `services/pt_exam_service.py`
-- `services/fault_manager.py`
-- `services/_physics_measurement.py`
-- `services/assessment_service.py`
-- `ui/tabs/circuit_tab.py`
-
-8. `tests/support/stubs.py`
-9. `tests/test_physics_snapshot.py`
-10. `tests/test_assessment_snapshot.py`
-
-第二步：严格按以下核查清单执行
-
-A. 文件与符号核查
-请确认：
-
-1. 是否新增了：
-- `services/assessment_coordinator.py`
-
-2. 新文件中是否包含且仅围绕本轮目标提供以下内容：
-- `StepProgressSnapshot`
-- `AssessmentCoordinator`
-
-3. `AssessmentCoordinator` 是否承接了以下 11 个方法：
-- `start_assessment_session`
-- `append_assessment_event`
-- `mark_fault_detected`
-- `capture_assessment_state_snapshot`
-- `finish_assessment_session`
-- `requires_random_fault_identification`
-- `submit_random_fault_identification`
-- `mark_assessment_result_shown`
-- `is_assessment_closed_loop_ready`
-- `get_test_progress_snapshot`
-- `finish_assessment_session_if_ready`
-
-4. `app/main.py` 中原本的 `StepProgressSnapshot` 是否已删除
-
-5. `app/main.py` 中上述 11 个方法是否仍然存在，但仅作为转发壳保留
-
-B. 行为保持核查
-请确认以下点是否成立：
-
-1. `self.assessment_session` 字段仍然保留在 `PowerSyncController` 上，没有搬进协调器
-2. 协调器内部对会话状态的所有读写都通过 `self._ctrl.assessment_session`
-3. 原先的方法签名、返回值、早退条件、事件写入顺序是否保持不变
-4. `get_test_progress_snapshot()` 返回的 `StepProgressSnapshot` 是否与迁移前语义一致
-5. `finish_assessment_session()` 是否仍然调用原有评分服务入口，而不是引入新评分逻辑
-6. 本轮是否没有顺手改动 flow mode、blackbox repair、phase order、hardware action 相关逻辑
-
-C. 依赖边界核查
-请确认以下边界是否成立：
-
-1. `services/assessment_coordinator.py` 是否没有：
-- `from PyQt5 ...`
-- `from ui...`
-- 新增不必要的 GUI 依赖
-
-2. `AssessmentCoordinator` 是否允许持有 `ctrl`，但仅搬运原本 Controller 已有的依赖访问
-3. 是否没有新增原 Controller 中不存在的 `self._ctrl.xxx` 访问点
-4. 外部调用方是否仍通过 `ctrl.xxx()` 使用原接口，而不需要改调用代码
-
-D. 越界修改核查
-请重点检查是否有超出本轮范围的修改。以下内容本轮不应该被动到：
-
-- `BlackboxRepairOutcome`
-- `apply_blackbox_repair_attempt`
-- `get_blackbox_runtime_state`
-- `sync_pt1_blackbox_to_phase_orders`
-- `sync_g2_blackbox_to_phase_orders`
-- `services/assessment_service.py` 内部评分逻辑
-- 其他 UI/service 的调用方式
-- README.md
-- context.md
-- 新增测试文件
-- 任何与 Phase 1 第三步或之后步骤有关的抽离
-
-如果发现这些被改动，必须明确指出“越界修改”。
-
-E. 回归与测试核查
-请确认：
-
-1. `tests/support/stubs.py` 是否需要适配
-2. 如果未适配，是否有充分依据说明“不需要”
-3. `pytest` 是否已实际运行
-4. 是否通过以下命令完成验证：
-- `python -m pytest tests/ -v -p no:cacheprovider`
-
-请报告：
-- 通过数
-- 失败数
-- 是否存在快照漂移
-- 是否存在测试被跳过的情况
-
-F. 维护清单核查
-请核查 `MAINTENANCE_CHECKLIST.md` 是否同步更新了以下内容：
-
-1. §2
-- `app/main.py` 行数是否已更新
-
-2. §3
-- 当前阶段是否更新为：
-  `Phase 1 — Controller 瘦身（进行中：AssessmentCoordinator 已完成，下一步 BlackboxRepairHandler）`
-
-3. §4
-- `拆出 AssessmentCoordinator` 是否已打勾 `[x]`
-
-4. §9
-- 是否新增第 11 轮记录
-- 内容是否与本轮工作相匹配
-
-5. §10
-- 下一轮默认起点是否已改为：
-  `Phase 1 — 拆出 BlackboxRepairHandler`
-
-第三步：输出格式要求
-请严格按下面格式输出你的核查结果：
-
-1. 总结结论
-- 直接给出：
-  - “通过”
-  - 或 “未通过”
-
-2. 已完成项
-- 用列表写清楚本轮已满足的要求
-
-3. 不符合项
-- 如果有，逐条列出
-- 每条必须包含：
-  - 文件路径
-  - 问题描述
-  - 为什么不符合本轮要求
-
-4. 越界修改检查
-- 明确写：
-  - “未发现越界修改”
-  - 或 “发现越界修改”，并列出具体文件和内容
-
-5. 外部调用方影响检查
-- 明确列出外部调用文件是否保持零改动
-
-6. 测试与回归结果
-- 报告 pytest 的核查结论
-- 如果你无法实际运行测试，也必须明确说明“只完成静态核查，未完成运行验证”
-
-7. 最终判定
-- 用一句话给出：
-  - “Phase 1 第二步可视为完成”
-  - 或
-  - “Phase 1 第二步暂不能视为完成”
-
-核查原则：
-- 你是审查，不是开发
-- 不要顺手修代码
-- 不要给重构建议大段发散
-- 只围绕“这一轮是否按要求完成”给出结论
-- 优先找“是否行为变更”“是否越界”“是否调用链断裂”“是否清单未同步”
-
-
-’‘’
-
-
-
-
-
-
-
 # 维护与重构清单 v2
 
 最后更新：`2026-04-09`
@@ -331,7 +101,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 | 文件 | 行数 | 状态 | 核心问题 |
 |---|---:|---|---|
 | `ui/test_panel.py` | 2417 | 必须拆分 | 9 个 Mixin 中最大的，111 处 ctrl 引用 |
-| `app/main.py` | 1276 | 必须拆分 | 上帝类控制器，策略/考核/黑盒/硬件全塞在一起 |
+| `app/main.py` | 1076 | 必须拆分 | 上帝类控制器，策略/考核/黑盒/硬件全塞在一起 |
 | `ui/styles.py` | 1007 | 纯数据，暂缓 | 纯静态样式声明，无逻辑耦合，优先级低 |
 | `services/assessment_service.py` | 791 | 必须拆分 | 单体 `build_result()` + 穿透 ctrl 读状态 |
 | `ui/main_window.py` | 528 | 需要审查 | 9-Mixin 继承入口，待迁移为组合式 |
@@ -368,10 +138,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 1 — Controller 瘦身（进行中：`FlowModeManager` 已完成，下一步 `AssessmentCoordinator`） |
+| 当前阶段 | Phase 1 — Controller 瘦身（进行中：`AssessmentCoordinator` 已完成，下一步 `BlackboxRepairHandler`） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
-| 当前最大风险文件 | `ui/test_panel.py`(2417)、`app/main.py`(1276) |
-| 下一轮默认起点 | Phase 1 — 拆出 `AssessmentCoordinator` |
+| 当前最大风险文件 | `ui/test_panel.py`(2417)、`app/main.py`(1076) |
+| 下一轮默认起点 | Phase 1 — 拆出 `BlackboxRepairHandler` |
 
 ---
 
@@ -416,7 +186,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
   - 输入接口：`test_flow_mode: str`
   - 输出接口：`FlowModePolicy` 查询
   - Controller 持有实例，只转发查询
-- [ ] **拆出 `AssessmentCoordinator`**
+- [x] **拆出 `AssessmentCoordinator`**
   - 将考核会话生命周期管理（`start/finish/capture_snapshot/submit_guess` 等）移出
   - 输入接口：`AssessmentSession` + `SimulationState`（只读快照）+ 各步骤 `completed` 状态
   - 输出接口：`AssessmentResult` + 事件列表
@@ -686,11 +456,31 @@ class PowerSyncUI(QMainWindow):
 - `H5`：死母线倒计时已改为使用真实 `frame_dt`，不再写死 `0.033`。
 
 ### 当前未完成但已明确方向
-- `AssessmentCoordinator` 尚未拆出。
 - `PhaseOrderResolver` 尚未拆出。
 - `HardwareActions` 尚未拆出。
 - `services/assessment_service.py` 仍需继续拆成多文件。
 - `ui/test_panel.py` 仍是当前最大风险文件。
+
+### 第 11 轮 (2026-04-10)：Phase 1 第二步（拆出 AssessmentCoordinator）
+- 本轮唯一主攻目标：将考核会话生命周期与测试进度门禁从 Controller 中独立出去
+- 实际完成：
+  - 新增 `services/assessment_coordinator.py`
+  - 将 `StepProgressSnapshot` 与 11 个考核会话/门禁方法迁入独立协调器
+  - `PowerSyncController` 新增 `self._assessment_coord = AssessmentCoordinator(self)`
+  - `app/main.py` 中原有 11 个方法已改为转发壳，外部调用者零改动
+  - `self.assessment_session` 字段仍保留在 Controller 上，继续作为真值源
+- 删除了哪些旧代码：
+  - `app/main.py` 中内嵌的 `StepProgressSnapshot` dataclass
+  - `app/main.py` 中直接实现的考核会话生命周期与测试进度门禁逻辑
+- 接口变化：
+  - 新增 `AssessmentCoordinator(ctrl)`，本轮允许持有 ctrl
+  - Controller 对外方法签名保持不变，仍通过 `ctrl.xxx()` 调用
+- 耦合度变化：
+  - `app/main.py` 行数 `1276 -> 1076`
+  - 考核会话实现细节已从 Controller 主文件移出
+- 快照测试：PASS（`python -m pytest tests/ -v -p no:cacheprovider`）
+- 回归清单：PASS（以快照测试为本轮核心回归）
+- 下一轮起点：Phase 1 — 拆出 `BlackboxRepairHandler`
 
 ### 第 10 轮 (2026-04-09)：Phase 1 第一步（拆出 FlowModeManager）
 - 本轮唯一主攻目标：将 flow mode 策略定义与查询从 Controller 中独立出去
@@ -783,9 +573,9 @@ class PowerSyncUI(QMainWindow):
 如果后续没有新的明确指令，默认按以下顺序继续：
 
 **Phase 1（安全网已闭环，当前最优先）：**
-1. 拆出 `AssessmentCoordinator`
-2. 拆出 `BlackboxRepairHandler`
-3. 拆出 `PhaseOrderResolver`
+1. 拆出 `BlackboxRepairHandler`
+2. 拆出 `PhaseOrderResolver`
+3. 拆出 `HardwareActions`
 
 **Phase 2（Controller 瘦身完成后）：**
 4. 定义 `AssessmentContext`，切断评分对 ctrl 的依赖
