@@ -21,7 +21,6 @@ import math
 import random
 import traceback
 import time
-from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 # 将项目根目录加入 sys.path，确保 domain/services/ui 包可以被找到
@@ -34,6 +33,7 @@ from domain.enums import BreakerPosition, SystemMode
 from domain.models import GeneratorState, SimulationState, FaultConfig
 from services.assessment_service import AssessmentService
 from services.assessment_coordinator import AssessmentCoordinator, StepProgressSnapshot
+from services.blackbox_repair_handler import BlackboxRepairHandler, BlackboxRepairOutcome
 from services.fault_manager import FaultManager
 from services.physics_engine import PhysicsEngine
 from services.loop_test_service import LoopTestService
@@ -43,16 +43,6 @@ from services.pt_exam_service import PtExamService
 from services.sync_test_service import SyncTestService
 from services.flow_mode_manager import FlowModeManager, FlowModePolicy
 from ui.main_window import PowerSyncUI
-
-
-@dataclass(frozen=True)
-class BlackboxRepairOutcome:
-    target: str
-    component_correct: bool
-    fault_cleared: bool
-    message: str
-    message_color: str
-    disable_repair_button: bool = False
 
 
 class PowerSyncController:
@@ -107,6 +97,7 @@ class PowerSyncController:
         # ── 业务服务（各服务通过 self._ctrl 回写状态 dataclass）─────────
         self._assessment_svc      = AssessmentService(self)
         self._assessment_coord    = AssessmentCoordinator(self)
+        self._blackbox_handler    = BlackboxRepairHandler(self)
         self._fault_mgr           = FaultManager(self)
         self._loop_svc            = LoopTestService(self)
         self._pt_voltage_svc      = PtVoltageCheckService(self)
@@ -257,47 +248,7 @@ class PowerSyncController:
         return self._assessment_coord.finish_assessment_session_if_ready(current_step)
 
     def get_blackbox_runtime_state(self, target: str) -> dict:
-        fault_active = bool(self.sim_state.fault_config.active and not self.sim_state.fault_config.repaired)
-        if target == 'G1':
-            return {
-                'fault_active': fault_active,
-                'order': list(self.g1_blackbox_order if fault_active else self.pt_phase_orders.get('PT2', ['A', 'B', 'C'])),
-                'repair_target': 'G1' if self.can_repair_in_blackbox() else None,
-            }
-        if target == 'G2':
-            return {
-                'fault_active': fault_active,
-                'order': list(self.g2_blackbox_order if fault_active else self.pt_phase_orders.get('PT3', ['A', 'B', 'C'])),
-                'repair_target': 'G2' if self.can_repair_in_blackbox() else None,
-            }
-        if target == 'PT1':
-            if fault_active:
-                pri_input_order = list(self.g1_blackbox_order)
-                pri_order = list(self.pt1_pri_blackbox_order)
-                sec_order = list(self.pt1_sec_blackbox_order)
-            else:
-                pri_input_order = ['A', 'B', 'C']
-                pri_order = ['A', 'B', 'C']
-                sec_order = ['A', 'B', 'C']
-            return {
-                'fault_active': fault_active,
-                'pri_input_order': pri_input_order,
-                'pri_order': pri_order,
-                'sec_order': sec_order,
-                'repair_target': 'PT1' if self.can_repair_in_blackbox() else None,
-            }
-        if target == 'PT3':
-            pri_input_order = ['A', 'B', 'C']
-            if self.sim_state.fault_reverse_bc:
-                pri_input_order = ['A', 'C', 'B']
-            return {
-                'fault_active': fault_active,
-                'pri_input_order': pri_input_order,
-                'pri_order': ['A', 'B', 'C'],
-                'sec_order': list(self.pt_phase_orders.get('PT3', ['A', 'B', 'C'])),
-                'repair_target': 'PT3' if self.can_repair_in_blackbox() else None,
-            }
-        raise ValueError(f"Unsupported blackbox target: {target}")
+        return self._blackbox_handler.get_blackbox_runtime_state(target)
 
     def apply_blackbox_repair_attempt(
             self,
@@ -310,122 +261,15 @@ class PowerSyncController:
             new_pri_order=None,
             initial_sec_order=None,
             new_sec_order=None) -> BlackboxRepairOutcome:
-        component_correct = False
-        touched_layers = []
-
-        if target == 'G1':
-            if initial_order is not None and list(new_order) != list(initial_order):
-                self.append_assessment_event(
-                    'blackbox_swap',
-                    step=step,
-                    target='G1',
-                    layer='terminal',
-                    from_order=list(initial_order),
-                    to_order=list(new_order),
-                )
-                touched_layers.append('terminal')
-            self.g1_blackbox_order = list(new_order)
-            self.sync_pt1_blackbox_to_phase_orders()
-            component_correct = (list(new_order) == ['A', 'B', 'C'])
-        elif target == 'G2':
-            if initial_order is not None and list(new_order) != list(initial_order):
-                self.append_assessment_event(
-                    'blackbox_swap',
-                    step=step,
-                    target='G2',
-                    layer='terminal',
-                    from_order=list(initial_order),
-                    to_order=list(new_order),
-                )
-                touched_layers.append('terminal')
-            self.g2_blackbox_order = list(new_order)
-            self.sync_g2_blackbox_to_phase_orders()
-            component_correct = (list(new_order) == ['A', 'B', 'C'])
-        elif target == 'PT1':
-            if initial_pri_order is not None and list(new_pri_order) != list(initial_pri_order):
-                self.append_assessment_event(
-                    'blackbox_swap',
-                    step=step,
-                    target='PT1',
-                    layer='primary',
-                    from_order=list(initial_pri_order),
-                    to_order=list(new_pri_order),
-                )
-                touched_layers.append('primary')
-            if initial_sec_order is not None and list(new_sec_order) != list(initial_sec_order):
-                self.append_assessment_event(
-                    'blackbox_swap',
-                    step=step,
-                    target='PT1',
-                    layer='secondary',
-                    from_order=list(initial_sec_order),
-                    to_order=list(new_sec_order),
-                )
-                touched_layers.append('secondary')
-            self.pt1_pri_blackbox_order = list(new_pri_order)
-            self.pt1_sec_blackbox_order = list(new_sec_order)
-            self.sync_pt1_blackbox_to_phase_orders()
-            component_correct = (
-                list(new_pri_order) == ['A', 'B', 'C']
-                and list(new_sec_order) == ['A', 'B', 'C']
-            )
-        elif target == 'PT3':
-            if initial_sec_order is not None and list(new_sec_order) != list(initial_sec_order):
-                self.append_assessment_event(
-                    'blackbox_swap',
-                    step=step,
-                    target='PT3',
-                    layer='secondary',
-                    from_order=list(initial_sec_order),
-                    to_order=list(new_sec_order),
-                )
-                touched_layers.append('secondary')
-            self.pt_phase_orders['PT3'] = list(new_sec_order)
-            component_correct = (list(new_sec_order) == ['A', 'B', 'C'])
-        else:
-            raise ValueError(f"Unsupported blackbox repair target: {target}")
-
-        self.append_assessment_event(
-            'blackbox_confirm_attempted',
-            step=step,
-            target=target,
-            layers=touched_layers,
-            success=bool(component_correct),
-        )
-
-        if not component_correct:
-            return BlackboxRepairOutcome(
-                target=target,
-                component_correct=False,
-                fault_cleared=False,
-                message="X 接线仍有错误，请重新调整后再提交。",
-                message_color="#dc2626",
-            )
-
-        fault_active = bool(self.sim_state.fault_config.active and not self.sim_state.fault_config.repaired)
-        fault_cleared = False
-        disable_repair_button = False
-        if (
-            fault_active
-            and self.all_repairable_wiring_targets_normal()
-            and self.should_auto_clear_fault_only_when_all_blackboxes_normal()
-        ):
-            self.repair_fault(step=step, source=f'{target}_blackbox')
-            fault_cleared = True
-            disable_repair_button = True
-            message = "OK 全部接线均已修复，故障已完全清除。"
-            message_color = "#15803d"
-        else:
-            message = "OK 此处接线已修复。请关闭并检查其他位置的接线。"
-            message_color = "#0369a1"
-
-        return BlackboxRepairOutcome(
-            target=target,
-            component_correct=True,
-            fault_cleared=fault_cleared,
-            message=message,
-            message_color=message_color,
-            disable_repair_button=disable_repair_button,
+        return self._blackbox_handler.apply_blackbox_repair_attempt(
+            target,
+            step,
+            initial_order=initial_order,
+            new_order=new_order,
+            initial_pri_order=initial_pri_order,
+            new_pri_order=new_pri_order,
+            initial_sec_order=initial_sec_order,
+            new_sec_order=new_sec_order,
         )
 
     def record_phase_sequence(self, pt_name: str, seq: str) -> bool:
@@ -934,21 +778,11 @@ class PowerSyncController:
         self.pt1_pri_blackbox_order = ['A', 'B', 'C']
         self.pt1_sec_blackbox_order = ['A', 'B', 'C']
 
-    def _compute_pt1_net_order(self, bus_order=None, pri_order=None, sec_order=None):
-        labels = ('A', 'B', 'C')
-        bus_order = list(bus_order if bus_order is not None else self.g1_blackbox_order)
-        pri_order = list(pri_order if pri_order is not None else self.pt1_pri_blackbox_order)
-        sec_order = list(sec_order if sec_order is not None else self.pt1_sec_blackbox_order)
-
-        primary_actual = [bus_order[labels.index(cable_label)] for cable_label in pri_order]
-        return [primary_actual[labels.index(sec_label)] for sec_label in sec_order]
-
     def sync_pt1_blackbox_to_phase_orders(self):
-        self.pt_phase_orders['PT2'] = list(self.g1_blackbox_order)
-        self.pt_phase_orders['PT1'] = self._compute_pt1_net_order()
+        return self._blackbox_handler.sync_pt1_blackbox_to_phase_orders()
 
     def sync_g2_blackbox_to_phase_orders(self):
-        self.pt_phase_orders['PT3'] = list(self.g2_blackbox_order)
+        return self._blackbox_handler.sync_g2_blackbox_to_phase_orders()
 
     def set_g2_terminal_fault(self, enabled: bool):
         self.sim_state.fault_reverse_bc = False
