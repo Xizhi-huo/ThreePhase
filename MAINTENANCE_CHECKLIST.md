@@ -1,3 +1,285 @@
+‘’‘
+
+任务：核查 Phase 1 第三步 — 拆出 BlackboxRepairHandler（第 12 轮）是否正确完成
+
+你的角色：
+你是一位资深 Python 桌面端架构审查员。你当前不是来继续开发，而是严格核查这一轮重构是否符合任务要求、是否存在越界修改、是否保持行为不变。
+
+项目背景：
+这是一个 PyQt5 三相电并网仿真教学系统，当前处于维护清单驱动的重构阶段。
+Phase 0 已闭环。
+Phase 1 第一步（拆出 FlowModeManager）已完成。
+Phase 1 第二步（拆出 AssessmentCoordinator）已完成。
+本轮目标是：将 Controller 上的“黑盒运行态构造 + 黑盒修复执行 + 黑盒→相序同步”逻辑抽成独立处理器 `services/blackbox_repair_handler.py`，并让 `app/main.py` 只保留转发壳。
+
+你要做的事情只有一件：
+严格核查“Phase 1 第三步 — 拆出 BlackboxRepairHandler”是否按要求完成。
+
+第一步：先读这些文件
+请按顺序阅读并建立核查上下文：
+
+1. `MAINTENANCE_CHECKLIST.md`
+重点看：
+- §1.3 工程边界红线
+- §1.4 接口隔离原则
+- §1.6 每轮迭代固定动作
+- §3 当前总体进度
+- §4 Phase 1 路线图
+- §9 第 12 轮记录
+- §10 下一轮默认起点
+
+2. `app/main.py`
+重点核查：
+- `PowerSyncController.__init__`
+- 是否新增 `self._blackbox_handler = BlackboxRepairHandler(self)`
+- 是否删除了本地 `BlackboxRepairOutcome`
+- 原本属于 Controller 的 4 个公开方法是否已变成“纯转发壳”：
+  - `get_blackbox_runtime_state`
+  - `apply_blackbox_repair_attempt`
+  - `sync_pt1_blackbox_to_phase_orders`
+  - `sync_g2_blackbox_to_phase_orders`
+- `_compute_pt1_net_order` 是否已从 Controller 删除
+- `set_g2_terminal_fault()` 是否仍然通过 Controller 转发壳调用 `self.sync_g2_blackbox_to_phase_orders()`
+
+3. `services/blackbox_repair_handler.py`
+重点核查：
+- 是否为新文件
+- 是否包含 `BlackboxRepairOutcome`
+- 是否包含 `BlackboxRepairHandler`
+- 是否完整承接以下内容：
+  - `get_blackbox_runtime_state`
+  - `apply_blackbox_repair_attempt`
+  - `_compute_pt1_net_order`
+  - `sync_pt1_blackbox_to_phase_orders`
+  - `sync_g2_blackbox_to_phase_orders`
+- 是否没有引入 PyQt5 / UI 依赖
+- 是否只是在搬运原逻辑，没有新增行为
+
+4. `services/fault_manager.py`
+重点核查：
+- 第 78 / 112 / 123 行附近原有调用是否保持不变：
+  - `self._ctrl.sync_g2_blackbox_to_phase_orders()`
+  - `self._ctrl.sync_pt1_blackbox_to_phase_orders()`
+
+5. `services/assessment_coordinator.py`
+用途：
+- 作为上一轮拆分风格参考
+- 判断本轮是否遵循“模块承接实现，Controller 保留转发壳”的同一方法学
+
+6. 以下外部调用方文件
+核查这些文件是否被改动，原则上应保持零改动：
+- `ui/test_panel.py`
+- `services/fault_manager.py`
+- `services/_physics_measurement.py`
+- `services/assessment_service.py`
+- `services/assessment_coordinator.py`
+- `services/flow_mode_manager.py`
+- `ui/tabs/circuit_tab.py`
+
+7. `tests/support/stubs.py`
+8. `tests/test_physics_snapshot.py`
+9. `tests/test_assessment_snapshot.py`
+
+第二步：严格按以下核查清单执行
+
+A. 文件与符号核查
+请确认：
+
+1. 是否新增了：
+- `services/blackbox_repair_handler.py`
+
+2. 新文件中是否包含且仅围绕本轮目标提供以下内容：
+- `BlackboxRepairOutcome`
+- `BlackboxRepairHandler`
+
+3. `BlackboxRepairHandler` 是否承接了以下方法：
+- `get_blackbox_runtime_state`
+- `apply_blackbox_repair_attempt`
+- `_compute_pt1_net_order`
+- `sync_pt1_blackbox_to_phase_orders`
+- `sync_g2_blackbox_to_phase_orders`
+
+4. `app/main.py` 中原本的 `BlackboxRepairOutcome` 是否已删除
+
+5. `app/main.py` 中 `_compute_pt1_net_order` 是否已删除
+
+6. `app/main.py` 中上述 4 个公开方法是否仍然存在，但仅作为转发壳保留
+
+B. 行为保持核查
+请确认以下点是否成立：
+
+1. `get_blackbox_runtime_state()` 对 G1 / G2 / PT1 / PT3 的分支是否保持一致
+2. `PT3` 分支中 `fault_reverse_bc` 的特判是否保持一致
+3. `repair_target` 的计算逻辑是否与迁移前一致
+4. `apply_blackbox_repair_attempt()` 的事件顺序是否保持不变：
+   - `blackbox_swap`（逐层）
+   - 状态写回
+   - `sync_xxx()`
+   - `blackbox_confirm_attempted`
+   - 成功条件下的 `repair_fault(...)`
+   - 返回 `BlackboxRepairOutcome`
+5. `Unsupported blackbox target` 和 `Unsupported blackbox repair target` 的 `ValueError` 文案是否保持不变
+6. `BlackboxRepairOutcome` 的字段顺序和默认值是否不变
+7. `_compute_pt1_net_order()` 的映射算法是否保持一致
+8. `sync_pt1_blackbox_to_phase_orders()` / `sync_g2_blackbox_to_phase_orders()` 的副作用是否与原实现一致
+
+C. 模块内互调核查
+请重点检查以下点：
+
+1. 在 `services/blackbox_repair_handler.py` 内部：
+- `apply_blackbox_repair_attempt()` 调用同步方法时，是否写成：
+  - `self.sync_pt1_blackbox_to_phase_orders()`
+  - `self.sync_g2_blackbox_to_phase_orders()`
+而不是：
+  - `self._ctrl.sync_pt1_blackbox_to_phase_orders()`
+  - `self._ctrl.sync_g2_blackbox_to_phase_orders()`
+
+2. `sync_pt1_blackbox_to_phase_orders()` 内部调用 helper 时，是否写成：
+- `self._compute_pt1_net_order()`
+而不是通过 `self._ctrl.xxx()` 绕路
+
+3. 跨模块调用是否仍然正确走 `ctrl`：
+- `append_assessment_event(...)` 应该是 `self._ctrl.append_assessment_event(...)`
+- `repair_fault(...)` 应该是 `self._ctrl.repair_fault(...)`
+
+D. 依赖边界核查
+请确认以下边界是否成立：
+
+1. `services/blackbox_repair_handler.py` 是否没有：
+- `from PyQt5 ...`
+- `from ui...`
+- 新增不必要的 GUI 依赖
+
+2. `BlackboxRepairHandler` 是否允许持有 `ctrl`，但仅搬运原本 Controller 已有的依赖访问
+3. 是否没有新增原 Controller 中不存在的 `self._ctrl.xxx` 访问点
+4. 外部调用方是否仍通过 `ctrl.xxx()` 使用原接口，而不需要改调用代码
+
+E. 越界修改核查
+请重点检查是否有超出本轮范围的修改。以下内容本轮不应该被动到：
+
+- `set_g2_terminal_fault`
+- `reset_blackbox_orders`
+- `reshuffle_pt_phase_orders`
+- `reset_pt_phase_orders`
+- `has_unrepaired_wiring_fault`
+- `all_repairable_wiring_targets_normal`
+- `fault_has_repairable_wiring_targets`
+- `repair_fault`
+- PT 节点解析相关：
+  - `resolve_pt_node_plot_key`
+  - `get_pt_phase_sequence`
+  - `resolve_loop_node_phase`
+- `services/assessment_service.py`
+- `services/assessment_coordinator.py`
+- `services/flow_mode_manager.py`
+- README.md
+- context.md
+- 新增测试文件
+
+如果发现这些被改动，必须明确指出“越界修改”。
+
+F. 外部调用方影响核查
+请确认以下调用点保持原样：
+
+- `ui/test_panel.py:2224`
+- `ui/test_panel.py:2333`
+- `services/fault_manager.py:78`
+- `services/fault_manager.py:112`
+- `services/fault_manager.py:123`
+
+如果你能获取版本控制状态，请确认这些文件在本轮是否为 unchanged。
+如果当前目录不是 Git 仓库，请明确说明“无法用 git 状态验证，只能做静态文件差异核查”。
+
+G. 测试与回归核查
+请确认：
+
+1. `tests/support/stubs.py` 是否需要适配
+2. 如果未适配，是否有充分依据说明“不需要”
+3. `pytest` 是否已实际运行
+4. 是否通过以下命令完成验证：
+- `python -m pytest tests/ -v -p no:cacheprovider`
+
+请报告：
+- 通过数
+- 失败数
+- 跳过数
+- 是否存在快照漂移
+- 是否存在测试被跳过的情况
+
+H. 维护清单核查
+请核查 `MAINTENANCE_CHECKLIST.md` 是否同步更新了以下内容：
+
+1. §2
+- `app/main.py` 行数是否已更新为本轮新值
+
+2. §3
+- 当前阶段是否更新为：
+  `Phase 1 — Controller 瘦身（进行中：BlackboxRepairHandler 已完成，下一步 PhaseOrderResolver）`
+
+3. §4
+- `拆出 BlackboxRepairHandler` 是否已打勾 `[x]`
+- 是否新增了与上一轮一致的说明：
+  - 本轮允许持有 `ctrl`
+  - Phase 4 再收口
+
+4. §9
+- 是否新增第 12 轮记录
+- 内容是否与本轮工作相匹配
+- 第 11 轮历史记录是否仍保持原样，不应被误改成下一轮 `PhaseOrderResolver`
+
+5. §10
+- 下一轮默认起点是否已改为：
+  `Phase 1 — 拆出 PhaseOrderResolver`
+
+第三步：输出格式要求
+请严格按下面格式输出你的核查结果：
+
+1. 总结结论
+- 直接给出：
+  - “通过”
+  - 或 “未通过”
+
+2. 已完成项
+- 用列表写清楚本轮已满足的要求
+
+3. 不符合项
+- 如果有，逐条列出
+- 每条必须包含：
+  - 文件路径
+  - 问题描述
+  - 为什么不符合本轮要求
+
+4. 越界修改检查
+- 明确写：
+  - “未发现越界修改”
+  - 或 “发现越界修改”，并列出具体文件和内容
+
+5. 外部调用方影响检查
+- 明确列出外部调用文件是否保持零改动
+- 如果无法使用 git 验证，必须明确写明
+
+6. 测试与回归结果
+- 报告 pytest 的核查结论
+- 如果你无法实际运行测试，也必须明确说明“只完成静态核查，未完成运行验证”
+
+7. 最终判定
+- 用一句话给出：
+  - “Phase 1 第三步可视为完成”
+  - 或
+  - “Phase 1 第三步暂不能视为完成”
+
+核查原则：
+- 你是审查，不是开发
+- 不要顺手修代码
+- 不要给大段发散建议
+- 只围绕“这一轮是否按要求完成”给出结论
+- 优先找“是否行为变更”“是否越界”“是否调用链断裂”“是否清单未同步”
+’‘’
+
+
+
+
+
 # 维护与重构清单 v2
 
 最后更新：`2026-04-09`
