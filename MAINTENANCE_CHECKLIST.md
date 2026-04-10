@@ -1,3 +1,168 @@
+‘’‘
+
+
+任务：Phase 1 第二步 — 拆出 AssessmentCoordinator（第 11 轮）
+角色与背景
+你现在是一位拥有 10 年桌面端重构经验的资深架构师，当前项目是一个 PyQt5 三相电并网仿真教学系统。上一轮已经完成 Phase 1 第一步（拆出 FlowModeManager），本轮要继续按维护清单 §10 执行 Phase 1 第二步 — 拆出 AssessmentCoordinator。
+
+项目路径：
+C:\Users\AW57P\Documents\ThreePhase_entier
+
+第一步：先读文件
+请先阅读以下文件，建立上下文：
+
+MAINTENANCE_CHECKLIST.md
+§1.3 工程边界红线
+§1.4 接口隔离原则
+§1.6 每轮迭代固定动作
+§3 当前总体进度
+§4 Phase 1 路线图
+§9 第 10 轮记录（上一轮是怎么做的，本轮请保持一致的方法学）
+§10 下一轮默认起点
+app/main.py
+重点看 PowerSyncController：
+StepProgressSnapshot dataclass（第 50-58 行）
+self.assessment_session 字段（__init__ 中）
+以下 11 个方法（这些就是本轮要搬走的内容）：
+start_assessment_session
+append_assessment_event
+mark_fault_detected
+capture_assessment_state_snapshot
+finish_assessment_session
+requires_random_fault_identification
+submit_random_fault_identification
+mark_assessment_result_shown
+is_assessment_closed_loop_ready
+get_test_progress_snapshot
+finish_assessment_session_if_ready
+services/flow_mode_manager.py + services/fault_manager.py
+作为本轮新模块的参考蓝本：
+FlowModeManager 代表"完全不依赖 ctrl 的纯策略模块"
+FaultManager 代表"持有 ctrl 引用、负责一类跨数据的协调器"
+AssessmentCoordinator 的形态更接近 FaultManager（需要读取多份 state + 追加事件 + 访问评分服务），本轮先允许持有 ctrl，接口隔离留到 Phase 4 再收口。
+services/assessment_service.py
+重点看 build_result() 的入口签名 —— 本轮不动评分逻辑，只是 AssessmentCoordinator.finish_assessment_session() 要继续调用它。
+外部调用点（本轮绝对不允许被迫改动）：
+ui/test_panel.py（含 start_assessment_session / append_assessment_event / submit_random_fault_identification / get_test_progress_snapshot / finish_assessment_session_if_ready / mark_assessment_result_shown 等 9 处）
+services/loop_test_service.py（append_assessment_event）
+services/pt_voltage_check_service.py（append_assessment_event）
+services/pt_phase_check_service.py（append_assessment_event + mark_fault_detected）
+services/pt_exam_service.py（append_assessment_event）
+services/fault_manager.py（append_assessment_event）
+services/_physics_measurement.py（mark_fault_detected 多处）
+services/assessment_service.py（is_assessment_closed_loop_ready）
+tests/support/stubs.py、tests/test_physics_snapshot.py、tests/test_assessment_snapshot.py
+本轮要确认 ControllerStub 是否需要适配。
+注意：ControllerStub 已经实现了 mark_fault_detected（以非常简化的方式），以及 is_assessment_closed_loop_ready。本轮搬运时不要让快照测试失败。
+第二步：明确本轮范围（禁止越界）
+2.1 本轮要做的事
+主攻目标：将 Controller 上的"评分会话生命周期 + 测试进度门禁"逻辑抽成一个独立协调器模块 services/assessment_coordinator.py，让 app/main.py 上的相关代码只剩"转发壳"。
+
+具体动作：
+
+新增文件 services/assessment_coordinator.py：
+新增类 AssessmentCoordinator
+构造签名：__init__(self, ctrl) —— 本轮允许持有 ctrl，与 FaultManager 一致
+将下面的 dataclass 和 11 个方法完整迁入本文件：
+StepProgressSnapshot（dataclass，从 app/main.py 原样搬入新模块）
+start_assessment_session(scene_id, preset_mode='specified')
+append_assessment_event(event_type, step=0, **payload)
+mark_fault_detected(step, source, **payload) -> bool
+capture_assessment_state_snapshot() -> Dict[str, Any]
+finish_assessment_session()
+requires_random_fault_identification(current_step) -> bool
+submit_random_fault_identification(guessed_scene_id) -> bool
+mark_assessment_result_shown()
+is_assessment_closed_loop_ready() -> bool
+get_test_progress_snapshot(current_step, pre_step5_repair_triggered) -> StepProgressSnapshot
+finish_assessment_session_if_ready(current_step) -> Optional[...]
+迁入后，所有方法内部原本写 self.xxx 的地方都要改成：
+访问 sim_state / pt_exam_states / loop_test_state / pt_phase_check_state / pt_voltage_check_state / g1_blackbox_order / g2_blackbox_order / pt1_pri_blackbox_order / pt1_sec_blackbox_order → 改为 self._ctrl.xxx
+访问 should_record_assessment_metrics() / should_auto_score_assessment() / is_assessment_mode() / assessment_ends_after_step4_closed_loop() / test_flow_mode / should_block_step5_until_blackbox_fixed() / should_show_blackbox_required_dialog_before_step5() / has_unrepaired_wiring_fault() / fault_has_repairable_wiring_targets() / is_loop_test_complete() / is_pt_voltage_check_complete() / is_pt_phase_check_complete() → 改为 self._ctrl.xxx()
+访问 _assessment_svc.build_result(session) → 改为 self._ctrl._assessment_svc.build_result(session)
+对 assessment_session 字段的读写 → 改为 self._ctrl.assessment_session（继续作为 Controller 的真值源，本轮不搬字段，只搬方法）
+改造 app/main.py：
+在 PowerSyncController.__init__ 的适当位置（推荐放在 self._fault_mgr 附近）新增：
+
+self._assessment_coord = AssessmentCoordinator(self)
+删除 app/main.py 顶部的 StepProgressSnapshot dataclass 定义
+在 app/main.py 顶部新增 import：
+
+from services.assessment_coordinator import AssessmentCoordinator, StepProgressSnapshot
+StepProgressSnapshot 必须以 re-export 的形式保留在 app.main 模块的命名空间里吗？不需要。目前没有任何外部模块 import app.main.StepProgressSnapshot，ui/test_panel.py 只消费返回对象的字段，但保留 from ... import StepProgressSnapshot 是为了让 get_test_progress_snapshot 的转发壳上的类型注解仍然能被识别。
+将上述 11 个方法改成转发壳，每个方法一行：
+
+def start_assessment_session(self, scene_id: str, preset_mode: str = 'specified'):
+    return self._assessment_coord.start_assessment_session(scene_id, preset_mode)
+其余同理。mark_fault_detected / get_test_progress_snapshot 等必须保留原签名和返回值。
+保留 assessment_session 字段本身：
+self.assessment_session = None 仍在 PowerSyncController.__init__ 中，不要搬进协调器。
+协调器内部统一通过 self._ctrl.assessment_session 读写。这样能保证 services/assessment_service.py 等现有直接读 ctrl.assessment_session 属性的代码零改动。
+2.2 本轮不要做的事
+不要搬 BlackboxRepairOutcome dataclass（它属于下一轮 BlackboxRepairHandler 的范围）
+不要搬 apply_blackbox_repair_attempt、get_blackbox_runtime_state（同上，属于 BlackboxRepairHandler）
+不要搬 sync_pt1_blackbox_to_phase_orders / sync_g2_blackbox_to_phase_orders（这两个还在用，apply_blackbox_repair_attempt 也在调）
+不要动 self.pt_phase_orders / g1_blackbox_order 等字段的所有权
+不要动 services/assessment_service.py 内部逻辑（那是 Phase 2 的事）
+不要动 ui/test_panel.py / 其他 service / 其他 UI 的调用方式
+不要顺手改任何跟 flow mode / 黑盒 / 硬件 / PT 节点解析 相关的方法
+不要同步 README.md 或 context.md
+不要"顺手抽出 Protocol 接口 / 数据类 / 纯函数版本" —— 本轮只做"搬走实现，保留转发壳"
+不要把单元测试 / 新快照基线补进去 —— 本轮不新增 test 文件
+2.3 行为必须不变
+PowerSyncController 对外暴露的 11 个方法，签名和语义必须与原来一致
+self.assessment_session 属性仍然可以从 Controller 实例上直接读写
+所有事件写入顺序、事件 payload 字段、返回值类型、早退条件都必须与原实现一致（这是本轮能被快照测试验证的核心原因）
+get_test_progress_snapshot() 返回的 StepProgressSnapshot 必须与原来完全一致（含 assessment_result_ready 计算顺序）
+第三步：实施顺序建议
+新建 services/assessment_coordinator.py，先写 StepProgressSnapshot + AssessmentCoordinator 骨架（只有 __init__ 持有 self._ctrl）
+按顺序把 11 个方法按原样复制进来，逐个把 self.xxx 改成 self._ctrl.xxx
+在 app/main.py：
+顶部新增 import
+删除 StepProgressSnapshot dataclass 定义
+在 __init__ 中新增 self._assessment_coord = AssessmentCoordinator(self)
+将 11 个方法改成转发壳
+grep 自查：
+app/main.py 中不再出现 self.assessment_session.events.append、AssessmentEvent(、session.state_snapshot =、self._fault_mgr（除 fault_has_repairable_wiring_targets() 路径外）等实现细节
+services/assessment_coordinator.py 中没有 from PyQt5 / from ui.xxx
+运行回归：
+
+python -m pytest tests/ -v -p no:cacheprovider
+上一轮用的解释器是：/Users/promise/opt/anaconda3/envs/power_gui/bin/python（已安装 pytest）
+目标：5 个快照测试全部 PASS
+核对 app/main.py 行数变化：
+预期从 1276 继续下降（大致降到 1100 附近，但不强求具体数值）
+更新 MAINTENANCE_CHECKLIST.md：
+§2：更新 app/main.py 行数基线
+§3：当前阶段改为 "Phase 1 — Controller 瘦身（进行中：AssessmentCoordinator 已完成，下一步 BlackboxRepairHandler）"；下一轮默认起点改为 "Phase 1 — 拆出 BlackboxRepairHandler"
+§4 Phase 1 第二项 [ ] 拆出 AssessmentCoordinator 改为 [x]
+§9 新增 "第 11 轮 (2026-04-10)：Phase 1 第二步（拆出 AssessmentCoordinator）"，按 §11 模板填写
+§10 的顺序表相应前移一位
+不要提交 git，也不要修改 README.md 和 context.md
+第四步：输出要求
+完成后请按以下格式汇报：
+
+新文件清单：services/assessment_coordinator.py 行数、包含哪些符号
+app/main.py 变化：
+删除了哪些符号（类/方法名）
+新增了哪些 import / 字段 / 转发壳
+行数变化（从 1276 降到多少）
+外部调用方未改动清单：列出上面 2.1 第 5 步列出的所有 caller 文件，确认每个都零改动
+ControllerStub 是否需要适配：说明为什么需要或不需要
+回归测试结果：python -m pytest tests/ -v -p no:cacheprovider 的输出摘要（通过数 / 失败数）
+维护清单更新点：§2 / §3 / §4 / §9 / §10 各自改了哪一行
+注意事项
+本轮严格遵守"一轮只做一个主攻目标"。不要借机做 BlackboxRepairHandler、不要借机做接口隔离收口、不要借机新增测试。
+AssessmentCoordinator 允许持有 ctrl，但注意：新增的 ctrl 访问点必须只是把原来就已经存在的访问"搬家"，不得新增任何未在原 Controller 方法里出现过的 self._ctrl.xxx 引用。这是本轮能被判定为"零行为变更"的关键。
+如果在搬运过程中发现任何原代码 bug，记录下来但不要顺手修，留到下一轮单独处理。
+’‘’
+
+
+
+
+
+
+
 # 维护与重构清单 v2
 
 最后更新：`2026-04-09`
