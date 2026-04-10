@@ -42,6 +42,7 @@ from services.pt_phase_check_service import PtPhaseCheckService
 from services.pt_exam_service import PtExamService
 from services.sync_test_service import SyncTestService
 from services.flow_mode_manager import FlowModeManager, FlowModePolicy
+from services.phase_order_resolver import PhaseOrderResolver
 from ui.main_window import PowerSyncUI
 
 
@@ -98,6 +99,7 @@ class PowerSyncController:
         self._assessment_svc      = AssessmentService(self)
         self._assessment_coord    = AssessmentCoordinator(self)
         self._blackbox_handler    = BlackboxRepairHandler(self)
+        self._phase_resolver      = PhaseOrderResolver(self)
         self._fault_mgr           = FaultManager(self)
         self._loop_svc            = LoopTestService(self)
         self._pt_voltage_svc      = PtVoltageCheckService(self)
@@ -300,76 +302,13 @@ class PowerSyncController:
     # PT 节点解析辅助（physics_engine.py 通过 self.ctrl 调用）
     # ════════════════════════════════════════════════════════════════════════
     def resolve_pt_node_plot_key(self, node_name):
-        parts = node_name.split('_', 1)
-        if len(parts) != 2:
-            return None
-        pt_name, terminal = parts
-        if pt_name not in self.pt_phase_orders or terminal not in ('A', 'B', 'C'):
-            return None
-        terminal_index = ('A', 'B', 'C').index(terminal)
-        actual_phase = self.pt_phase_orders[pt_name][terminal_index]
-        if pt_name == 'PT3':
-            # PT3 始终读 Gen2 自身的发电电压（Gen2 起机不合闸时提供相序参考）
-            prefix = 'g2'
-        else:
-            prefix = {'PT1': 'g1', 'PT2': 'g'}[pt_name]
-        return f"{prefix}{actual_phase.lower()}"
+        return self._phase_resolver.resolve_pt_node_plot_key(node_name)
 
     def get_pt_phase_sequence(self, pt_name: str) -> str:
-        """
-        返回 pt_name（'PT1' 或 'PT3'）的三相实际相序。
-
-        原理：通过 resolve_pt_node_plot_key 获取三个端子对应的实际物理波形
-        （'a'/'b'/'c'），判断 A-B-C 端子标注是否构成 ABC（正序）或 ACB（逆序）。
-
-        Returns: 'ABC' | 'ACB' | 'FAULT'
-        """
-        fc = self.sim_state.fault_config
-        # E03：PT3 A 相极性反接 → VAB≈VCA≈相电压，VBC≈线电压，三相严重不平衡
-        # 相序仪无法判定正/逆序，返回 FAULT（Widget 显示静止暗淡 + "未知"）
-        if (fc.active and not fc.repaired
-                and fc.scenario_id == 'E03' and pt_name == 'PT3'):
-            return 'FAULT'
-        phase_map = {}
-        _rbc = self.sim_state.fault_reverse_bc
-        for ph in ('A', 'B', 'C'):
-            node = f"{pt_name}_{ph}"
-            key = self.resolve_pt_node_plot_key(node)
-            if key is None or key[-1] not in ('a', 'b', 'c'):
-                return 'FAULT'
-            actual = key[-1]   # 'a', 'b', or 'c'（基于 pt_phase_orders 的 key 名）
-            # fault_reverse_bc 物理上对调 Gen2 B/C 绕组：
-            # key 'g2b' 实际承载 C 相波形，'g2c' 实际承载 B 相波形
-            if _rbc and key == 'g2b':
-                actual = 'c'
-            elif _rbc and key == 'g2c':
-                actual = 'b'
-            phase_map[ph] = actual
-
-        order = (phase_map['A'], phase_map['B'], phase_map['C'])
-        # 合法性校验：三端子必须对应三个不同物理相，否则为缺相/短接故障
-        if len(set(order)) < 3:
-            return 'FAULT'
-        # 返回实际三字母相序（如 ABC、BAC、ACB 等），保留原始端子读取顺序
-        return order[0].upper() + order[1].upper() + order[2].upper()
+        return self._phase_resolver.get_pt_phase_sequence(pt_name)
 
     def resolve_loop_node_phase(self, node_name):
-        _, gen_name, terminal = node_name.split('_', 2)
-        # G1：以 pt_phase_orders['PT2'] 为单一数据源（inject_fault/repair_fault/手动修复均写此处）
-        if gen_name == 'G1':
-            idx = ('A', 'B', 'C').index(terminal)
-            return self.pt_phase_orders['PT2'][idx]
-        if gen_name == 'G2':
-            idx = ('A', 'B', 'C').index(terminal)
-            # G2 机端端子级错接由 g2_blackbox_order 表达；fault_reverse_bc 仅保留为旧内部反相陷阱兼容。
-            phase = self.g2_blackbox_order[idx]
-            if self.sim_state.fault_reverse_bc:
-                if phase == 'B':
-                    phase = 'C'
-                elif phase == 'C':
-                    phase = 'B'
-            return phase
-        return terminal
+        return self._phase_resolver.resolve_loop_node_phase(node_name)
 
     # ════════════════════════════════════════════════════════════════════════
     # 小型辅助（被 UI 或多个服务直接调用）

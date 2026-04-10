@@ -10,6 +10,7 @@ from domain.assessment import AssessmentEvent, AssessmentSession
 from domain.enums import BreakerPosition, SystemMode
 from domain.models import FaultConfig, GeneratorState, SimulationState
 from services.flow_mode_manager import FlowModeManager
+from services.phase_order_resolver import PhaseOrderResolver
 from domain.test_states import (
     LoopTestState,
     PtExamState,
@@ -41,6 +42,7 @@ class ControllerStub:
         self.g2_blackbox_order = ["A", "B", "C"]
         self.pt1_pri_blackbox_order = ["A", "B", "C"]
         self.pt1_sec_blackbox_order = ["A", "B", "C"]
+        self._phase_resolver = PhaseOrderResolver(self)
 
         self.loop_test_state = LoopTestState()
         self.pt_voltage_check_state = PtVoltageCheckState()
@@ -86,52 +88,13 @@ class ControllerStub:
         return True
 
     def resolve_pt_node_plot_key(self, node_name: str) -> str | None:
-        parts = node_name.split("_", 1)
-        if len(parts) != 2:
-            return None
-        pt_name, terminal = parts
-        if pt_name not in self.pt_phase_orders or terminal not in ("A", "B", "C"):
-            return None
-        terminal_index = ("A", "B", "C").index(terminal)
-        actual_phase = self.pt_phase_orders[pt_name][terminal_index]
-        if pt_name == "PT3":
-            prefix = "g2"
-        else:
-            prefix = {"PT1": "g1", "PT2": "g"}[pt_name]
-        return f"{prefix}{actual_phase.lower()}"
+        return self._phase_resolver.resolve_pt_node_plot_key(node_name)
 
     def get_pt_phase_sequence(self, pt_name: str) -> str:
-        phase_map = {}
-        for phase in ("A", "B", "C"):
-            node = f"{pt_name}_{phase}"
-            key = self.resolve_pt_node_plot_key(node)
-            if key is None or key[-1] not in ("a", "b", "c"):
-                return "FAULT"
-            actual = key[-1]
-            if self.sim_state.fault_reverse_bc and key == "g2b":
-                actual = "c"
-            elif self.sim_state.fault_reverse_bc and key == "g2c":
-                actual = "b"
-            phase_map[phase] = actual
-        order = (phase_map["A"], phase_map["B"], phase_map["C"])
-        if len(set(order)) < 3:
-            return "FAULT"
-        return "".join(item.upper() for item in order)
+        return self._phase_resolver.get_pt_phase_sequence(pt_name)
 
     def resolve_loop_node_phase(self, node_name: str) -> str:
-        _, gen_name, terminal = node_name.split("_", 2)
-        idx = ("A", "B", "C").index(terminal)
-        if gen_name == "G1":
-            return self.pt_phase_orders["PT2"][idx]
-        if gen_name == "G2":
-            phase = self.g2_blackbox_order[idx]
-            if self.sim_state.fault_reverse_bc:
-                if phase == "B":
-                    phase = "C"
-                elif phase == "C":
-                    phase = "B"
-            return phase
-        return terminal
+        return self._phase_resolver.resolve_loop_node_phase(node_name)
 
     def is_sync_test_active(self) -> bool:
         return self.sync_test_state.started and not self.sync_test_state.completed
