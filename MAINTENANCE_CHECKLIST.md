@@ -10,11 +10,11 @@
 请按顺序阅读，建立上下文：
 
 1.MAINTENANCE_CHECKLIST.md
--§1.3 / §1.4 / §1.6（工程边界红线 / 接口隔离 / 每轮迭代固定动作）
--§3 当前总体进度
--§4 Phase 1 第四项 拆出 PhaseOrderResolver 描述
--§9 第 10-12 轮记录（前三轮方法学参考）
--§10 下一轮默认起点
+ -§1.3 / §1.4 / §1.6（工程边界红线 / 接口隔离 / 每轮迭代固定动作）
+ -§3 当前总体进度
+ -§4 Phase 1 第四项 拆出 PhaseOrderResolver 描述
+ -§9 第 10-12 轮记录（前三轮方法学参考）
+ -§10 下一轮默认起点
 2.app/main.py
 PowerSyncController.__init__（字段 pt_phase_orders / g1_blackbox_order / g2_blackbox_order / sim_state）
 本轮要搬走的 3 个方法（第 302-372 行）：
