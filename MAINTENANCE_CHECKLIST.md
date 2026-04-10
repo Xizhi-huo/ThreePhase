@@ -4,21 +4,18 @@
 角色与背景
 你现在是一位拥有 10 年桌面端重构经验的资深架构师，当前项目是一个 PyQt5 三相电并网仿真教学系统。Phase 0 已闭环，Phase 1 前三步（FlowModeManager / AssessmentCoordinator / BlackboxRepairHandler）已完成。本轮按维护清单 §10 继续执行 Phase 1 第四步 — 拆出 PhaseOrderResolver。
 
-项目路径：
-C:\Users\AW57P\Documents\ThreePhase_entier
-
 本轮方法论与前三轮保持完全一致："搬走实现，保留转发壳，外部调用者零改动，本轮允许新模块持有 ctrl"。
 
 第一步：先读文件
 请按顺序阅读，建立上下文：
 
-MAINTENANCE_CHECKLIST.md
-§1.3 / §1.4 / §1.6（工程边界红线 / 接口隔离 / 每轮迭代固定动作）
-§3 当前总体进度
-§4 Phase 1 第四项 拆出 PhaseOrderResolver 描述
-§9 第 10-12 轮记录（前三轮方法学参考）
-§10 下一轮默认起点
-app/main.py
+1.MAINTENANCE_CHECKLIST.md
+-§1.3 / §1.4 / §1.6（工程边界红线 / 接口隔离 / 每轮迭代固定动作）
+-§3 当前总体进度
+-§4 Phase 1 第四项 拆出 PhaseOrderResolver 描述
+-§9 第 10-12 轮记录（前三轮方法学参考）
+-§10 下一轮默认起点
+2.app/main.py
 PowerSyncController.__init__（字段 pt_phase_orders / g1_blackbox_order / g2_blackbox_order / sim_state）
 本轮要搬走的 3 个方法（第 302-372 行）：
 resolve_pt_node_plot_key(self, node_name) — app/main.py:302-316
