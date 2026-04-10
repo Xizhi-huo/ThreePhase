@@ -1,3 +1,283 @@
+‘’‘
+
+
+任务：核查 Phase 1 第四步 — 拆出 PhaseOrderResolver（第 13 轮）是否正确完成
+
+你的角色：
+你是一位资深 Python 桌面端架构审查员。你当前不是来继续开发，而是严格核查这一轮重构是否符合任务要求、是否存在越界修改、是否保持行为不变。
+
+项目背景：
+这是一个 PyQt5 三相电并网仿真教学系统，当前处于维护清单驱动的重构阶段。
+Phase 0 已闭环。
+Phase 1 第一步（拆出 FlowModeManager）已完成。
+Phase 1 第二步（拆出 AssessmentCoordinator）已完成。
+Phase 1 第三步（拆出 BlackboxRepairHandler）已完成。
+本轮目标是：将 Controller 上的“PT 节点解析 + 相序判定 + 回路节点相位解析”逻辑抽成独立解析器 `services/phase_order_resolver.py`，并让 `app/main.py` 只保留转发壳；同时 `tests/support/stubs.py` 也要同步接到新解析器上，而不是继续保留手工实现。
+
+你要做的事情只有一件：
+严格核查“Phase 1 第四步 — 拆出 PhaseOrderResolver”是否按要求完成。
+
+第一步：先读这些文件
+请按顺序阅读并建立核查上下文：
+
+1. `MAINTENANCE_CHECKLIST.md`
+重点看：
+- §1.3 工程边界红线
+- §1.4 接口隔离原则
+- §1.6 每轮迭代固定动作
+- §3 当前总体进度
+- §4 Phase 1 路线图
+- §9 第 13 轮记录
+- §10 下一轮默认起点
+
+2. `app/main.py`
+重点核查：
+- `PowerSyncController.__init__`
+- 是否新增 `self._phase_resolver = PhaseOrderResolver(self)`
+- 以下 3 个方法是否仍存在但已变为纯转发壳：
+  - `resolve_pt_node_plot_key`
+  - `get_pt_phase_sequence`
+  - `resolve_loop_node_phase`
+- 原始实现体是否已经从 Controller 中移除
+
+3. `services/phase_order_resolver.py`
+重点核查：
+- 是否为新文件
+- 是否包含 `PhaseOrderResolver`
+- 是否承接了以下 3 个方法：
+  - `resolve_pt_node_plot_key`
+  - `get_pt_phase_sequence`
+  - `resolve_loop_node_phase`
+- 是否没有引入 PyQt5 / UI 依赖
+- 是否只是在搬运原逻辑，没有新增行为
+
+4. `tests/support/stubs.py`
+重点核查：
+- 是否新增 `from services.phase_order_resolver import PhaseOrderResolver`
+- `ControllerStub.__init__` 是否新增：
+  - `self._phase_resolver = PhaseOrderResolver(self)`
+- 这 3 个方法是否已从手工实现改为转发壳：
+  - `resolve_pt_node_plot_key`
+  - `get_pt_phase_sequence`
+  - `resolve_loop_node_phase`
+- 旧手工实现是否已删除，而不是保留两套逻辑
+
+5. `services/blackbox_repair_handler.py`
+用途：
+- 作为上一轮“模块内互调 vs 跨模块走 self._ctrl”的写法参考
+- 判断 `PhaseOrderResolver` 是否沿用了相同方法学
+
+6. 以下外部调用方文件
+核查这些文件是否被改动，原则上应保持零改动：
+- `services/_physics_measurement.py`
+- `ui/tabs/circuit_tab.py`
+- `services/blackbox_repair_handler.py`
+- `services/assessment_coordinator.py`
+- `services/flow_mode_manager.py`
+- `services/fault_manager.py`
+- `services/assessment_service.py`
+
+7. `tests/test_physics_snapshot.py`
+8. `tests/test_assessment_snapshot.py`
+
+第二步：严格按以下核查清单执行
+
+A. 文件与符号核查
+请确认：
+
+1. 是否新增了：
+- `services/phase_order_resolver.py`
+
+2. 新文件中是否包含：
+- `PhaseOrderResolver`
+
+3. `PhaseOrderResolver` 是否承接了以下 3 个方法：
+- `resolve_pt_node_plot_key`
+- `get_pt_phase_sequence`
+- `resolve_loop_node_phase`
+
+4. `app/main.py` 中这 3 个方法是否还存在，但只剩转发壳
+
+5. `tests/support/stubs.py` 中这 3 个方法是否也只剩转发壳
+
+6. `tests/support/stubs.py` 中旧手工实现是否确实已删除
+
+B. 行为保持核查
+请确认以下点是否成立：
+
+1. `resolve_pt_node_plot_key`
+- 输入 `"PT1_A"` 正常返回 `"g1a"`
+- 非法节点返回 `None`
+- `PT3` 始终使用 `"g2"` 前缀
+- `{'PT1': 'g1', 'PT2': 'g'}` 映射保持不变
+
+2. `get_pt_phase_sequence`
+- `E03 + PT3` 特判仍返回 `'FAULT'`
+- `fault_reverse_bc` 下 `g2b/g2c` 对调逻辑保持不变
+- 三相不完整时仍返回 `'FAULT'`
+- 正常时仍返回三字母大写相序
+
+3. `resolve_loop_node_phase`
+- `G1` 仍走 `pt_phase_orders['PT2']`
+- `G2` 仍走 `g2_blackbox_order`
+- `fault_reverse_bc` 下 `B/C` 互换逻辑保持不变
+- 非 `G1/G2` 时仍直接返回 `terminal`
+
+4. `ControllerStub`
+- 在接入新解析器后，这 3 个方法的行为是否与迁移前手工实现保持一致
+- Physics 快照测试路径是否因此真正经过 `PhaseOrderResolver`
+
+C. 模块内互调核查
+请重点检查以下点：
+
+1. 在 `services/phase_order_resolver.py` 中：
+- `get_pt_phase_sequence()` 内部调用 `resolve_pt_node_plot_key()` 时，是否写成：
+  - `self.resolve_pt_node_plot_key(node)`
+而不是：
+  - `self._ctrl.resolve_pt_node_plot_key(node)`
+
+2. 读取状态时是否正确走 `self._ctrl.xxx`
+- `self._ctrl.pt_phase_orders`
+- `self._ctrl.g2_blackbox_order`
+- `self._ctrl.sim_state`
+
+D. 依赖边界核查
+请确认以下边界是否成立：
+
+1. `services/phase_order_resolver.py` 是否没有：
+- `from PyQt5 ...`
+- `from ui...`
+- 新增不必要的 GUI 依赖
+
+2. `PhaseOrderResolver` 是否允许持有 `ctrl`，但仅搬运原本 Controller 已有的依赖访问
+3. 是否没有新增原 Controller 中不存在的 `self._ctrl.xxx` 访问点
+4. 外部调用方是否仍通过 `ctrl.resolve_xxx()` / `ctrl.get_pt_phase_sequence()` 使用原接口，而不需要改调用代码
+
+E. 越界修改核查
+请重点检查是否有超出本轮范围的修改。以下内容本轮不应该被动到：
+
+- `set_g2_terminal_fault`
+- `reset_blackbox_orders`
+- `reshuffle_pt_phase_orders`
+- `reset_pt_phase_orders`
+- `_get_generator_state`
+- `_expected_pt_probe_pair`
+- `_get_current_pt_phase_match`
+- `_get_current_loop_phase_match`
+- `_is_gen_synced`
+- `services/blackbox_repair_handler.py`
+- `services/assessment_coordinator.py`
+- `services/flow_mode_manager.py`
+- `services/fault_manager.py`
+- `services/assessment_service.py`
+- README.md
+- context.md
+- 新增测试文件
+
+如果发现这些被改动，必须明确指出“越界修改”。
+
+F. 外部调用方影响核查
+请确认以下调用点保持原样：
+
+- `services/_physics_measurement.py:144`
+- `services/_physics_measurement.py:145`
+- `ui/tabs/circuit_tab.py:550`
+- `ui/tabs/circuit_tab.py:849`
+
+如果你能获取版本控制状态，请确认这些文件是否为 unchanged。
+如果当前目录不是 Git 仓库，请明确说明“无法用 git 状态验证，只能做静态文件差异核查”。
+
+G. 测试与回归核查
+请确认：
+
+1. `tests/support/stubs.py` 是否已按本轮要求完成适配
+2. `pytest` 是否已实际运行
+3. 是否通过以下命令完成验证：
+- `python -m pytest tests/ -v -p no:cacheprovider`
+
+请报告：
+- 通过数
+- 失败数
+- 跳过数
+- 是否存在快照漂移
+- 是否存在测试被跳过的情况
+
+特别注意：
+- `tests/test_physics_snapshot.py` 是本轮的核心验证入口
+- 需要确认 `PhysicsEngine(stub)` 在测试中确实经过了 `resolve_pt_node_plot_key` / `resolve_loop_node_phase` 的新实现，而不是旧手工逻辑
+
+H. 维护清单核查
+请核查 `MAINTENANCE_CHECKLIST.md` 是否同步更新了以下内容：
+
+1. §2
+- `app/main.py` 行数是否已更新为本轮新值
+
+2. §3
+- 当前阶段是否更新为：
+  `Phase 1 — Controller 瘦身（进行中：PhaseOrderResolver 已完成，下一步 HardwareActions）`
+
+3. §4
+- `拆出 PhaseOrderResolver` 是否已打勾 `[x]`
+- 是否新增了与前几轮一致的说明：
+  - 本轮允许持有 `ctrl`
+  - Phase 4 再收口
+
+4. §9
+- 是否新增第 13 轮记录
+- 内容是否与本轮工作相匹配
+- 第 12 轮历史是否仍保持原样，不应被误改
+
+5. §10
+- 下一轮默认起点是否已改为：
+  `Phase 1 — 拆出 HardwareActions`
+
+第三步：输出格式要求
+请严格按下面格式输出你的核查结果：
+
+1. 总结结论
+- 直接给出：
+  - “通过”
+  - 或 “未通过”
+
+2. 已完成项
+- 用列表写清楚本轮已满足的要求
+
+3. 不符合项
+- 如果有，逐条列出
+- 每条必须包含：
+  - 文件路径
+  - 问题描述
+  - 为什么不符合本轮要求
+
+4. 越界修改检查
+- 明确写：
+  - “未发现越界修改”
+  - 或 “发现越界修改”，并列出具体文件和内容
+
+5. 外部调用方影响检查
+- 明确列出外部调用文件是否保持零改动
+- 如果无法使用 git 验证，必须明确写明
+
+6. 测试与回归结果
+- 报告 pytest 的核查结论
+- 如果你无法实际运行测试，也必须明确说明“只完成静态核查，未完成运行验证”
+
+7. 最终判定
+- 用一句话给出：
+  - “Phase 1 第四步可视为完成”
+  - 或
+  - “Phase 1 第四步暂不能视为完成”
+
+核查原则：
+- 你是审查，不是开发
+- 不要顺手修代码
+- 不要给大段发散建议
+- 只围绕“这一轮是否按要求完成”给出结论
+- 优先找“是否行为变更”“是否越界”“是否调用链断裂”“是否清单未同步”
+
+’‘’
+
+
 # 维护与重构清单 v2
 
 最后更新：`2026-04-09`
