@@ -24,7 +24,7 @@ class AssessmentCoordinator:
         self._ctrl = ctrl
 
     def start_assessment_session(self, scene_id: str, preset_mode: str = 'specified'):
-        if not self._ctrl.should_record_assessment_metrics():
+        if not self._ctrl.flow_mgr.should_record_assessment_metrics():
             self._ctrl.assessment_session = None
             return
         now = datetime.now().isoformat(timespec='seconds')
@@ -45,7 +45,7 @@ class AssessmentCoordinator:
         )
 
     def append_assessment_event(self, event_type: str, step: int = 0, **payload):
-        if not self._ctrl.should_record_assessment_metrics():
+        if not self._ctrl.flow_mgr.should_record_assessment_metrics():
             return
         session = self._ctrl.assessment_session
         if session is None or session.finished_at is not None:
@@ -67,7 +67,7 @@ class AssessmentCoordinator:
         fc.detected = True
         self._ctrl._last_fault_detected = True
 
-        if not self._ctrl.should_record_assessment_metrics():
+        if not self._ctrl.flow_mgr.should_record_assessment_metrics():
             return True
 
         session = self._ctrl.assessment_session
@@ -125,7 +125,7 @@ class AssessmentCoordinator:
         }
 
     def finish_assessment_session(self):
-        if not self._ctrl.should_auto_score_assessment():
+        if not self._ctrl.flow_mgr.should_auto_score_assessment():
             return None
         session = self._ctrl.assessment_session
         if session is None:
@@ -135,7 +135,7 @@ class AssessmentCoordinator:
         if not session.state_snapshot:
             session.state_snapshot = self.capture_assessment_state_snapshot()
         self.append_assessment_event('assessment_finished')
-        result = self._ctrl._assessment_svc.build_result(session)
+        result = self._ctrl.assessment_svc.build_result(session)
         session.finished_at = result.finished_at
         session.result = result
         return result
@@ -144,7 +144,7 @@ class AssessmentCoordinator:
         session = self._ctrl.assessment_session
         if session is None or session.finished_at is not None:
             return False
-        if not self._ctrl.is_assessment_mode():
+        if not self._ctrl.flow_mgr.is_assessment_mode():
             return False
         if session.fault_selection_mode != 'random':
             return False
@@ -154,7 +154,7 @@ class AssessmentCoordinator:
             return False
         if current_step < 4:
             return False
-        if not self._ctrl.assessment_ends_after_step4_closed_loop():
+        if not self._ctrl.flow_mgr.assessment_ends_after_step4_closed_loop():
             return False
         return self.is_assessment_closed_loop_ready()
 
@@ -210,23 +210,23 @@ class AssessmentCoordinator:
         fc = self._ctrl.sim_state.fault_config
         block_before_step5 = (
             ready_for_step5
-            and self._ctrl.should_block_step5_until_blackbox_fixed()
+            and self._ctrl.flow_mgr.should_block_step5_until_blackbox_fixed()
             and self._ctrl.fault_mgr.has_unrepaired_wiring_fault()
             and fc.scenario_id not in ('E01', 'E02', 'E03')
         )
         should_emit_assessment_gate_event = (
             block_before_step5
-            and self._ctrl.is_assessment_mode()
+            and self._ctrl.flow_mgr.is_assessment_mode()
             and not pre_step5_repair_triggered
         )
         should_show_blackbox_required_dialog = (
             block_before_step5
-            and self._ctrl.should_show_blackbox_required_dialog_before_step5()
+            and self._ctrl.flow_mgr.should_show_blackbox_required_dialog_before_step5()
             and not pre_step5_repair_triggered
         )
         assessment_result_ready = (
-            self._ctrl.is_assessment_mode()
-            and self._ctrl.assessment_ends_after_step4_closed_loop()
+            self._ctrl.flow_mgr.is_assessment_mode()
+            and self._ctrl.flow_mgr.assessment_ends_after_step4_closed_loop()
             and self.is_assessment_closed_loop_ready()
             and self._ctrl.assessment_session is not None
             and not self.requires_random_fault_identification(current_step)

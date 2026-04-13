@@ -128,7 +128,7 @@ class FaultManager:
         sid = fc.scenario_id
         fc.repaired = True
         fc.detected = False
-        self._ctrl.append_assessment_event('fault_repaired', step=step, scene_id=sid, source=source)
+        self._ctrl.assessment_coord.append_assessment_event('fault_repaired', step=step, scene_id=sid, source=source)
         self._ctrl.reset_blackbox_orders()
 
         if sid == 'E01':

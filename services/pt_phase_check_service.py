@@ -81,7 +81,7 @@ class PtPhaseCheckService:
         gen1, gen2 = sim.gen1, sim.gen2
         state = self._ctrl.pt_phase_check_state
         def _record_invalid(reason):
-            self._ctrl.append_assessment_event(
+            self._ctrl.assessment_coord.append_assessment_event(
                 'measurement_invalid',
                 step=3,
                 target=pt_name,
@@ -153,7 +153,7 @@ class PtPhaseCheckService:
             phase_match,
             self._ctrl.physics.meter_reading,
         )
-        self._ctrl.append_assessment_event(
+        self._ctrl.assessment_coord.append_assessment_event(
             'measurement_recorded',
             step=3,
             target=pt_name,
@@ -168,13 +168,13 @@ class PtPhaseCheckService:
 
         if any_fail:
             state.result = 'fail'
-            self._ctrl.mark_fault_detected(
+            self._ctrl.assessment_coord.mark_fault_detected(
                 step=3,
                 source='pt_phase_check',
                 target=pt_name,
                 point=phase,
             )
-            if self._ctrl.should_show_diagnostic_hints():
+            if self._ctrl.flow_mgr.should_show_diagnostic_hints():
                 msg = f"⚠️ 相序异常！{key} 检测到端子接线错误，请检查对应侧 B/C 接线。"
             else:
                 msg = f"⚠️ 相序异常！{key} 测量结果不一致，请继续排查。"
@@ -188,7 +188,7 @@ class PtPhaseCheckService:
             self._set_feedback(f"{key} 相序正确，请继续测量其余项目。", "#006600")
         else:
             state.result = 'fail'
-            if self._ctrl.should_show_diagnostic_hints():
+            if self._ctrl.flow_mgr.should_show_diagnostic_hints():
                 msg = f"⚠️ {key} 相序异常！请检查对应侧接线。"
             else:
                 msg = f"⚠️ {key} 相序异常！请继续排查。"
@@ -200,7 +200,7 @@ class PtPhaseCheckService:
         sim = self._ctrl.sim_state
 
         def _record_invalid(reason: str):
-            self._ctrl.append_assessment_event(
+            self._ctrl.assessment_coord.append_assessment_event(
                 'measurement_invalid',
                 step=3,
                 target=pt_name,
@@ -259,14 +259,14 @@ class PtPhaseCheckService:
             )
 
         if any_fail and self._ctrl.sim_state.fault_config.active:
-            self._ctrl.mark_fault_detected(
+            self._ctrl.assessment_coord.mark_fault_detected(
                 step=3,
                 source='phase_seq_meter',
                 target=pt_name,
                 sequence=seq,
             )
 
-        self._ctrl.append_assessment_event(
+        self._ctrl.assessment_coord.append_assessment_event(
             'measurement_recorded',
             step=3,
             target=pt_name,
@@ -307,7 +307,7 @@ class PtPhaseCheckService:
         fc = self._ctrl.sim_state.fault_config
         fault_training = (
             fc.active and fc.detected and not fc.repaired
-            and self._ctrl.can_advance_with_fault()
+            and self._ctrl.flow_mgr.can_advance_with_fault()
         )
 
         if fault_training:

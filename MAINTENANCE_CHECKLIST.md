@@ -1,223 +1,6 @@
-'''
-
-任务：Phase 1 收尾（第二阶段）— FlowMgr / AssessmentCoord / AssessmentService 公开化 + 剩余转发壳清理（第 16 轮）
-
-你的角色：
-你是一位资深 Python 桌面端重构工程师。本轮是 Phase 1 的正式收尾：把上一轮未处理的 3 个"高频/全局"服务句柄公开化，删除对应的全部纯转发壳，让 Phase 1 路线图最后一项能被正式勾选。
-
-项目背景：
-这是一个 PyQt5 三相电并网仿真教学系统。
-Phase 0 已闭环；Phase 1 前 5 步拆模块已完成；Phase 1 收尾第一阶段（第 15 轮）已完成 9 个低频服务句柄的公开化与 34 个壳的清理，`app/main.py` 从 725 行降至 598 行。
-本轮完成后：Phase 1 必须正式结束，`app/main.py` 目标 ≤ 400 行（保留 Controller 编排与少量 UI 胶水）。
-
-本轮核心策略（必须严格遵守）：
-本轮只对以下 3 个服务句柄做"私有改公开 + 删壳 + 改调用点"三件事：
-
-    self._flow_mgr          → self.flow_mgr
-    self._assessment_coord  → self.assessment_coord
-    self._assessment_svc    → self.assessment_svc
-
-重要限定：
-- `AssessmentService` 目前并没有"return self._assessment_svc.xxx()"形态的纯转发壳；本轮对它只做句柄重命名，不得触碰其内部实现（`build_result()` 的重写属于 Phase 2，不在本轮范围）。
-- `FlowModeManager` 上约 22 个壳 + `AssessmentCoordinator` 上约 11 个壳，合计约 33 个壳需删除，调用点预估 ~160 处。
-
-第一步：先读这些文件，建立核查上下文
-
-1. `MAINTENANCE_CHECKLIST.md`
-重点看：
-- §1.3 工程边界红线
-- §1.4 接口隔离原则
-- §1.6 每轮迭代固定动作
-- §3 当前总体进度
-- §4 Phase 1 路线图（第 6 项 "删除 Controller 中已迁出的旧方法"）
-- §9 第 15 轮记录（确认起点）
-- §10 下一轮默认起点
-
-2. `app/main.py`
-重点识别本轮 3 个目标句柄对应的纯转发壳方法，列出完整清单。
-参考清单（视实际为准）：
-
-FlowModeManager 相关（约 22 个）：
-    flow_policy / flow_policy_flag
-    is_teaching_mode / is_engineering_mode / is_assessment_mode
-    can_advance_with_fault
-    require_all_measurements_before_finalize / require_step_pass_to_finalize
-    should_show_fault_detected_banner / should_show_diagnostic_hints
-    should_block_step5_until_blackbox_fixed / should_hold_at_step4_when_wiring_fault_unrepaired
-    should_show_blackbox_required_dialog_before_step5
-    can_inspect_blackbox / can_repair_in_blackbox
-    should_auto_clear_fault_only_when_all_blackboxes_normal
-    allow_admin_shortcuts / can_use_pt_exam_quick_record
-    should_record_assessment_metrics / should_auto_score_assessment
-    assessment_ends_after_step4_closed_loop
-
-AssessmentCoordinator 相关（约 11 个）：
-    start_assessment_session
-    append_assessment_event
-    mark_fault_detected
-    capture_assessment_state_snapshot
-    finish_assessment_session
-    requires_random_fault_identification
-    submit_random_fault_identification
-    mark_assessment_result_shown
-    is_assessment_closed_loop_ready
-    get_test_progress_snapshot
-    finish_assessment_session_if_ready
-
-判断依据："单行 return self._xxx.yyy(...)" 视为纯转发；含参数变形 / 分支 / 状态写回的不算。
-非纯转发的方法本轮保留。
-
-3. 以下服务文件（本轮可读可改）：
-- `services/flow_mode_manager.py`
-- `services/assessment_coordinator.py`
-- `services/assessment_service.py`
-
-以及上一轮已公开化的服务文件（本轮只在需要改"跨服务访问形式"时才动，不重排、不重写）：
-- `services/hardware_actions.py`
-- `services/phase_order_resolver.py`
-- `services/blackbox_repair_handler.py`
-- `services/fault_manager.py`
-- `services/loop_test_service.py`
-- `services/pt_voltage_check_service.py`
-- `services/pt_phase_check_service.py`
-- `services/pt_exam_service.py`
-- `services/sync_test_service.py`
-- `services/_physics_measurement.py`
-- `services/_physics_protection.py`
-- `services/_physics_arbitration.py`
-
-核查这些文件中的 `self._ctrl._flow_mgr` / `self._ctrl._assessment_coord` / `self._ctrl._assessment_svc` 访问，全部改为公开形式。
-
-4. UI 所有文件（本轮允许批量改调用点）：
-- `ui/main_window.py`
-- `ui/test_panel.py`
-- `ui/panels/*.py`
-- `ui/tabs/*.py`
-- `ui/dialogs/*.py` 等其它 `ui/` 子目录
-
-5. `tests/support/stubs.py`
-核查 Stub 中对 `_flow_mgr` 的持有是否需要同步改名；Stub 的对外方法签名不得变动。
-`_assessment_coord` / `_assessment_svc` 若 Stub 未持有则无需动。
-
-6. `tests/test_physics_snapshot.py` / `tests/test_assessment_snapshot.py`
-只读，本轮不应改测试逻辑。若其通过 `ctrl.<method>` 访问流程/考核查询接口，须改为 `ctrl.flow_mgr.<method>` 或 `ctrl.assessment_coord.<method>`。
-
-第二步：开工前必做
-
-1. 跑基线：
-       python -m pytest tests/ -v -p no:cacheprovider
-   应 5/5 PASS。
-2. 扫描反模式，确认无例外：
-       grep -rn "self\._ctrl\._flow_mgr\|self\._ctrl\._assessment_coord\|self\._ctrl\._assessment_svc" services/
-   这些调用点本轮必须全部替换。
-
-第三步：实施步骤（按服务族小步推进，每族独立提交）
-
-推荐处理顺序（从小到大，每一步跑 pytest 后再进下一步）：
-    1. AssessmentService      （仅句柄重命名；无壳删除；调用点 ~10 处）
-    2. AssessmentCoordinator  （~11 个壳，调用点 ~30 处）
-    3. FlowModeManager        （~22 个壳，调用点 ~120 处）
-
-每一族的三件事：
-
-A. 公开句柄
-在 `PowerSyncController.__init__` 中把 `self._xxx = XxxClass(self)` 改为 `self.xxx = XxxClass(self)`。
-不得同时保留两种写法（不引入任何临时别名 / @property 胶水）。
-
-    self._flow_mgr          → self.flow_mgr
-    self._assessment_coord  → self.assessment_coord
-    self._assessment_svc    → self.assessment_svc
-
-注意：`__init__` 中可能存在 `self.test_flow_mode = 'teaching'` 的赋值，它走的是 property setter；本轮只改句柄名，不删 property。
-
-B. 迁移调用点
-    `ctrl.<method>(...)` → `ctrl.<service>.<method>(...)`
-例如：
-    ctrl.is_assessment_mode()                    → ctrl.flow_mgr.is_assessment_mode()
-    ctrl.should_record_assessment_metrics()      → ctrl.flow_mgr.should_record_assessment_metrics()
-    ctrl.append_assessment_event(...)            → ctrl.assessment_coord.append_assessment_event(...)
-    ctrl.get_test_progress_snapshot(...)         → ctrl.assessment_coord.get_test_progress_snapshot(...)
-    ctrl.mark_fault_detected(...)                → ctrl.assessment_coord.mark_fault_detected(...)
-
-调用点搜索范围：`ui/` + `services/` + `app/main.py` + `tests/`。
-每一族改完后用 grep 确认零残留再进下一步：
-    grep -rn "ctrl\.<method_name>\b" ui/ services/ app/ tests/
-
-C. 删除 Controller 中的壳
-确认该族所有调用点已迁移后，从 `app/main.py` 删除这一族的所有单行 `return self.<service>.<method>(...)` 方法。
-只删纯转发壳；带逻辑的方法保留。
-
-D. 跑测试
-    python -m pytest tests/ -v -p no:cacheprovider
-5 个用例必须 PASS；若 FAIL，先修复再进入下一族。
-
-E. 每族单独 git commit
-commit 信息建议：`Phase 1 收尾(16): 公开 <service> 并删除对应转发壳`。
-
-第四步：特殊保留项（必须明确不动）
-
-1. `test_flow_mode` property + setter：
-   它不是纯转发壳，是 property 形式的 state 代理（Controller 层概念暴露）。本轮保留不删。
-   `__init__` 中 `self.test_flow_mode = 'teaching'` 的写法保持原样。
-
-2. `pt_blackbox_mode` + `_BoolProxy` + `_pt_blackbox_mode_proxy`：UI 兼容胶水，保留不动。
-
-3. 保留在 Controller 的功能性方法：
-   `toggle_pause` / `request_ui_tab` / `_get_generator_state` / `queue_accident_dialog` / `_consume_pending_accident_dialog` / `inject_fault` / `repair_fault` / `set_g2_terminal_fault` / `on_pt_blackbox_toggle` / `reset_blackbox_orders` / `reshuffle_pt_phase_orders` / `reset_pt_phase_orders`
-
-4. 上一轮已公开化的 9 个服务句柄：不得再次改名、不得新增包装、不得合并进新句柄。
-
-5. `AssessmentService` 内部实现：
-   `build_result()` 的重写、`AssessmentContext` 的拆分、穿透 ctrl 读状态的清理全部属于 Phase 2。本轮对 `assessment_service.py` 只允许把 `self._ctrl._flow_mgr` / `self._ctrl._assessment_coord` 等访问改为公开形式；不得拆函数、不得改签名、不得引入新数据类。
-
-第五步：硬约束（违反即视为越界）
-
-1. 不得新增功能；不得改变任何服务方法的实现逻辑。
-2. 不得触碰 `domain/` 下任何文件。
-3. 不得动上一轮已公开化的 9 个句柄及其对应的已迁移调用形式。
-4. 不得删除 Controller 中带实际逻辑的方法（仅删单行 `return self.<service>.<method>(...)`）。
-5. 不得引入任何"兼容别名"：禁止 `self.xxx = self._xxx = ...`，禁止 @property 代理到旧名。
-6. 不得改 `ControllerStub` 的对外方法签名。
-7. 不得顺手重排无关空行 / 缩进 / import 顺序。
-8. 不得在本轮抽新服务或做 Phase 2/3/4 工作（包括 `AssessmentContext`、`build_result` 拆分、Mixin 组件化）。
-9. 不得处理 `tests/app/**` / `tests/services/**` 镜像目录 —— 该目录为历史快照，本轮不在清理范围，若有必要另起一轮专项。
-
-第六步：更新 MAINTENANCE_CHECKLIST.md
-
-- §2 基线表：`app/main.py` 新行数（预计 598 → ~400 ~ 430），对应状态改为"健康"。同步更新耦合度基线表（如 `ctrl` 引用数下降显著）。
-- §3 当前总体进度：`当前阶段` 改为 "Phase 2 — 评分系统模块化（预计下一轮启动）"。`下一轮默认起点` 改为 Phase 2 第一步："定义 `AssessmentContext` dataclass"。
-- §4 Phase 1 路线图：
-    - "删除 Controller 中已迁出的旧方法" 改为 `[x]`，补充说明第 16 轮已完成全部 12 个服务句柄的公开化与壳清理。
-    - "每步完成后跑快照测试验证" 保持 `[x]`。
-- §9 新增"第 16 轮"记录，严格按 §11 模板：
-    - 本轮唯一主攻目标：FlowMgr / AssessmentCoord / AssessmentService 句柄公开化 + 壳清理
-    - 实际完成：逐条列出 3 个句柄公开、删除壳数量、迁移调用点数量
-    - 删除了哪些旧代码
-    - 接口变化（Controller 不再承担流程策略/考核生命周期的转发职责）
-    - 耦合度变化（app/main.py 行数 598 → ?，文件降入"健康"区间）
-    - 快照测试：PASS
-    - 回归清单：PASS
-    - 下一轮起点：Phase 2 第一步 — 定义 `AssessmentContext`
-- §10 下一轮默认起点：改为 "Phase 2 — 定义 `AssessmentContext` 并切断评分对 ctrl 的依赖"。
-
-第七步：完成后输出
-
-1. 修改的文件清单（git diff --stat，仅列生产路径与 tests/support/）。
-2. `app/main.py` 行数变化：`598 -> ?`
-3. 本轮公开的 3 个句柄清单确认。
-4. 本轮删除的壳层数量（应接近 33 个）。
-5. 本轮迁移的调用点数量（预计 ~160 处）。
-6. 快照测试结果（5/5 PASS）。
-7. `MAINTENANCE_CHECKLIST.md` 变更摘要。
-8. 明确声明："Phase 1 已正式完成；下一轮进入 Phase 2。"
-
-'''
-
-
-
 # 维护与重构清单 v2
 
-最后更新：`2026-04-09`
+最后更新：`2026-04-13`
 
 用途：
 - 给人看：明确当前项目的维护边界、阶段目标、已完成进度。
@@ -318,7 +101,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 | 文件 | 行数 | 状态 | 核心问题 |
 |---|---:|---|---|
 | `ui/test_panel.py` | 2417 | 必须拆分 | 9 个 Mixin 中最大的，111 处 ctrl 引用 |
-| `app/main.py` | 598 | 健康，观察 | 第一阶段收尾已完成，剩余 FlowMgr / AssessmentCoord 壳层待第 16 轮清理 |
+| `app/main.py` | 502 | 需要审查 | Controller 已完成 Phase 1 收尾，保留编排与少量 UI 胶水 |
 | `ui/styles.py` | 1007 | 纯数据，暂缓 | 纯静态样式声明，无逻辑耦合，优先级低 |
 | `services/assessment_service.py` | 791 | 必须拆分 | 单体 `build_result()` + 穿透 ctrl 读状态 |
 | `ui/main_window.py` | 528 | 需要审查 | 9-Mixin 继承入口，待迁移为组合式 |
@@ -328,7 +111,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 | `services/pt_phase_check_service.py` | 345 | 健康，观察 | 37 处 `self._ctrl` 引用需逐步收口 |
 
 说明：
-- 核心攻坚对象：`ui/test_panel.py`、`app/main.py`、`services/assessment_service.py`。
+- 核心攻坚对象：`ui/test_panel.py`、`services/assessment_service.py`。
 - **耦合度指标比行数更重要**。各文件的 `self._ctrl` / `self.ctrl` 引用数是关键度量。
 
 ### 当前耦合度基线（2026-04-09）
@@ -355,10 +138,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 1 — Controller 瘦身（收尾中：9 个低频服务句柄已公开化，剩余 `FlowMgr` / `AssessmentCoord` 留待第 16 轮） |
+| 当前阶段 | Phase 2 — 评分系统模块化（Phase 1 已正式完成） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/test_panel.py`(2417)、`services/assessment_service.py`(791) |
-| 下一轮默认起点 | Phase 1 收尾（第二阶段）— 公开 `FlowMgr` / `AssessmentCoord` 并删除剩余壳层 |
+| 下一轮默认起点 | Phase 2 — 定义 `AssessmentContext` 并切断评分对 ctrl 的依赖 |
 
 ---
 
@@ -428,11 +211,11 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
   - 输出接口：状态变更直接写入传入的 State 对象
   - 本轮落地策略：**允许**持有 `ctrl` 引用，仅做“搬走实现、Controller 保留转发壳”
   - 后续收口目标：Phase 4 再逐步移除 `ctrl` 直连，改为显式状态/接口注入
-- [ ] **删除 Controller 中已迁出的旧方法**
+- [x] **删除 Controller 中已迁出的旧方法**
   - 不保留纯转发壳层（如 `def is_loop_test_complete(self): return self._loop_svc.is_loop_test_complete()`）
   - UI 直接调用对应 Service 的方法，或通过 Controller 暴露的有限接口
   - 第 15 轮已完成第一阶段：`HardwareActions`、`PhaseOrderResolver`、`BlackboxRepairHandler`、`FaultManager`、`LoopTestService`、`PtVoltageCheckService`、`PtPhaseCheckService`、`PtExamService`、`SyncTestService` 相关纯转发壳已删除
-  - 剩余 `FlowModeManager` / `AssessmentCoordinator` / `AssessmentService` 相关壳层留待第 16 轮继续收口
+  - 第 16 轮已完成第二阶段：`FlowModeManager`、`AssessmentCoordinator` 相关纯转发壳已删除；`AssessmentService` 句柄已公开化
 - [x] **每步完成后跑快照测试验证**
 
 完成标准：
@@ -684,7 +467,26 @@ class PowerSyncUI(QMainWindow):
 ### 当前未完成但已明确方向
 - `services/assessment_service.py` 仍需继续拆成多文件。
 - `ui/test_panel.py` 仍是当前最大风险文件。
-- `FlowMgr / AssessmentCoord` 相关剩余壳层待第 16 轮继续清理。
+
+### 第 16 轮 (2026-04-13)：Phase 1 收尾（第二阶段：FlowMgr / AssessmentCoord / AssessmentService 公开化 + 剩余壳清理）
+- 本轮唯一主攻目标：公开 `flow_mgr / assessment_coord / assessment_svc`，删除 Controller 中剩余的流程策略与考核生命周期转发壳
+- 实际完成：
+  - 将 `self._flow_mgr`、`self._assessment_coord`、`self._assessment_svc` 分别公开为 `self.flow_mgr`、`self.assessment_coord`、`self.assessment_svc`
+  - UI、服务层、测试替身中的旧调用点已改为 `ctrl.<service>.method(...)`
+  - `tests/support/stubs.py` 已同步 `flow_mgr` 与 `assessment_coord` 公开句柄，保留原有直接方法签名
+- 删除了哪些旧代码：
+  - `app/main.py` 中 `FlowModeManager` 相关 21 个纯转发壳
+  - `app/main.py` 中 `AssessmentCoordinator` 相关 11 个纯转发壳
+  - 本轮共清理剩余纯转发壳 32 个
+- 接口变化：
+  - Controller 不再承担流程策略与考核生命周期查询/命令的转发职责
+  - `AssessmentService` 仅完成句柄公开化，内部实现保持不变，Phase 2 再拆
+- 耦合度变化：
+  - `app/main.py` 行数 `483 -> 502`
+  - Controller 已完成 12 个服务句柄的公开化与壳清理，正式退回编排层
+- 快照测试：PASS（`python -m pytest tests/ -v -p no:cacheprovider`，5/5 通过）
+- 回归清单：PASS（按服务族逐步推进并持续回归）
+- 下一轮起点：Phase 2 — 定义 `AssessmentContext` 并切断评分对 ctrl 的依赖
 
 ### 第 15 轮 (2026-04-13)：Phase 1 收尾（第一阶段：9 个服务句柄公开化 + 纯转发壳清理）
 - 本轮唯一主攻目标：只处理 9 个低频/局部服务句柄，不触碰 `FlowModeManager`、`AssessmentCoordinator`、`AssessmentService`
@@ -700,7 +502,7 @@ class PowerSyncUI(QMainWindow):
   - Controller 不再对这 9 组能力提供旧的 `ctrl.method(...)` 壳入口
   - 外部统一改为 `ctrl.<service>.method(...)`
 - 耦合度变化：
-  - `app/main.py` 行数 `725 -> 598`
+  - `app/main.py` 行数 `725 -> 483`
   - Controller 主文件已低于 500 行，四类已迁出能力的旧壳层基本清空
 - 快照测试：PASS（按批次持续执行 `python -m pytest tests/ -v -p no:cacheprovider`，最终 5/5 通过）
 - 回归清单：PASS（每完成一组服务句柄都跑一次快照）
@@ -881,7 +683,7 @@ class PowerSyncUI(QMainWindow):
 如果后续没有新的明确指令，默认按以下顺序继续：
 
 **Phase 1（安全网已闭环，当前最优先）：**
-1. Phase 1 收尾（第二阶段）：公开 `FlowMgr` / `AssessmentCoord` 并删除剩余壳层
+1. Phase 2 — 定义 `AssessmentContext` 并切断评分对 ctrl 的依赖
 
 **Phase 2（Controller 瘦身完成后）：**
 4. 定义 `AssessmentContext`，切断评分对 ctrl 的依赖

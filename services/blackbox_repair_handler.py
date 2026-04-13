@@ -26,7 +26,7 @@ class BlackboxRepairHandler:
                     self._ctrl.g1_blackbox_order
                     if fault_active else self._ctrl.pt_phase_orders.get('PT2', ['A', 'B', 'C'])
                 ),
-                'repair_target': 'G1' if self._ctrl.can_repair_in_blackbox() else None,
+                'repair_target': 'G1' if self._ctrl.flow_mgr.can_repair_in_blackbox() else None,
             }
         if target == 'G2':
             return {
@@ -35,7 +35,7 @@ class BlackboxRepairHandler:
                     self._ctrl.g2_blackbox_order
                     if fault_active else self._ctrl.pt_phase_orders.get('PT3', ['A', 'B', 'C'])
                 ),
-                'repair_target': 'G2' if self._ctrl.can_repair_in_blackbox() else None,
+                'repair_target': 'G2' if self._ctrl.flow_mgr.can_repair_in_blackbox() else None,
             }
         if target == 'PT1':
             if fault_active:
@@ -51,7 +51,7 @@ class BlackboxRepairHandler:
                 'pri_input_order': pri_input_order,
                 'pri_order': pri_order,
                 'sec_order': sec_order,
-                'repair_target': 'PT1' if self._ctrl.can_repair_in_blackbox() else None,
+                'repair_target': 'PT1' if self._ctrl.flow_mgr.can_repair_in_blackbox() else None,
             }
         if target == 'PT3':
             pri_input_order = ['A', 'B', 'C']
@@ -62,7 +62,7 @@ class BlackboxRepairHandler:
                 'pri_input_order': pri_input_order,
                 'pri_order': ['A', 'B', 'C'],
                 'sec_order': list(self._ctrl.pt_phase_orders.get('PT3', ['A', 'B', 'C'])),
-                'repair_target': 'PT3' if self._ctrl.can_repair_in_blackbox() else None,
+                'repair_target': 'PT3' if self._ctrl.flow_mgr.can_repair_in_blackbox() else None,
             }
         raise ValueError(f"Unsupported blackbox target: {target}")
 
@@ -82,7 +82,7 @@ class BlackboxRepairHandler:
 
         if target == 'G1':
             if initial_order is not None and list(new_order) != list(initial_order):
-                self._ctrl.append_assessment_event(
+                self._ctrl.assessment_coord.append_assessment_event(
                     'blackbox_swap',
                     step=step,
                     target='G1',
@@ -96,7 +96,7 @@ class BlackboxRepairHandler:
             component_correct = (list(new_order) == ['A', 'B', 'C'])
         elif target == 'G2':
             if initial_order is not None and list(new_order) != list(initial_order):
-                self._ctrl.append_assessment_event(
+                self._ctrl.assessment_coord.append_assessment_event(
                     'blackbox_swap',
                     step=step,
                     target='G2',
@@ -110,7 +110,7 @@ class BlackboxRepairHandler:
             component_correct = (list(new_order) == ['A', 'B', 'C'])
         elif target == 'PT1':
             if initial_pri_order is not None and list(new_pri_order) != list(initial_pri_order):
-                self._ctrl.append_assessment_event(
+                self._ctrl.assessment_coord.append_assessment_event(
                     'blackbox_swap',
                     step=step,
                     target='PT1',
@@ -120,7 +120,7 @@ class BlackboxRepairHandler:
                 )
                 touched_layers.append('primary')
             if initial_sec_order is not None and list(new_sec_order) != list(initial_sec_order):
-                self._ctrl.append_assessment_event(
+                self._ctrl.assessment_coord.append_assessment_event(
                     'blackbox_swap',
                     step=step,
                     target='PT1',
@@ -138,7 +138,7 @@ class BlackboxRepairHandler:
             )
         elif target == 'PT3':
             if initial_sec_order is not None and list(new_sec_order) != list(initial_sec_order):
-                self._ctrl.append_assessment_event(
+                self._ctrl.assessment_coord.append_assessment_event(
                     'blackbox_swap',
                     step=step,
                     target='PT3',
@@ -152,7 +152,7 @@ class BlackboxRepairHandler:
         else:
             raise ValueError(f"Unsupported blackbox repair target: {target}")
 
-        self._ctrl.append_assessment_event(
+        self._ctrl.assessment_coord.append_assessment_event(
             'blackbox_confirm_attempted',
             step=step,
             target=target,
@@ -175,7 +175,7 @@ class BlackboxRepairHandler:
         if (
             fault_active
             and self._ctrl.fault_mgr.all_repairable_wiring_targets_normal()
-            and self._ctrl.should_auto_clear_fault_only_when_all_blackboxes_normal()
+            and self._ctrl.flow_mgr.should_auto_clear_fault_only_when_all_blackboxes_normal()
         ):
             self._ctrl.repair_fault(step=step, source=f'{target}_blackbox')
             fault_cleared = True

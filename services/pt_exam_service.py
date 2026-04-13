@@ -78,7 +78,7 @@ class PtExamService:
         key = f"{gen_phase}{bus_phase}"   # 'AA'/'AB'/.../'CC'
         gen1, gen2 = self._ctrl.sim_state.gen1, self._ctrl.sim_state.gen2
         def _record_invalid(reason):
-            self._ctrl.append_assessment_event(
+            self._ctrl.assessment_coord.append_assessment_event(
                 'measurement_invalid',
                 step=4,
                 target=f'Gen{gen_id}',
@@ -172,7 +172,7 @@ class PtExamService:
             'voltage_sec': meter_v_sec,
             'reading': self._ctrl.physics.meter_reading,
         }
-        self._ctrl.append_assessment_event(
+        self._ctrl.assessment_coord.append_assessment_event(
             'measurement_recorded',
             step=4,
             target=f'Gen{gen_id}',
@@ -257,7 +257,7 @@ class PtExamService:
         """完成第四步：Gen1 和 Gen2 均须完成三相记录，才能锁定结果。"""
         gen1_ok = self._are_pt_exam_records_complete(1)
         gen2_ok = self._are_pt_exam_records_complete(2)
-        if self._ctrl.is_assessment_mode() and not (gen1_ok and gen2_ok):
+        if self._ctrl.flow_mgr.is_assessment_mode() and not (gen1_ok and gen2_ok):
             self._set_pt_exam_feedback(1, "", "#444444")
             self._set_pt_exam_feedback(2, "", "#444444")
             return
@@ -359,7 +359,7 @@ class PtExamService:
                         'voltage_sec': round(meter_v, 4),
                         'reading': f"快捷记录 {pt_name}_{gen_term}↔PT2_{bus_phase}: {meter_v:.2f} V",
                     }
-                    self._ctrl.append_assessment_event(
+                    self._ctrl.assessment_coord.append_assessment_event(
                         'measurement_recorded',
                         step=4,
                         target=f'Gen{gen_id}',

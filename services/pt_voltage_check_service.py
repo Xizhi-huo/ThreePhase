@@ -89,7 +89,7 @@ class PtVoltageCheckService:
         gen1, gen2 = sim.gen1, sim.gen2
         state = self._ctrl.pt_voltage_check_state
         def _record_invalid(reason):
-            self._ctrl.append_assessment_event(
+            self._ctrl.assessment_coord.append_assessment_event(
                 'measurement_invalid',
                 step=2,
                 target=pt_name,
@@ -174,7 +174,7 @@ class PtVoltageCheckService:
             'reading': self._ctrl.physics.meter_reading,
         }
 
-        self._ctrl.append_assessment_event(
+        self._ctrl.assessment_coord.append_assessment_event(
             'measurement_recorded',
             step=2,
             target=pt_name,
@@ -234,7 +234,7 @@ class PtVoltageCheckService:
         fc = self._ctrl.sim_state.fault_config
         fault_training = (
             fc.active and fc.detected and not fc.repaired
-            and self._ctrl.can_advance_with_fault()
+            and self._ctrl.flow_mgr.can_advance_with_fault()
         )
 
         if fault_training:

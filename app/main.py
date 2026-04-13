@@ -82,7 +82,7 @@ class PowerSyncController:
         self.g2_blackbox_order = ['A', 'B', 'C']
         self.pt1_pri_blackbox_order = ['A', 'B', 'C']
         self.pt1_sec_blackbox_order = ['A', 'B', 'C']
-        self._flow_mgr = FlowModeManager()
+        self.flow_mgr = FlowModeManager()
         self.test_flow_mode = 'teaching'
         self.pt_blackbox_mode_val: bool = False
         self._pt_blackbox_mode_proxy = self._BoolProxy(self)
@@ -96,8 +96,8 @@ class PowerSyncController:
         self._last_tick_perf = time.perf_counter()
 
         # ── 业务服务（各服务通过 self._ctrl 回写状态 dataclass）─────────
-        self._assessment_svc      = AssessmentService(self)
-        self._assessment_coord    = AssessmentCoordinator(self)
+        self.assessment_svc       = AssessmentService(self)
+        self.assessment_coord     = AssessmentCoordinator(self)
         self.blackbox_handler     = BlackboxRepairHandler(self)
         self.phase_resolver       = PhaseOrderResolver(self)
         self.hw                   = HardwareActions(self)
@@ -148,107 +148,11 @@ class PowerSyncController:
 
     @property
     def test_flow_mode(self):
-        return self._flow_mgr.test_flow_mode
+        return self.flow_mgr.test_flow_mode
 
     @test_flow_mode.setter
     def test_flow_mode(self, value: str):
-        self._flow_mgr.test_flow_mode = value
-
-    def flow_policy(self) -> FlowModePolicy:
-        return self._flow_mgr.flow_policy()
-
-    def flow_policy_flag(self, name: str):
-        return self._flow_mgr.flow_policy_flag(name)
-
-    def is_teaching_mode(self):
-        return self._flow_mgr.is_teaching_mode()
-
-    def is_engineering_mode(self):
-        return self._flow_mgr.is_engineering_mode()
-
-    def is_assessment_mode(self):
-        return self._flow_mgr.is_assessment_mode()
-
-    def can_advance_with_fault(self):
-        return self._flow_mgr.can_advance_with_fault()
-
-    def require_all_measurements_before_finalize(self):
-        return self._flow_mgr.require_all_measurements_before_finalize()
-
-    def require_step_pass_to_finalize(self):
-        return self._flow_mgr.require_step_pass_to_finalize()
-
-    def should_show_fault_detected_banner(self):
-        return self._flow_mgr.should_show_fault_detected_banner()
-
-    def should_show_diagnostic_hints(self):
-        return self._flow_mgr.should_show_diagnostic_hints()
-
-    def should_block_step5_until_blackbox_fixed(self):
-        return self._flow_mgr.should_block_step5_until_blackbox_fixed()
-
-    def should_hold_at_step4_when_wiring_fault_unrepaired(self):
-        return self._flow_mgr.should_hold_at_step4_when_wiring_fault_unrepaired()
-
-    def should_show_blackbox_required_dialog_before_step5(self):
-        return self._flow_mgr.should_show_blackbox_required_dialog_before_step5()
-
-    def can_inspect_blackbox(self):
-        return self._flow_mgr.can_inspect_blackbox()
-
-    def can_repair_in_blackbox(self):
-        return self._flow_mgr.can_repair_in_blackbox()
-
-    def should_auto_clear_fault_only_when_all_blackboxes_normal(self):
-        return self._flow_mgr.should_auto_clear_fault_only_when_all_blackboxes_normal()
-
-    def allow_admin_shortcuts(self):
-        return self._flow_mgr.allow_admin_shortcuts()
-
-    def can_use_pt_exam_quick_record(self):
-        return self._flow_mgr.can_use_pt_exam_quick_record()
-
-    def should_record_assessment_metrics(self):
-        return self._flow_mgr.should_record_assessment_metrics()
-
-    def should_auto_score_assessment(self):
-        return self._flow_mgr.should_auto_score_assessment()
-
-    def assessment_ends_after_step4_closed_loop(self):
-        return self._flow_mgr.assessment_ends_after_step4_closed_loop()
-
-    def start_assessment_session(self, scene_id: str, preset_mode: str = 'specified'):
-        return self._assessment_coord.start_assessment_session(scene_id, preset_mode)
-
-    def append_assessment_event(self, event_type: str, step: int = 0, **payload):
-        return self._assessment_coord.append_assessment_event(event_type, step=step, **payload)
-
-    def mark_fault_detected(self, step: int, source: str, **payload) -> bool:
-        return self._assessment_coord.mark_fault_detected(step, source, **payload)
-
-    def capture_assessment_state_snapshot(self) -> Dict[str, Any]:
-        return self._assessment_coord.capture_assessment_state_snapshot()
-
-    def finish_assessment_session(self):
-        return self._assessment_coord.finish_assessment_session()
-
-    def requires_random_fault_identification(self, current_step: int) -> bool:
-        return self._assessment_coord.requires_random_fault_identification(current_step)
-
-    def submit_random_fault_identification(self, guessed_scene_id: str) -> bool:
-        return self._assessment_coord.submit_random_fault_identification(guessed_scene_id)
-
-    def mark_assessment_result_shown(self):
-        return self._assessment_coord.mark_assessment_result_shown()
-
-    def is_assessment_closed_loop_ready(self) -> bool:
-        return self._assessment_coord.is_assessment_closed_loop_ready()
-
-    def get_test_progress_snapshot(self, current_step: int, pre_step5_repair_triggered: bool) -> StepProgressSnapshot:
-        return self._assessment_coord.get_test_progress_snapshot(current_step, pre_step5_repair_triggered)
-
-    def finish_assessment_session_if_ready(self, current_step: int) -> Optional[object]:
-        return self._assessment_coord.finish_assessment_session_if_ready(current_step)
+        self.flow_mgr.test_flow_mode = value
 
     def update_pt_ratio(self, ratio_attr: str, ratio: float):
         if ratio_attr not in {'pt_gen_ratio', 'pt3_ratio', 'pt_bus_ratio'}:

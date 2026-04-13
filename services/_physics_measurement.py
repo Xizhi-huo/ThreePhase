@@ -153,7 +153,7 @@ class MeasurementMixin:
                 self.meter_status = "danger"
                 self.meter_color = "red"
                 hint = "（检测到接线异常）"
-                if self.ctrl.should_show_diagnostic_hints():
+                if self.ctrl.flow_mgr.should_show_diagnostic_hints():
                     hint = f"（疑似接线错误，请检查 {info2[4].split()[0]} 侧接线）"
                 self.meter_reading = (
                     f"断路 [∞Ω / 无蜂鸣] — {info1[4]} ↔ {info2[4]} 不通"
@@ -163,7 +163,7 @@ class MeasurementMixin:
                         and (fc.scenario_id in ('E01', 'E02')
                              or fc.params.get('g1_loop_swap')
                              or fc.params.get('g2_loop_swap'))):
-                    self.ctrl.mark_fault_detected(
+                    self.ctrl.assessment_coord.mark_fault_detected(
                         step=1,
                         source='loop_measurement',
                         target='loop',
@@ -208,14 +208,14 @@ class MeasurementMixin:
                 and pt_name == 'PT3'
                 and self.meter_status == 'danger'):
             if fc.scenario_id == 'E04':
-                self.ctrl.mark_fault_detected(
+                self.ctrl.assessment_coord.mark_fault_detected(
                     step=2,
                     source='pt_voltage_measurement',
                     target='PT3',
                     point=f'{ph1}{ph2}',
                 )
             elif fc.scenario_id == 'E03' and 'A' in (ph1, ph2):
-                self.ctrl.mark_fault_detected(
+                self.ctrl.assessment_coord.mark_fault_detected(
                     step=2,
                     source='pt_voltage_measurement',
                     target='PT3',
@@ -266,14 +266,14 @@ class MeasurementMixin:
 
         if fc.active and not fc.repaired:
             if e03_active:
-                self.ctrl.mark_fault_detected(
+                self.ctrl.assessment_coord.mark_fault_detected(
                     step=4,
                     source='pt_exam_measurement',
                     target=gen_pt_name,
                     point=f'{gen_term}-{bus_phase}',
                 )
             elif fc.scenario_id == 'E04' and gen_pt_name == 'PT3' and is_same_phase:
-                self.ctrl.mark_fault_detected(
+                self.ctrl.assessment_coord.mark_fault_detected(
                     step=4,
                     source='pt_exam_measurement',
                     target=gen_pt_name,
@@ -282,7 +282,7 @@ class MeasurementMixin:
             elif (gen_pt_name == 'PT1'
                   and fc.params.get('pt1_phase_order') is not None
                   and not is_same_phase):
-                self.ctrl.mark_fault_detected(
+                self.ctrl.assessment_coord.mark_fault_detected(
                     step=4,
                     source='pt_exam_measurement',
                     target=gen_pt_name,

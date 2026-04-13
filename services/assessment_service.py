@@ -205,7 +205,7 @@ class AssessmentService:
             bool(completed.get('pt_exam_1', self._ctrl.pt_exam_states[1].completed))
             and bool(completed.get('pt_exam_2', self._ctrl.pt_exam_states[2].completed))
         )
-        closure_complete = bool(completed.get('closure', self._ctrl.is_assessment_closed_loop_ready()))
+        closure_complete = bool(completed.get('closure', self._ctrl.assessment_coord.is_assessment_closed_loop_ready()))
         repair_required = bool(expected_targets)
         fault_snapshot = snapshot.get('fault', {})
         repaired = bool(fault_snapshot.get('repaired', self._ctrl.sim_state.fault_config.repaired))

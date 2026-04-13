@@ -719,7 +719,7 @@ class TestPanelMixin:
         """在任意步骤组中插入四个物理接线黑盒检查按钮（可查看 + 交互修复）。"""
         bb_lbl = self._make_note_label("物理接线检查 / 手动修复 (开盖查线):")
         lay.addWidget(bb_lbl)
-        allow_blackbox = self.ctrl.can_inspect_blackbox()
+        allow_blackbox = self.ctrl.flow_mgr.can_inspect_blackbox()
         bb_row1 = self._make_inline_row()
         bb_h1 = QtWidgets.QHBoxLayout(bb_row1)
         bb_h1.setContentsMargins(0, 0, 0, 0)
@@ -1171,14 +1171,14 @@ class TestPanelMixin:
         self._pre_step5_repair_triggered = False   # 重置第五步前修复关卡
         self.ctrl_container.setVisible(False)
         self.test_panel.setVisible(True)
-        self.tp_btn_admin.setVisible(self.ctrl.allow_admin_shortcuts())
+        self.tp_btn_admin.setVisible(self.ctrl.flow_mgr.allow_admin_shortcuts())
         if hasattr(self, '_tp_s4_quick_btn'):
-            self._tp_s4_quick_btn.setVisible(self.ctrl.can_use_pt_exam_quick_record())
-        if not self.ctrl.allow_admin_shortcuts():
+            self._tp_s4_quick_btn.setVisible(self.ctrl.flow_mgr.can_use_pt_exam_quick_record())
+        if not self.ctrl.flow_mgr.allow_admin_shortcuts():
             self._tp_admin_mode = False
             self.tp_btn_admin.setChecked(False)
             self._tp_forced_step = None
-        self.ctrl.start_assessment_session(
+        self.ctrl.assessment_coord.start_assessment_session(
             scenario_id,
             preset_mode=getattr(self, '_pre_test_preset_mode', 'specified'),
         )
@@ -1259,16 +1259,16 @@ class TestPanelMixin:
         elif step == 5:
             self.ctrl.finalize_sync_test()
         after_complete = self._is_step_complete(step)
-        self.ctrl.append_assessment_event(
+        self.ctrl.assessment_coord.append_assessment_event(
             'step_finalize_attempted',
             step=step,
             allowed=after_complete,
             mode=self.ctrl.test_flow_mode,
         )
         if after_complete and not before_complete:
-            self.ctrl.append_assessment_event('step_completed', step=step)
+            self.ctrl.assessment_coord.append_assessment_event('step_completed', step=step)
         elif not after_complete:
-            self.ctrl.append_assessment_event(
+            self.ctrl.assessment_coord.append_assessment_event(
                 'advance_blocked',
                 step=step,
                 from_step=step,
@@ -1360,7 +1360,7 @@ class TestPanelMixin:
 
     def _on_tp_toggle_admin(self, checked):
         """管理员模式：显示/隐藏步骤详情 Tab 2-6，步骤按钮变为可点击。"""
-        if checked and not self.ctrl.allow_admin_shortcuts():
+        if checked and not self.ctrl.flow_mgr.allow_admin_shortcuts():
             self.tp_btn_admin.setChecked(False)
             return
         self._tp_admin_mode = checked
@@ -1381,12 +1381,12 @@ class TestPanelMixin:
                 pass
         # 第四步快捷记录按钮在管理员模式或考核模式下可见
         if hasattr(self, '_tp_s4_quick_btn'):
-            self._tp_s4_quick_btn.setVisible(checked or self.ctrl.is_assessment_mode())
+            self._tp_s4_quick_btn.setVisible(checked or self.ctrl.flow_mgr.is_assessment_mode())
 
     def _update_fault_banner(self):
         """根据当前故障注入状态更新横幅显示。不向学员透露具体场景信息。"""
         fc = self.ctrl.sim_state.fault_config
-        if not self.ctrl.should_show_fault_detected_banner():
+        if not self.ctrl.flow_mgr.should_show_fault_detected_banner():
             self._tp_fault_banner.setVisible(False)
             return
         if fc.active and fc.scenario_id:
@@ -1394,7 +1394,7 @@ class TestPanelMixin:
                 text = "✅ 故障已修复，请继续按正常流程完成剩余步骤"
                 self._set_props(self._tp_fault_banner, stepBanner=True, tone="success")
             elif fc.detected:
-                if self.ctrl.can_advance_with_fault():
+                if self.ctrl.flow_mgr.can_advance_with_fault():
                     text = ("🔍 已发现异常证据 | 请继续完成所有测试步骤，"
                             "记录全部数据后将在第五步前统一进行检修")
                 else:
@@ -1514,7 +1514,7 @@ class TestPanelMixin:
             return 3
         if not (c.pt_exam_states[1].completed and c.pt_exam_states[2].completed):
             return 4
-        if (c.should_hold_at_step4_when_wiring_fault_unrepaired()
+        if (c.flow_mgr.should_hold_at_step4_when_wiring_fault_unrepaired()
                 and c.fault_mgr.has_unrepaired_wiring_fault()):
             return 4
         return 5
@@ -1914,7 +1914,7 @@ class TestPanelMixin:
                 hint_lbl.setText("请先选择一个故障场景。")
                 hint_lbl.setVisible(True)
                 return
-            self.ctrl.submit_random_fault_identification(guessed_scene_id)
+            self.ctrl.assessment_coord.submit_random_fault_identification(guessed_scene_id)
             dlg.accept()
 
         btn_ok.clicked.connect(_submit)
@@ -1936,20 +1936,20 @@ class TestPanelMixin:
         # ── Step dots / admin buttons ──────────────────────────────────
         # 计算自然完成步骤（不受 forced 影响）
         c = self.ctrl
-        self.tp_btn_admin.setVisible(self.ctrl.allow_admin_shortcuts())
+        self.tp_btn_admin.setVisible(self.ctrl.flow_mgr.allow_admin_shortcuts())
         if hasattr(self, '_tp_s4_quick_btn'):
-            self._tp_s4_quick_btn.setVisible(self.ctrl.can_use_pt_exam_quick_record())
+            self._tp_s4_quick_btn.setVisible(self.ctrl.flow_mgr.can_use_pt_exam_quick_record())
         if self._assessment_last_logged_step != step:
-            self.ctrl.append_assessment_event('step_entered', step=step)
+            self.ctrl.assessment_coord.append_assessment_event('step_entered', step=step)
             self._assessment_last_logged_step = step
-        if not self.ctrl.allow_admin_shortcuts():
+        if not self.ctrl.flow_mgr.allow_admin_shortcuts():
             self._tp_admin_mode = False
             self.tp_btn_admin.setChecked(False)
             self._tp_forced_step = None
         _auto = (1 if not c.loop_svc.is_loop_test_complete() else
                  2 if not c.pt_voltage_svc.is_pt_voltage_check_complete() else
                  3 if not c.pt_phase_svc.is_pt_phase_check_complete() else
-                 4 if ((c.should_hold_at_step4_when_wiring_fault_unrepaired()
+                 4 if ((c.flow_mgr.should_hold_at_step4_when_wiring_fault_unrepaired()
                         and c.fault_mgr.has_unrepaired_wiring_fault()) or not (
                             c.pt_exam_states[1].completed and c.pt_exam_states[2].completed
                         )) else 5)
@@ -1986,14 +1986,14 @@ class TestPanelMixin:
         # ── 第五步前黑盒修复门禁 ──────────────────────────────────────
         # E01/E02/E03 在 Gen2 实际合闸时触发事故弹窗；黑盒接线类故障需先在步骤1~4修复。
         fc = sim.fault_config
-        progress = self.ctrl.get_test_progress_snapshot(
+        progress = self.ctrl.assessment_coord.get_test_progress_snapshot(
             step,
             getattr(self, '_pre_step5_repair_triggered', False),
         )
         if progress.block_before_step5 and not getattr(self, '_pre_step5_repair_triggered', False):
             self._pre_step5_repair_triggered = True
             if progress.should_emit_assessment_gate_event:
-                self.ctrl.append_assessment_event(
+                self.ctrl.assessment_coord.append_assessment_event(
                     'assessment_gate_blocked',
                     step=4,
                     scene_id=fc.scenario_id,
@@ -2037,10 +2037,10 @@ class TestPanelMixin:
         if progress.random_fault_guess_required:
             self._show_random_fault_identification_dialog()
 
-        result = self.ctrl.finish_assessment_session_if_ready(step)
+        result = self.ctrl.assessment_coord.finish_assessment_session_if_ready(step)
         if result is not None:
             self._show_assessment_result_dialog(result)
-            self.ctrl.mark_assessment_result_shown()
+            self.ctrl.assessment_coord.mark_assessment_result_shown()
 
     def _refresh_tp_gen_refs(self, sim, step):
         step1_active = (step == 1)
@@ -2212,13 +2212,13 @@ class TestPanelMixin:
     def _show_blackbox_dialog(self, target):
         """打开物理接线黑盒检查对话框（图形化 + 交互修复）。target: 'G1'|'G2'|'PT1'|'PT3'
         G1/G2/PT1/PT3 支持点击互换接线后确认修复。"""
-        if not self.ctrl.can_inspect_blackbox():
+        if not self.ctrl.flow_mgr.can_inspect_blackbox():
             return
-        self.ctrl.append_assessment_event('blackbox_opened', step=self._current_test_step(), target=target)
+        self.ctrl.assessment_coord.append_assessment_event('blackbox_opened', step=self._current_test_step(), target=target)
         sim = self.ctrl.sim_state
         fc  = sim.fault_config
-        allow_repair = self.ctrl.can_repair_in_blackbox()
-        assessment_mode = self.ctrl.is_assessment_mode()
+        allow_repair = self.ctrl.flow_mgr.can_repair_in_blackbox()
+        assessment_mode = self.ctrl.flow_mgr.is_assessment_mode()
 
         # 是否存在活跃未修复故障（影响接线显示）
         blackbox_state = self.ctrl.blackbox_handler.get_blackbox_runtime_state(target)

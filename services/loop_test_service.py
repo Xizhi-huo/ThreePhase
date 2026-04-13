@@ -69,7 +69,7 @@ class LoopTestService:
         gen1, gen2 = sim.gen1, sim.gen2
         phase = phase.upper()
         def _record_invalid(reason):
-            self._ctrl.append_assessment_event(
+            self._ctrl.assessment_coord.append_assessment_event(
                 'measurement_invalid',
                 step=1,
                 target='loop',
@@ -127,7 +127,7 @@ class LoopTestService:
             meter_status,
             self._ctrl.physics.meter_reading,
         )
-        self._ctrl.append_assessment_event(
+        self._ctrl.assessment_coord.append_assessment_event(
             'measurement_recorded',
             step=1,
             target='loop',
@@ -176,12 +176,12 @@ class LoopTestService:
         fc = self._ctrl.sim_state.fault_config
         fault_training = (
             fc.active and fc.detected and not fc.repaired
-            and self._ctrl.can_advance_with_fault()
+            and self._ctrl.flow_mgr.can_advance_with_fault()
         )
         if fault_phases and not fault_training:
             # 当前流程策略要求先纠正异常后再完成该步
             fault_str = '、'.join(fault_phases)
-            if self._ctrl.should_show_diagnostic_hints():
+            if self._ctrl.flow_mgr.should_show_diagnostic_hints():
                 msg = (
                     f"回路测试发现故障：{fault_str} 相断路 [∞Ω]，说明对应相接线错误。"
                     f"请检查并纠正接线后重置重测。"

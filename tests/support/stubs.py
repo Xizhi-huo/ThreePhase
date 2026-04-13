@@ -32,7 +32,7 @@ class ControllerStub:
         assessment_closed_loop_ready: bool = False,
     ):
         self.sim_state = sim_state or make_sim_state()
-        self._flow_mgr = FlowModeManager()
+        self.flow_mgr = FlowModeManager()
         self.pt_phase_orders = pt_phase_orders or {
             "PT1": ["A", "B", "C"],
             "PT2": ["A", "B", "C"],
@@ -48,6 +48,7 @@ class ControllerStub:
         self.pt_phase_svc = self
         self.pt_exam_svc = self
         self.sync_svc = self
+        self.assessment_coord = self
 
         self.loop_test_state = LoopTestState()
         self.pt_voltage_check_state = PtVoltageCheckState()
@@ -61,29 +62,29 @@ class ControllerStub:
 
     @property
     def test_flow_mode(self) -> str:
-        return self._flow_mgr.test_flow_mode
+        return self.flow_mgr.test_flow_mode
 
     @test_flow_mode.setter
     def test_flow_mode(self, value: str):
-        self._flow_mgr.test_flow_mode = value
+        self.flow_mgr.test_flow_mode = value
 
     def flow_policy(self):
-        return self._flow_mgr.flow_policy()
+        return self.flow_mgr.flow_policy()
 
     def flow_policy_flag(self, name: str) -> bool:
-        return self._flow_mgr.flow_policy_flag(name)
+        return self.flow_mgr.flow_policy_flag(name)
 
     def is_teaching_mode(self) -> bool:
-        return self._flow_mgr.is_teaching_mode()
+        return self.flow_mgr.is_teaching_mode()
 
     def is_engineering_mode(self) -> bool:
-        return self._flow_mgr.is_engineering_mode()
+        return self.flow_mgr.is_engineering_mode()
 
     def is_assessment_mode(self) -> bool:
-        return self._flow_mgr.is_assessment_mode()
+        return self.flow_mgr.is_assessment_mode()
 
     def should_show_diagnostic_hints(self) -> bool:
-        return self._flow_mgr.should_show_diagnostic_hints()
+        return self.flow_mgr.should_show_diagnostic_hints()
 
     def mark_fault_detected(self, step: int, source: str, **payload) -> bool:
         self.sim_state.fault_config.detected = True

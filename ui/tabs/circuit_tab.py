@@ -681,7 +681,7 @@ class CircuitTabMixin:
 
     def _render_gen_wire_visibility(self):
         visible = self.ctrl.sim_state.show_gen_wires
-        if self.ctrl.is_assessment_mode() and not self.ctrl.loop_svc.is_loop_test_complete():
+        if self.ctrl.flow_mgr.is_assessment_mode() and not self.ctrl.loop_svc.is_loop_test_complete():
             visible = False
         for art in self._g1_wire_artists + self._g2_wire_artists:
             art.set_visible(visible)
