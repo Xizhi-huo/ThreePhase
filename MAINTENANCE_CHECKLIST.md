@@ -1,4 +1,176 @@
+'''
 
+任务：Phase 1 第五步 — 拆出 HardwareActions（第 14 轮）
+角色与背景
+你现在是一位拥有 10 年桌面端重构经验的资深架构师，当前项目是一个 PyQt5 三相电并网仿真教学系统。Phase 0 已闭环，Phase 1 前四步（FlowModeManager / AssessmentCoordinator / BlackboxRepairHandler / PhaseOrderResolver）已完成。本轮按维护清单 §10 执行 Phase 1 第五步 — 拆出 HardwareActions。
+
+项目路径：
+C:\Users\AW57P\Documents\ThreePhase_entier
+
+本轮方法论与前四轮保持完全一致："搬走实现，保留转发壳，外部调用者零改动，本轮允许新模块持有 ctrl"。
+
+第一步：先读文件
+请按顺序阅读，建立上下文：
+
+MAINTENANCE_CHECKLIST.md
+§1.3 / §1.4 / §1.6
+§3 当前总体进度
+§4 Phase 1 第五项 拆出 HardwareActions
+§9 第 10-13 轮记录（前四轮方法学参考）
+§10 下一轮默认起点
+app/main.py
+重点看以下 8 个方法，这是本轮要搬走的全部范围：
+get_preclose_flow_blockers(gen_id) — app/main.py:517-555
+_should_enforce_pt_exam_before_close() — app/main.py:557-558
+_should_limit_close_to_selected_pt_target() — app/main.py:560-568
+instant_sync() — app/main.py:573-583
+toggle_engine(gen_id) — app/main.py:585-594
+_on_engine_blocked(gen_id, title, message) — app/main.py:596-597
+_on_breaker_blocked(gen_id, title, message) — app/main.py:599-603
+toggle_breaker(gen_id) — app/main.py:634-684
+注意以下方法本轮不搬（理由见 2.2）：
+toggle_pause() — 直接操作 self.ui.pause_btn 控件，属于纯 UI 操作
+rebuild_circuit_view() — 纯 UI 中继
+set_g2_terminal_fault() / on_pt_blackbox_toggle() / reshuffle_pt_phase_orders() / reset_pt_phase_orders() / reset_blackbox_orders() — 状态重置/黑盒范畴，不是硬件动作
+queue_accident_dialog() / _consume_pending_accident_dialog() — 事件消费，不是硬件动作
+services/blackbox_repair_handler.py（前轮蓝本）
+参考"允许持有 ctrl、内部互调用 self、跨模块走 self._ctrl"的写法
+外部调用方（本轮绝对不允许被迫改动）：
+ui/test_panel.py:703 → self.ctrl.toggle_engine(gid)
+ui/test_panel.py:707 → self.ctrl.toggle_breaker(gid)
+ui/panels/control_panel.py:362 → c.instant_sync
+tests/support/stubs.py、tests/test_physics_snapshot.py、tests/test_assessment_snapshot.py
+第二步：明确本轮范围（禁止越界）
+2.1 本轮要做的事
+主攻目标：将 Controller 上的"发电机启停 + 断路器合分 + 即时同期"三类硬件动作（含其私有辅助方法）抽成独立模块 services/hardware_actions.py，app/main.py 上的相关代码只剩转发壳。
+
+具体动作：
+
+新增文件 services/hardware_actions.py：
+
+新增类 HardwareActions：
+构造签名：__init__(self, ctrl) —— 与前四轮一致，本轮允许持有 ctrl
+迁入以下 8 个方法，按原顺序：
+get_preclose_flow_blockers(self, gen_id)
+_should_enforce_pt_exam_before_close(self)
+_should_limit_close_to_selected_pt_target(self)
+instant_sync(self)
+toggle_engine(self, gen_id: int)
+_on_engine_blocked(self, gen_id: int, title: str, message: str)
+_on_breaker_blocked(self, gen_id: int, title: str, message: str)
+toggle_breaker(self, gen_id: int)
+迁入后，原 self.xxx 访问替换规则：
+状态字段：sim_state → self._ctrl.sim_state；physics → self._ctrl.physics
+服务委托（原本已是转发壳）：is_loop_test_complete() / is_pt_voltage_check_complete() / is_pt_phase_check_complete() / is_pt_exam_recorded(n) / is_sync_test_complete() / is_sync_test_active() → self._ctrl.is_loop_test_complete() 等（全部走 self._ctrl.xxx()）
+内部服务直接访问：self._pt_exam_svc._set_pt_exam_feedback(...) → self._ctrl._pt_exam_svc._set_pt_exam_feedback(...)
+UI 回调：self.ui.show_warning(...) / self.ui.show_e01_accident_dialog() 等 → self._ctrl.ui.show_warning(...) / self._ctrl.ui.show_e01_accident_dialog() 等
+UI tab 请求：self.request_ui_tab(5) → self._ctrl.request_ui_tab(5)
+事件记录：self.append_assessment_event(...) → self._ctrl.append_assessment_event(...)
+生成器状态辅助：self._get_generator_state(gen_id) → self._ctrl._get_generator_state(gen_id)
+模块内互调：toggle_breaker 内部调用 self._on_breaker_blocked(...) / self._should_limit_close_to_selected_pt_target() / self._should_enforce_pt_exam_before_close() / self.get_preclose_flow_blockers(gen_id) → 保留为 self.xxx（新模块内互调，不走 self._ctrl）；toggle_engine 内部调用 self._on_engine_blocked(...) 同理
+from __future__ import annotations，不引入 PyQt5 / from ui.xxx
+import 只需要：from __future__ import annotations + 可能需要的类型（from domain.enums import BreakerPosition，因为 toggle_breaker 里用到 BreakerPosition.WORKING）
+改造 app/main.py：
+
+顶部新增 import：
+
+from services.hardware_actions import HardwareActions
+在 PowerSyncController.__init__ 中新增（推荐紧邻 self._phase_resolver 之后）：
+
+self._hw = HardwareActions(self)
+将 3 个公开方法改成一行转发壳：
+
+def instant_sync(self):
+    return self._hw.instant_sync()
+
+def toggle_engine(self, gen_id: int):
+    return self._hw.toggle_engine(gen_id)
+
+def toggle_breaker(self, gen_id: int):
+    return self._hw.toggle_breaker(gen_id)
+将 get_preclose_flow_blockers(gen_id) 也保留转发壳（因为可能被外部查询调用）：
+
+def get_preclose_flow_blockers(self, gen_id):
+    return self._hw.get_preclose_flow_blockers(gen_id)
+完全删除 5 个私有方法（无外部调用者，不需要转发壳）：
+_should_enforce_pt_exam_before_close
+_should_limit_close_to_selected_pt_target
+_on_engine_blocked
+_on_breaker_blocked
+保留 toggle_pause() / rebuild_circuit_view() / set_g2_terminal_fault() / on_pt_blackbox_toggle() / reshuffle_pt_phase_orders() / reset_pt_phase_orders() / reset_blackbox_orders() / queue_accident_dialog() / _consume_pending_accident_dialog() 原封不动
+2.2 本轮不要做的事
+不要搬 toggle_pause()：它直接操作 self.ui.pause_btn.setText() 和 self.ui._apply_button_tone()，依赖具体 UI 控件，不适合放入无 PyQt5 依赖的服务模块；留到 Phase 3 UI 重构时随组件一起处理
+不要搬 rebuild_circuit_view()（纯 UI 中继）
+不要搬 set_g2_terminal_fault() / on_pt_blackbox_toggle() / reshuffle_pt_phase_orders() / reset_pt_phase_orders() / reset_blackbox_orders()（状态重置/黑盒范畴）
+不要搬 queue_accident_dialog() / _consume_pending_accident_dialog()（事件消费调度，不是硬件动作）
+不要动任何 services / ui 的现有调用方式
+不要同步 README.md / context.md
+不要新增测试文件、Protocol、dataclass
+不要顺手做 Phase 1 收尾（删转发壳层）——那是下一轮
+2.3 行为必须不变
+toggle_engine：仅手动模式下可起机，否则调用 _on_engine_blocked 弹警告；行为与原实现一致
+toggle_breaker：所有拦截条件顺序（_should_limit_close_to_selected_pt_target → E01/E02/E03 工作位事故判断 → 合闸前步骤检查）、事件写入、UI 弹窗调用必须与原实现逐字节对应
+instant_sync：bus_live 检查 + 相位跟随逻辑不变
+get_preclose_flow_blockers：分支逻辑（gen_id=1 vs gen_id=2 vs 第一步未完成）完整搬运
+第三步：实施顺序建议
+新建 services/hardware_actions.py：
+顶部：from __future__ import annotations + from domain.enums import BreakerPosition
+写 HardwareActions 骨架：__init__(self, ctrl): self._ctrl = ctrl
+按顺序复制 8 个方法，逐个把外部状态/服务/UI 访问改为 self._ctrl.xxx，内部互调保留 self.xxx
+改 app/main.py：
+顶部 import
+__init__ 中新增 self._hw = HardwareActions(self)
+4 个公开方法改转发壳
+删除 5 个私有方法
+自查：
+services/hardware_actions.py 里不得出现 from PyQt5 / from ui.xxx
+app/main.py 里不得再出现 BreakerPosition.WORKING / gen.cmd_close = True / gen.running = not gen.running 等硬件动作具体实现
+toggle_breaker 内的 self._on_breaker_blocked(...) / self._should_xxx(...) / self.get_preclose_flow_blockers(...) 是否为模块内互调（self.xxx，非 self._ctrl.xxx）
+运行回归：
+
+/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -v -p no:cacheprovider
+目标：5 个快照测试全部 PASS
+行数核对：
+app/main.py 从 849 继续下降（预计降到 780 附近）
+更新 MAINTENANCE_CHECKLIST.md：
+§2 app/main.py 行数基线 → 新行数
+§3
+当前阶段 → "Phase 1 — Controller 瘦身（进行中：HardwareActions 已完成，下一步 Phase 1 收尾）"
+当前最大风险文件中的 app/main.py 行数同步
+下一轮默认起点 → "Phase 1 收尾 — 删除 Controller 中已迁出的纯转发壳层"
+§4 Phase 1 第五项 [ ] 拆出 HardwareActions → [x]，补充与前几轮一致的落地策略说明
+§9 在第 13 轮记录之前新增 "第 14 轮 (2026-04-10)：Phase 1 第五步（拆出 HardwareActions）"，按 §11 模板填写
+§10 顺序表更新为：
+
+Phase 1 收尾：删除 Controller 中已迁出的纯转发壳层
+不要提交 git，不要修改 README.md 和 context.md
+第四步：输出要求
+完成后请按以下格式汇报：
+
+新文件清单：services/hardware_actions.py 行数、包含符号列表（公开方法 + 私有辅助方法）
+app/main.py 变化：
+删除的符号（私有方法名列表）
+新增的 import / 字段 / 转发壳
+行数变化（从 849 降到多少）
+模块内互调核查：确认 toggle_breaker 内以下调用为 self.xxx 而非 self._ctrl.xxx：
+self._on_breaker_blocked(...)
+self._should_limit_close_to_selected_pt_target()
+self._should_enforce_pt_exam_before_close()
+self.get_preclose_flow_blockers(gen_id)
+外部调用方未改动清单：
+ui/test_panel.py:703 / :707
+ui/panels/control_panel.py:362
+ControllerStub 是否需要适配：结论与理由
+回归测试结果：pytest 输出摘要
+维护清单更新点：§2 / §3 / §4 / §9 / §10 各自改了哪一行
+注意事项
+toggle_breaker 内的 self.ui.show_e01_accident_dialog() 等在新模块中改为 self._ctrl.ui.show_e01_accident_dialog()，这是本轮 ctrl 访问模式的必要代价；不要因此把 PyQt5 import 进新模块——UI 对象已经存在于 ctrl，新模块只是透传指令
+toggle_pause() 明确不搬，它直接写 self.ui.pause_btn 控件属性，不符合"服务模块不依赖具体 UI 控件"的底线；记录在 §9 本轮备注中
+_get_generator_state(gen_id) 是 Controller 上的小型辅助，新模块调用时走 self._ctrl._get_generator_state(gen_id) 即可，不需要重复实现
+BreakerPosition 需要从 domain.enums import，因为 toggle_breaker 里有 generator.breaker_position == BreakerPosition.WORKING 判断
+如果在搬运过程中发现任何原代码 bug，记录下来但不要顺手修
+完成后，下一轮是 Phase 1 收尾：删除 Controller 中所有纯转发壳层，app/main.py 目标降到 ~600 行以下
+'''
 
 
 # 维护与重构清单 v2
