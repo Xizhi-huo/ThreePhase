@@ -422,7 +422,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 | 文件 | 行数 | 状态 | 核心问题 |
 |---|---:|---|---|
 | `ui/test_panel.py` | 2417 | 必须拆分 | 9 个 Mixin 中最大的，111 处 ctrl 引用 |
-| `app/main.py` | 483 | 健康，观察 | 第一阶段收尾已完成，剩余 FlowMgr / AssessmentCoord 壳层待第 16 轮清理 |
+| `app/main.py` | 598 | 健康，观察 | 第一阶段收尾已完成，剩余 FlowMgr / AssessmentCoord 壳层待第 16 轮清理 |
 | `ui/styles.py` | 1007 | 纯数据，暂缓 | 纯静态样式声明，无逻辑耦合，优先级低 |
 | `services/assessment_service.py` | 791 | 必须拆分 | 单体 `build_result()` + 穿透 ctrl 读状态 |
 | `ui/main_window.py` | 528 | 需要审查 | 9-Mixin 继承入口，待迁移为组合式 |
@@ -804,7 +804,7 @@ class PowerSyncUI(QMainWindow):
   - Controller 不再对这 9 组能力提供旧的 `ctrl.method(...)` 壳入口
   - 外部统一改为 `ctrl.<service>.method(...)`
 - 耦合度变化：
-  - `app/main.py` 行数 `725 -> 483`
+  - `app/main.py` 行数 `725 -> 598`
   - Controller 主文件已低于 500 行，四类已迁出能力的旧壳层基本清空
 - 快照测试：PASS（按批次持续执行 `python -m pytest tests/ -v -p no:cacheprovider`，最终 5/5 通过）
 - 回归清单：PASS（每完成一组服务句柄都跑一次快照）
