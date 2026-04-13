@@ -104,12 +104,10 @@ AssessmentCoordinator 相关（约 11 个）：
 
 第二步：开工前必做
 
-1. `git status` 确认工作区干净。
-2. `git log -1 --stat` 确认起点是第 15 轮提交（MAINTENANCE_CHECKLIST 行数修正之后的版本）。
-3. 跑基线：
-       /Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -v -p no:cacheprovider
+1. 跑基线：
+       python -m pytest tests/ -v -p no:cacheprovider
    应 5/5 PASS。
-4. 扫描反模式，确认无例外：
+2. 扫描反模式，确认无例外：
        grep -rn "self\._ctrl\._flow_mgr\|self\._ctrl\._assessment_coord\|self\._ctrl\._assessment_svc" services/
    这些调用点本轮必须全部替换。
 
@@ -150,7 +148,7 @@ C. 删除 Controller 中的壳
 只删纯转发壳；带逻辑的方法保留。
 
 D. 跑测试
-    /Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -v -p no:cacheprovider
+    python -m pytest tests/ -v -p no:cacheprovider
 5 个用例必须 PASS；若 FAIL，先修复再进入下一族。
 
 E. 每族单独 git commit
