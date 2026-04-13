@@ -468,6 +468,23 @@ class PowerSyncUI(QMainWindow):
 - `services/assessment_service.py` 仍需继续拆成多文件。
 - `ui/test_panel.py` 仍是当前最大风险文件。
 
+### 第 17 轮 (2026-04-13)：Phase 2 前置清理（删除 tests/ 历史镜像目录与孤立配置）
+- 本轮唯一主攻目标：清理 `tests/` 下与真实用例无关的历史镜像目录和孤立配置，消除后续按服务名误导航的风险
+- 实际完成：
+  - 删除 `tests/app/`、`tests/services/`、`tests/domain/`、`tests/adapters/`、`tests/docs/` 五个历史镜像目录
+  - 删除 `tests/.claude/settings.json` 孤立配置
+  - 保留 `tests/__init__.py`、`tests/snapshots/`、`tests/support/`、`tests/test_assessment_snapshot.py`、`tests/test_physics_snapshot.py`
+  - 开工前/后均确认无任何生产代码或测试文件引用这些目录
+- 删除了哪些旧代码：
+  - 仅删除 `tests/` 下的历史镜像文件与孤立配置，未触碰生产代码与真实快照测试
+- 接口变化：
+  - 无
+- 耦合度变化：
+  - 测试目录仅保留真正被 pytest 使用的资源，消除了历史命名带来的误导航风险
+- 快照测试：PASS（`python -m pytest tests/ -q`，删除前后均 5/5 通过）
+- 回归清单：PASS（依赖扫描 + 快照测试）
+- 下一轮起点：Phase 2 — 定义 `AssessmentContext` 并切断评分对 ctrl 的依赖
+
 ### 第 16 轮 (2026-04-13)：Phase 1 收尾（第二阶段：FlowMgr / AssessmentCoord / AssessmentService 公开化 + 剩余壳清理）
 - 本轮唯一主攻目标：公开 `flow_mgr / assessment_coord / assessment_svc`，删除 Controller 中剩余的流程策略与考核生命周期转发壳
 - 实际完成：
