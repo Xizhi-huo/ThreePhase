@@ -19,6 +19,7 @@ class StepProgressSnapshot:
     assessment_result_ready: bool
 
 
+
 class AssessmentCoordinator:
     def __init__(self, ctrl):
         self._ctrl = ctrl
@@ -44,6 +45,7 @@ class AssessmentCoordinator:
             fault_selection_mode=fault_selection_mode,
         )
 
+
     def append_assessment_event(self, event_type: str, step: int = 0, **payload):
         if not self._ctrl.should_record_assessment_metrics():
             return
@@ -58,6 +60,10 @@ class AssessmentCoordinator:
                 payload=dict(payload),
             )
         )
+
+
+
+    
 
     def mark_fault_detected(self, step: int, source: str, **payload) -> bool:
         fc = self._ctrl.sim_state.fault_config
