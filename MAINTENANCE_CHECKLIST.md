@@ -101,7 +101,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 | 文件 | 行数 | 状态 | 核心问题 |
 |---|---:|---|---|
 | `ui/test_panel.py` | 2417 | 必须拆分 | 9 个 Mixin 中最大的，111 处 ctrl 引用 |
-| `app/main.py` | 502 | 需要审查 | Controller 已完成 Phase 1 收尾，保留编排与少量 UI 胶水 |
+| `app/main.py` | 502 | 需要审查 | Controller 已完成 Phase 1 收尾，保留编排与少量 UI 胶水；接口隔离已闭环，体量仅因保留的 UI 胶水略超 500 |
 | `ui/styles.py` | 1007 | 纯数据，暂缓 | 纯静态样式声明，无逻辑耦合，优先级低 |
 | `services/assessment_service.py` | 791 | 必须拆分 | 单体 `build_result()` + 穿透 ctrl 读状态 |
 | `ui/main_window.py` | 528 | 需要审查 | 9-Mixin 继承入口，待迁移为组合式 |
@@ -682,12 +682,9 @@ class PowerSyncUI(QMainWindow):
 
 如果后续没有新的明确指令，默认按以下顺序继续：
 
-**Phase 1（安全网已闭环，当前最优先）：**
-1. Phase 2 — 定义 `AssessmentContext` 并切断评分对 ctrl 的依赖
-
-**Phase 2（Controller 瘦身完成后）：**
-4. 定义 `AssessmentContext`，切断评分对 ctrl 的依赖
-5. 按评分域拆分纯函数模块
+**Phase 2（Phase 1 已正式闭环，当前最优先）：**
+1. 定义 `AssessmentContext`，切断评分对 ctrl 的依赖
+2. 按评分域拆分纯函数模块
 
 ---
 
