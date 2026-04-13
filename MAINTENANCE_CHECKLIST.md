@@ -1,319 +1,158 @@
 '''
 
-任务：核查 Phase 1 第五步 — 拆出 HardwareActions（第 14 轮）是否正确完成
+任务：Phase 1 收尾 — 删除 Controller 中已迁出的纯转发壳层（第 15 轮）
 
 你的角色：
-你是一位资深 Python 桌面端架构审查员。你当前不是来继续开发，而是严格核查这一轮重构是否符合任务要求、是否存在越界修改、是否保持行为不变。
+你是一位资深 Python 桌面端重构工程师。本轮不是"再拆一个模块"，而是对前 5 轮（FlowModeManager / AssessmentCoordinator / BlackboxRepairHandler / PhaseOrderResolver / HardwareActions）留下的"搬走实现、Controller 保留转发壳"策略进行最后清算。
 
 项目背景：
 这是一个 PyQt5 三相电并网仿真教学系统，当前处于维护清单驱动的重构阶段。
-Phase 0 已闭环。
-Phase 1 前四步（FlowModeManager / AssessmentCoordinator / BlackboxRepairHandler / PhaseOrderResolver）已完成。
-本轮目标是：将 Controller 上的“发电机启停 + 断路器合分 + 即时同期”三类硬件动作逻辑抽成独立模块 `services/hardware_actions.py`，并让 `app/main.py` 只保留必要的转发壳；外部调用方保持零改动。
+Phase 0 已闭环，Phase 1 前五步已完成，5 个服务类均已独立。
+当前 `app/main.py` 仍停在 725 行，其中 ~60 个方法是 `return self._xxx_svc.yyy()` 的纯转发壳。
+Phase 1 完成标准：`app/main.py` ≤ 600 行；Controller 不再堆叠策略查询/考核生命周期/黑盒修复/相序解析/硬件动作的实现细节或转发壳。
 
-你要做的事情只有一件：
-严格核查“Phase 1 第五步 — 拆出 HardwareActions”是否按要求完成。
+本轮核心策略（必须严格遵守）：
+将内部服务句柄从 `self._xxx_svc` 改为 **公开句柄** `self.xxx_svc`，让 UI 与其它服务直接通过 `ctrl.<service>.method()` 调用；随后删除 Controller 上所有纯转发壳。
 
-第一步：先读这些文件
-请按顺序阅读并建立核查上下文：
+第一步：先读这些文件，建立核查上下文
 
 1. `MAINTENANCE_CHECKLIST.md`
 重点看：
 - §1.3 工程边界红线
-- §1.4 接口隔离原则
+- §1.4 接口隔离原则（只做"删除转发壳 + 让 UI 直连 Service"）
 - §1.6 每轮迭代固定动作
 - §3 当前总体进度
-- §4 Phase 1 路线图
-- §9 第 14 轮记录
+- §4 Phase 1 路线图（第 6 项 "删除 Controller 中已迁出的旧方法"）
+- §9 第 10~14 轮记录
 - §10 下一轮默认起点
 
 2. `app/main.py`
-重点核查：
-- `PowerSyncController.__init__`
-- 是否新增 `self._hw = HardwareActions(self)`
-- 以下 4 个公开方法是否仍存在但已变为纯转发壳：
-  - `get_preclose_flow_blockers`
-  - `instant_sync`
-  - `toggle_engine`
-  - `toggle_breaker`
-- 以下 4 个私有方法是否已从 Controller 删除：
-  - `_should_enforce_pt_exam_before_close`
-  - `_should_limit_close_to_selected_pt_target`
-  - `_on_engine_blocked`
-  - `_on_breaker_blocked`
-- `toggle_pause()` 是否保持在 Controller，未被迁出
-- `queue_accident_dialog()` / `_consume_pending_accident_dialog()` 是否未被动到
-- `set_g2_terminal_fault()` / `reset_blackbox_orders()` / `reshuffle_pt_phase_orders()` / `reset_pt_phase_orders()` 是否未被动到
+重点识别以下 12 个服务/协调器句柄：
+    self._flow_mgr            (FlowModeManager)
+    self._assessment_svc      (AssessmentService)
+    self._assessment_coord    (AssessmentCoordinator)
+    self._blackbox_handler    (BlackboxRepairHandler)
+    self._phase_resolver      (PhaseOrderResolver)
+    self._hw                  (HardwareActions)
+    self._fault_mgr           (FaultManager)
+    self._loop_svc            (LoopTestService)
+    self._pt_voltage_svc      (PtVoltageCheckService)
+    self._pt_phase_svc        (PtPhaseCheckService)
+    self._pt_exam_svc         (PtExamService)
+    self._sync_svc            (SyncTestService)
 
-3. `services/hardware_actions.py`
-重点核查：
-- 是否为新文件
-- 是否包含 `HardwareActions`
-- 是否承接了以下 8 个方法：
-  - `get_preclose_flow_blockers`
-  - `_should_enforce_pt_exam_before_close`
-  - `_should_limit_close_to_selected_pt_target`
-  - `instant_sync`
-  - `toggle_engine`
-  - `_on_engine_blocked`
-  - `_on_breaker_blocked`
-  - `toggle_breaker`
-- 是否没有引入 PyQt5 / UI 模块 import
-- 是否只是在搬运原逻辑，没有新增行为
+并枚举所有 "return self._xxx.yyy(...)" 形式的纯转发壳方法（大约 60 个）。
+对每一个，判断其是否 "纯转发"：
+- 是：列入本轮待删清单。
+- 否（有额外参数变形/分支/状态写回）：保留在 Controller，不在本轮动。
 
-4. `services/blackbox_repair_handler.py`
-用途：
-- 作为上一轮“允许持有 ctrl、模块内互调走 self、跨模块调用走 self._ctrl”的写法参考
-- 判断 `HardwareActions` 是否沿用了相同方法学
+3. `ui/` 下所有文件（重点 `ui/test_panel.py`、`ui/main_window.py`、`ui/panels/*.py`、`ui/tabs/*.py`）
+核查所有 `ctrl.<方法名>` 的调用点，这些是"外部消费者"。
+原则：本轮允许批量改这些文件（Phase 1 收尾正是要让 UI 直连 Service）。
 
-5. 以下外部调用方文件
-核查这些文件是否被改动，原则上应保持零改动：
-- `ui/test_panel.py`
-- `ui/panels/control_panel.py`
-- `services/assessment_coordinator.py`
-- `services/blackbox_repair_handler.py`
-- `services/phase_order_resolver.py`
-- `services/flow_mode_manager.py`
-- `services/fault_manager.py`
-- `services/assessment_service.py`
+4. `services/` 下所有文件
+核查服务间是否通过 `self._ctrl.<方法>` 互相调用（例如 `self._ctrl.is_loop_test_complete()`）。
+这些是"跨服务消费者"，同样要改写。
 
-6. `tests/support/stubs.py`
-7. `tests/test_physics_snapshot.py`
-8. `tests/test_assessment_snapshot.py`
+5. `tests/support/stubs.py`
+如 Stub 持有的是 `self._flow_mgr` 而非公开句柄，也需要相应改名。
+但 Stub 上的方法签名可以继续以"直接方法"形式提供（Stub 是替身，不必模仿真 Controller 的接口精简）。
 
-第二步：严格按以下核查清单执行
+6. `tests/test_physics_snapshot.py`、`tests/test_assessment_snapshot.py`
+本轮不应改动这两个文件的测试逻辑；若它们通过 `ctrl.<method>` 访问，请改走 `ctrl.<service>.<method>`。
 
-A. 文件与符号核查
-请确认：
+第二步：具体实施步骤
 
-1. 是否新增了：
-- `services/hardware_actions.py`
+A. 公开服务句柄（降低外部改动面）
+把 `app/main.py` 中 12 个服务属性从 `self._xxx` 改为 `self.xxx`（去掉前导下划线），统一以公开属性形式对外暴露。
+服务内部实现（如 `BlackboxRepairHandler` 中引用 `self._ctrl._pt_exam_svc._set_pt_exam_feedback`）也需同步改为 `self._ctrl.pt_exam_svc._set_pt_exam_feedback`。
 
-2. 新文件中是否包含：
-- `HardwareActions`
+命名建议（遵守现有缩写风格）：
+    self._flow_mgr            → self.flow_mgr
+    self._assessment_svc      → self.assessment_svc
+    self._assessment_coord    → self.assessment_coord
+    self._blackbox_handler    → self.blackbox_handler
+    self._phase_resolver      → self.phase_resolver
+    self._hw                  → self.hw
+    self._fault_mgr           → self.fault_mgr
+    self._loop_svc            → self.loop_svc
+    self._pt_voltage_svc      → self.pt_voltage_svc
+    self._pt_phase_svc        → self.pt_phase_svc
+    self._pt_exam_svc         → self.pt_exam_svc
+    self._sync_svc            → self.sync_svc
 
-3. `HardwareActions` 是否承接了以下方法：
-- `get_preclose_flow_blockers`
-- `_should_enforce_pt_exam_before_close`
-- `_should_limit_close_to_selected_pt_target`
-- `instant_sync`
-- `toggle_engine`
-- `_on_engine_blocked`
-- `_on_breaker_blocked`
-- `toggle_breaker`
+注意：`assessment_svc`、`fault_mgr`、`loop_svc` 等目前在服务内部被其它服务通过 `self._ctrl._xxx_svc` 访问，全部改名需要在 `services/*.py` 中同步修改所有访问点。
 
-4. `app/main.py` 中这 4 个公开方法是否还存在，但只剩转发壳：
-- `get_preclose_flow_blockers`
-- `instant_sync`
-- `toggle_engine`
-- `toggle_breaker`
+B. 迁移外部调用（保持语义不变）
+对每一个纯转发壳 `ctrl.method(...)`，把所有调用点从：
+    ctrl.method(args)
+改为：
+    ctrl.<service>.method(args)
 
-5. `app/main.py` 中这 4 个私有方法是否确实已删除：
-- `_should_enforce_pt_exam_before_close`
-- `_should_limit_close_to_selected_pt_target`
-- `_on_engine_blocked`
-- `_on_breaker_blocked`
+典型替换：
+    ctrl.is_loop_test_complete()             → ctrl.loop_svc.is_loop_test_complete()
+    ctrl.is_assessment_mode()                → ctrl.flow_mgr.is_assessment_mode()
+    ctrl.append_assessment_event(...)        → ctrl.assessment_coord.append_assessment_event(...)
+    ctrl.toggle_engine(gid)                  → ctrl.hw.toggle_engine(gid)
+    ctrl.resolve_pt_node_plot_key(name)      → ctrl.phase_resolver.resolve_pt_node_plot_key(name)
+    ctrl.get_blackbox_runtime_state(target)  → ctrl.blackbox_handler.get_blackbox_runtime_state(target)
 
-B. 行为保持核查
-请确认以下点是否成立：
+C. 删除 Controller 中的纯转发壳
+确认所有调用点已迁移后，从 `app/main.py` 中删除所有单行纯转发方法。
 
-1. `get_preclose_flow_blockers`
-- `gen_id=1 / gen_id=2 / 第一步未完成` 的分支逻辑是否保持一致
-- 返回的 section 标题和提示文案是否保持一致
+D. 以下内容本轮不得触碰（保留在 Controller）
+- `toggle_pause()`：直接操作 UI 按钮，暂不迁移。
+- `test_flow_mode` property + setter：保留，因为它是属性代理不是方法壳。
+- `_get_generator_state()`、`_tick()`、`_consume_pending_accident_dialog()`、`request_ui_tab()` 等属于 Controller 本身职责。
+- `_pt_blackbox_mode_proxy` / `pt_blackbox_mode` property：UI 兼容胶水，保留。
+- 带实际逻辑/参数变形/多步骤组合的方法（不是纯 return self._xxx.yyy(...)）：本轮保留。
+- `queue_accident_dialog()`、`repair_fault()`、`set_g2_terminal_fault()`、`reset_blackbox_orders()`、`reshuffle_pt_phase_orders()`、`reset_pt_phase_orders()` 等仍含自身逻辑：保留。
 
-2. `instant_sync`
-- 仍然先看 `physics.bus_live`
-- 有母排参考时仍使用 `math.degrees(self._ctrl.physics.bus_phase)`
-- 仍然把两台机组都恢复到 `GRID_FREQ / GRID_AMP / target_phase_deg`
+E. 更新 `tests/support/stubs.py`
+将 Stub 中持有的服务句柄同步改名（例如 `self._flow_mgr` → `self.flow_mgr`）。
+Stub 的方法一律保留直接方法签名（不做转发壳删除），以便测试场景继续简洁。
 
-3. `toggle_engine`
-- 仍然只允许手动模式起机
-- 被拦截时仍然走 `_on_engine_blocked`
-- 否则仍然执行 `gen.running = not gen.running`
+F. 运行快照测试
+    /Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -v -p no:cacheprovider
+应 5 个用例全部 PASS，快照字节级一致。
+如出现失败，先恢复失败现场、定位根因，再调整（通常是某个 UI/服务漏改了调用点）。
 
-4. `toggle_breaker`
-- 所有拦截顺序是否保持不变：
-  1. `Gen2 + 第四步锁定 Gen1`
-  2. `E01/E02/E03` 工作位合闸事故
-  3. 工作位合闸前置流程检查
-- 危险动作事件写入顺序是否保持不变
-- `self._ctrl.ui.show_e01_accident_dialog()` / `show_e02_accident_dialog()` / `show_e03_accident_dialog()` 是否与原先触发点一致
-- 成功路径是否仍然只设置 `generator.cmd_close = True`
+G. 更新 `MAINTENANCE_CHECKLIST.md`
+- §2 基线表：`app/main.py` 新行数（目标 ≤ 600）
+- §3 当前总体进度：当前阶段标注 Phase 1 已收尾，进入 Phase 2
+- §4 Phase 1 路线图：勾选 "删除 Controller 中已迁出的旧方法"、"每步完成后跑快照测试验证"
+- §9 新增"第 15 轮"记录，严格按 §11 模板填写
+- §10 下一轮默认起点：Phase 2 — 定义 `AssessmentContext`，切断评分对 ctrl 的依赖
 
-C. 模块内互调核查
-请重点检查以下点：
+第三步：硬约束（违反即视为越界）
 
-1. 在 `services/hardware_actions.py` 中，`toggle_breaker()` 内部这些调用是否写成 `self.xxx`，而不是 `self._ctrl.xxx`：
-- `self._on_breaker_blocked(...)`
-- `self._should_limit_close_to_selected_pt_target()`
-- `self._should_enforce_pt_exam_before_close()`
-- `self.get_preclose_flow_blockers(gen_id)`
+1. 不得新增功能、不得变更任何服务方法的实现。
+2. 不得修改 `domain/` 下任何文件。
+3. 不得动 `physics_engine.py` / `assessment_service.py` 等"本轮非目标"服务的内部实现。
+4. 不得删除 Controller 中带有实际逻辑的方法（仅删除"单行 return self._xxx.yyy(...)"形态）。
+5. 不得重排 `PowerSyncController.__init__` 中现有的初始化顺序。
+6. 不得改 `ControllerStub` 的方法签名（Stub 的用户是测试，测试不应受影响）。
+7. 本轮内不得再抽出新的服务类、不得做 Phase 2/3/4 的工作。
+8. 禁止"顺手"重新排版无关的空行/缩进/import 顺序。
+9. 如改动量超出预期（例如 UI 调用点超过 200 处），允许本轮只删除"易替换的"壳层（如 `HardwareActions`、`PhaseOrderResolver`、`BlackboxRepairHandler` 相关），将 `FlowModeManager` / `AssessmentCoordinator` 的大面积替换留到第 16 轮；但必须在 §9 本轮记录中明确哪些壳已删、哪些保留原因。
 
-2. 在 `toggle_engine()` 中，是否写成：
-- `self._on_engine_blocked(...)`
-而不是：
-- `self._ctrl._on_engine_blocked(...)`
+第四步：完成后输出
 
-3. 跨模块/跨对象调用是否仍然正确走 `self._ctrl.xxx`
-例如：
-- `self._ctrl._get_generator_state(gen_id)`
-- `self._ctrl.append_assessment_event(...)`
-- `self._ctrl.request_ui_tab(5)`
-- `self._ctrl._pt_exam_svc._set_pt_exam_feedback(...)`
-- `self._ctrl.ui.show_warning(...)`
+1. 修改的文件清单（简短 diff 统计即可）
+2. `app/main.py` 行数变化：`725 -> ?`
+3. 本轮删除的转发壳数量
+4. 本轮保留的"非纯转发"方法数量与保留原因简述
+5. 快照测试结果
+6. `MAINTENANCE_CHECKLIST.md` 变更摘要
+7. 是否将 Phase 1 正式标记为完成
 
-D. 依赖边界核查
-请确认以下边界是否成立：
+开工前必做：
+- 先 `git status` 确认干净工作区
+- 先 `git log -1 --stat` 确认起点是第 14 轮提交
 
-1. `services/hardware_actions.py` 是否没有：
-- `from PyQt5 ...`
-- `from ui...`
-- 新增不必要的 GUI 依赖
-
-2. `HardwareActions` 是否允许持有 `ctrl`，但仅搬运原本 Controller 已有的依赖访问
-3. 是否没有新增原 Controller 中不存在的 `self._ctrl.xxx` 访问点
-4. `toggle_pause()` 是否明确未迁移，因为它直接操作具体 UI 控件
-5. 外部调用方是否仍通过 `ctrl.toggle_engine()` / `ctrl.toggle_breaker()` / `ctrl.instant_sync()` 使用原接口，而不需要改调用代码
-
-E. 越界修改核查
-请重点检查是否有超出本轮范围的修改。以下内容本轮不应该被动到：
-
-- `toggle_pause`
-- `rebuild_circuit_view`
-- `set_g2_terminal_fault`
-- `on_pt_blackbox_toggle`
-- `reshuffle_pt_phase_orders`
-- `reset_pt_phase_orders`
-- `reset_blackbox_orders`
-- `queue_accident_dialog`
-- `_consume_pending_accident_dialog`
-- `services/blackbox_repair_handler.py`
-- `services/assessment_coordinator.py`
-- `services/phase_order_resolver.py`
-- `services/flow_mode_manager.py`
-- `services/fault_manager.py`
-- `services/assessment_service.py`
-- README.md
-- context.md
-- 新增测试文件
-
-如果发现这些被改动，必须明确指出“越界修改”。
-
-F. 外部调用方影响核查
-请确认以下调用点保持原样：
-
-- `ui/test_panel.py:703`
-- `ui/test_panel.py:707`
-- `ui/panels/control_panel.py:362`
-
-补充检查但原则上也不该被动到：
-- `ui/panels/control_panel.py:489`
-- `ui/panels/control_panel.py:494`
-
-如果你能获取版本控制状态，请确认这些文件是否为 unchanged。
-如果当前目录不是 Git 仓库，请明确说明“无法用 git 状态验证，只能做静态文件差异核查”。
-
-G. ControllerStub 适配核查
-请确认：
-
-1. `tests/support/stubs.py` 是否未做适配
-2. 如果未适配，是否有充分依据说明“不需要”
-3. 是否能证明当前快照测试路径不触达这些硬件动作方法
-
-H. 测试与回归核查
-请确认：
-
-1. 是否已运行静态编译检查：
-- `python -m compileall services\\hardware_actions.py app\\main.py`
-
-2. 是否已运行测试：
-- `python -m pytest tests/ -v -p no:cacheprovider`
-
-请报告：
-- 通过数
-- 失败数
-- 跳过数
-- 是否存在快照漂移
-- 是否存在测试被跳过的情况
-
-I. 维护清单核查
-请核查 `MAINTENANCE_CHECKLIST.md` 是否同步更新了以下内容：
-
-1. §2
-- `app/main.py` 行数是否已更新为本轮新值
-- 是否反映出 `app/main.py` 风险等级变化
-
-2. §3
-- 当前阶段是否更新为：
-  `Phase 1 — Controller 瘦身（进行中：HardwareActions 已完成，下一步 Phase 1 收尾）`
-- 当前最大风险文件是否同步更新
-- 下一轮默认起点是否改为：
-  `Phase 1 收尾 — 删除 Controller 中已迁出的纯转发壳层`
-
-3. §4
-- `拆出 HardwareActions` 是否已打勾 `[x]`
-- 是否新增了与前几轮一致的说明：
-  - 本轮允许持有 `ctrl`
-  - Phase 4 再收口
-
-4. §9
-- 是否新增第 14 轮记录
-- 内容是否与本轮工作相匹配
-- 是否从“当前未完成但已明确方向”中移除了 `HardwareActions 尚未拆出`
-
-5. §10
-- 下一轮默认起点是否已改为：
-  `Phase 1 收尾：删除 Controller 中已迁出的纯转发壳层`
-
-第三步：输出格式要求
-请严格按下面格式输出你的核查结果：
-
-1. 总结结论
-- 直接给出：
-  - “通过”
-  - 或 “未通过”
-
-2. 已完成项
-- 用列表写清楚本轮已满足的要求
-
-3. 不符合项
-- 如果有，逐条列出
-- 每条必须包含：
-  - 文件路径
-  - 问题描述
-  - 为什么不符合本轮要求
-
-4. 越界修改检查
-- 明确写：
-  - “未发现越界修改”
-  - 或 “发现越界修改”，并列出具体文件和内容
-
-5. 外部调用方影响检查
-- 明确列出外部调用文件是否保持零改动
-- 如果无法使用 git 验证，必须明确写明
-
-6. ControllerStub 检查
-- 明确写：
-  - “不需要适配，原因是……”
-  - 或
-  - “需要适配但未完成”，并说明原因
-
-7. 测试与回归结果
-- 报告 compileall 和 pytest 的核查结论
-- 如果你无法实际运行测试，也必须明确说明“只完成静态核查，未完成运行验证”
-
-8. 最终判定
-- 用一句话给出：
-  - “Phase 1 第五步可视为完成”
-  - 或
-  - “Phase 1 第五步暂不能视为完成”
-
-核查原则：
-- 你是审查，不是开发
-- 不要顺手修代码
-- 不要给大段发散建议
-- 只围绕“这一轮是否按要求完成”给出结论
-- 优先找“是否行为变更”“是否越界”“是否调用链断裂”“是否清单未同步”
+开工后必做：
+- 小步完成一类服务的公开化 + 调用点替换 + 壳删除，再跑 pytest，再提交 / 或再进行下一类
+- 不要一次性改完 60 个壳再跑测试
 
 '''
 
