@@ -700,11 +700,11 @@ class TestPanelMixin:
         eng_btn = None
         if show_engine:
             eng_btn = self._make_btn("起机", "#16a34a")
-            eng_btn.clicked.connect(lambda _, gid=gen_id: self.ctrl.toggle_engine(gid))
+            eng_btn.clicked.connect(lambda _, gid=gen_id: self.ctrl.hw.toggle_engine(gid))
             br.addWidget(eng_btn)
 
         brk_btn = self._make_btn("合闸", "#1d4ed8")
-        brk_btn.clicked.connect(lambda _, gid=gen_id: self.ctrl.toggle_breaker(gid))
+        brk_btn.clicked.connect(lambda _, gid=gen_id: self.ctrl.hw.toggle_breaker(gid))
         br.addWidget(brk_btn)
 
         ilay.addWidget(btn_row)
@@ -1352,7 +1352,7 @@ class TestPanelMixin:
         if seq == 'unknown':
             self._set_feedback_label(self.tp_s3_fb_lbl, "请先接入相序仪，再记录结果。", "orange")
             return
-        ok = self.ctrl.record_phase_sequence(pt_name, seq)
+        ok = self.ctrl.pt_phase_svc.record_phase_sequence(pt_name, seq)
         state = self.ctrl.pt_phase_check_state
         self._set_feedback_label(self.tp_s3_fb_lbl, state.feedback, state.feedback_color)
         if ok and pt_name in self._tp_s3_rec_btns:
@@ -1506,30 +1506,30 @@ class TestPanelMixin:
         if self._tp_admin_mode and self._tp_forced_step is not None:
             return self._tp_forced_step
         c = self.ctrl
-        if not c.is_loop_test_complete():
+        if not c.loop_svc.is_loop_test_complete():
             return 1
-        if not c.is_pt_voltage_check_complete():
+        if not c.pt_voltage_svc.is_pt_voltage_check_complete():
             return 2
-        if not c.is_pt_phase_check_complete():
+        if not c.pt_phase_svc.is_pt_phase_check_complete():
             return 3
         if not (c.pt_exam_states[1].completed and c.pt_exam_states[2].completed):
             return 4
         if (c.should_hold_at_step4_when_wiring_fault_unrepaired()
-                and c.has_unrepaired_wiring_fault()):
+                and c.fault_mgr.has_unrepaired_wiring_fault()):
             return 4
         return 5
 
     def _is_step_complete(self, step: int) -> bool:
         if step == 1:
-            return self.ctrl.is_loop_test_complete()
+            return self.ctrl.loop_svc.is_loop_test_complete()
         if step == 2:
-            return self.ctrl.is_pt_voltage_check_complete()
+            return self.ctrl.pt_voltage_svc.is_pt_voltage_check_complete()
         if step == 3:
-            return self.ctrl.is_pt_phase_check_complete()
+            return self.ctrl.pt_phase_svc.is_pt_phase_check_complete()
         if step == 4:
             return self.ctrl.pt_exam_states[1].completed and self.ctrl.pt_exam_states[2].completed
         if step == 5:
-            return self.ctrl.is_sync_test_complete()
+            return self.ctrl.sync_svc.is_sync_test_complete()
         return False
 
     def _show_assessment_result_dialog(self, result):
@@ -1946,11 +1946,11 @@ class TestPanelMixin:
             self._tp_admin_mode = False
             self.tp_btn_admin.setChecked(False)
             self._tp_forced_step = None
-        _auto = (1 if not c.is_loop_test_complete() else
-                 2 if not c.is_pt_voltage_check_complete() else
-                 3 if not c.is_pt_phase_check_complete() else
+        _auto = (1 if not c.loop_svc.is_loop_test_complete() else
+                 2 if not c.pt_voltage_svc.is_pt_voltage_check_complete() else
+                 3 if not c.pt_phase_svc.is_pt_phase_check_complete() else
                  4 if ((c.should_hold_at_step4_when_wiring_fault_unrepaired()
-                        and c.has_unrepaired_wiring_fault()) or not (
+                        and c.fault_mgr.has_unrepaired_wiring_fault()) or not (
                             c.pt_exam_states[1].completed and c.pt_exam_states[2].completed
                         )) else 5)
         for i, btn in enumerate(self.tp_step_btns):
@@ -2001,7 +2001,7 @@ class TestPanelMixin:
                 )
             if progress.should_show_blackbox_required_dialog:
                 self._show_blackbox_required_dialog(fc)
-        elif not self.ctrl.has_unrepaired_wiring_fault():
+        elif not self.ctrl.fault_mgr.has_unrepaired_wiring_fault():
             self._pre_step5_repair_triggered = False
 
         # ── Multimeter (hidden on step 3 which uses phase seq meter) ──
@@ -2116,7 +2116,7 @@ class TestPanelMixin:
 
     def _refresh_tp_step1(self, sim):
         in_mode = sim.loop_test_mode
-        steps = self.ctrl.get_loop_test_steps()
+        steps = self.ctrl.loop_svc.get_loop_test_steps()
         for lbl, (text, done) in zip(self.tp_s1_step_lbls, steps):
             self._set_step_list_label(lbl, text, done, in_mode)
 
@@ -2134,7 +2134,7 @@ class TestPanelMixin:
 
     def _refresh_tp_step2(self, sim):
         in_mode = self.ctrl.pt_voltage_check_state.started
-        steps = self.ctrl.get_pt_voltage_check_steps()
+        steps = self.ctrl.pt_voltage_svc.get_pt_voltage_check_steps()
         for lbl, (text, done) in zip(self.tp_s2_step_lbls, steps):
             self._set_step_list_label(lbl, text, done, in_mode)
 
@@ -2179,7 +2179,7 @@ class TestPanelMixin:
 
     def _refresh_tp_step3(self):
         in_mode = self.ctrl.pt_phase_check_state.started
-        steps = self.ctrl.get_pt_phase_check_steps()
+        steps = self.ctrl.pt_phase_svc.get_pt_phase_check_steps()
         for lbl, (text, done) in zip(self.tp_s3_step_lbls, steps):
             self._set_step_list_label(lbl, text, done, in_mode)
 
@@ -2191,7 +2191,7 @@ class TestPanelMixin:
         gen_id = max(1, self._tp_s4_bg.checkedId())
         in_mode = (self.ctrl.pt_exam_states[1].started and
                    self.ctrl.pt_exam_states[2].started)
-        steps = self.ctrl.get_pt_exam_steps(gen_id)
+        steps = self.ctrl.pt_exam_svc.get_pt_exam_steps(gen_id)
         for lbl, (text, done) in zip(self.tp_s4_step_lbls, steps):
             self._set_step_list_label(lbl, text, done, in_mode)
 
@@ -2221,7 +2221,7 @@ class TestPanelMixin:
         assessment_mode = self.ctrl.is_assessment_mode()
 
         # 是否存在活跃未修复故障（影响接线显示）
-        blackbox_state = self.ctrl.get_blackbox_runtime_state(target)
+        blackbox_state = self.ctrl.blackbox_handler.get_blackbox_runtime_state(target)
         fault_active = blackbox_state['fault_active']
 
         dlg = QtWidgets.QDialog(self)
@@ -2330,7 +2330,7 @@ class TestPanelMixin:
                 new_order = widget.get_order() if repair_target in ('G1', 'G2') else None
                 new_pri = widget.get_pri_order() if repair_target in ('PT1', 'PT3') else None
                 new_sec = widget.get_sec_order() if repair_target in ('PT1', 'PT3') else None
-                outcome = self.ctrl.apply_blackbox_repair_attempt(
+                outcome = self.ctrl.blackbox_handler.apply_blackbox_repair_attempt(
                     repair_target,
                     step=self._current_test_step(),
                     initial_order=initial_order,
@@ -2370,7 +2370,7 @@ class TestPanelMixin:
     def _refresh_tp_step5(self, sim):
         state   = self.ctrl.sync_test_state
         in_mode = state.started
-        steps = self.ctrl.get_sync_test_steps()
+        steps = self.ctrl.sync_svc.get_sync_test_steps()
         for lbl, (text, done) in zip(self.tp_s5_step_lbls, steps):
             self._set_step_list_label(lbl, text, done, in_mode)
 

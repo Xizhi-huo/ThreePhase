@@ -54,10 +54,10 @@ class SyncTestService:
         p = self._ctrl.physics
         state = self._ctrl.sync_test_state
 
-        loop_done       = self._ctrl.is_loop_test_complete()
-        pt_voltage_done = self._ctrl.is_pt_voltage_check_complete()
-        pt_phase_done   = self._ctrl.is_pt_phase_check_complete()
-        pt_done         = self._ctrl.is_pt_exam_recorded(1) and self._ctrl.is_pt_exam_recorded(2)
+        loop_done       = self._ctrl.loop_svc.is_loop_test_complete()
+        pt_voltage_done = self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete()
+        pt_phase_done   = self._ctrl.pt_phase_svc.is_pt_phase_check_complete()
+        pt_done         = self._ctrl.pt_exam_svc.is_pt_exam_recorded(1) and self._ctrl.pt_exam_svc.is_pt_exam_recorded(2)
 
         r1_master_ok    = (gen1.breaker_closed and
                            gen1.breaker_position == BreakerPosition.WORKING and
@@ -116,21 +116,21 @@ class SyncTestService:
                 '请先点击"开始第五步测试"，再进行同步功能记录。', "red")
             return
 
-        if not self._ctrl.is_loop_test_complete():
+        if not self._ctrl.loop_svc.is_loop_test_complete():
             self._set_sync_test_feedback("请先完成第一步【回路连通性测试】。", "red")
             return
-        if not self._ctrl.is_pt_voltage_check_complete():
+        if not self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete():
             self._set_sync_test_feedback("请先完成第二步【PT 单体线电压检查】。", "red")
             return
-        if not self._ctrl.is_pt_phase_check_complete():
+        if not self._ctrl.pt_phase_svc.is_pt_phase_check_complete():
             self._set_sync_test_feedback("请先完成第三步【PT 相序检查】。", "red")
             return
-        if not (self._ctrl.is_pt_exam_recorded(1) and self._ctrl.is_pt_exam_recorded(2)):
+        if not (self._ctrl.pt_exam_svc.is_pt_exam_recorded(1) and self._ctrl.pt_exam_svc.is_pt_exam_recorded(2)):
             self._set_sync_test_feedback(
                 "请先完成第四步【PT 二次端子压差测试】（Gen1 和 Gen2 均需完成）。", "red")
             return
         if (self._ctrl.should_block_step5_until_blackbox_fixed()
-                and self._ctrl.has_unrepaired_wiring_fault()):
+                and self._ctrl.fault_mgr.has_unrepaired_wiring_fault()):
             self._set_sync_test_feedback(
                 "请先修复未恢复的黑盒接线故障，再进行第五步【同步功能测试】。", "red")
             return

@@ -174,7 +174,7 @@ class ProtectionMixin:
                         not generator.breaker_closed):
                     generator.breaker_closed = True
             else:
-                if (self.ctrl.is_sync_test_complete()
+                if (self.ctrl.sync_svc.is_sync_test_complete()
                         and abs(generator.freq - ref_freq) < 0.1
                         and abs(ref_amp - a_value) <= 185.0
                         and abs(diff_deg) <= 1.5

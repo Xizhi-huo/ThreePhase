@@ -213,7 +213,7 @@ class PtPhaseCheckTabMixin:
                 "操作提示：第三步测试已完成，请继续进行第四步 PT 二次端子压差测试。")
             set_live_text(self.pt_phase_check_feedback_lbl, "success")
             for lbl, (text, _) in zip(self.pt_phase_check_step_labels,
-                                      self.ctrl.get_pt_phase_check_steps()):
+                                      self.ctrl.pt_phase_svc.get_pt_phase_check_steps()):
                 set_step_item(lbl, text, True, True)
             for key, lbl in self.pt_phase_check_record_labels.items():
                 lbl.setText("相序正确 ✓")
@@ -265,11 +265,11 @@ class PtPhaseCheckTabMixin:
 
         if not in_mode:
             for lbl, (text, _) in zip(self.pt_phase_check_step_labels,
-                                      self.ctrl.get_pt_phase_check_steps()):
+                                      self.ctrl.pt_phase_svc.get_pt_phase_check_steps()):
                 set_step_item(lbl, text, False, False)
         else:
             for lbl, (text, done) in zip(self.pt_phase_check_step_labels,
-                                         self.ctrl.get_pt_phase_check_steps()):
+                                         self.ctrl.pt_phase_svc.get_pt_phase_check_steps()):
                 set_step_item(lbl, text, done, True)
 
         for key, lbl in self.pt_phase_check_record_labels.items():

@@ -179,7 +179,7 @@ class SyncTestTabMixin:
             self.sync_test_feedback_lbl.setText("操作提示：第五步测试已完成，全部预合闸测量流程通过。")
             self.sync_test_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
             for lbl, (text, _) in zip(self.sync_test_step_labels,
-                                      self.ctrl.get_sync_test_steps()):
+                                      self.ctrl.sync_svc.get_sync_test_steps()):
                 lbl.setText("√ " + text)
                 lbl.setStyleSheet("font-size:15px; color:#006400;")
             self.sync_round1_lbl.setText("Gen 1 基准 → Gen 2 同步：已记录 ✓")
@@ -203,7 +203,7 @@ class SyncTestTabMixin:
         sim      = self.ctrl.sim_state
         gen1, gen2 = sim.gen1, sim.gen2
 
-        if self.ctrl.is_sync_test_complete():
+        if self.ctrl.sync_svc.is_sync_test_complete():
             summary = "第五步已确认完成：同步功能测试通过，系统已恢复正常自动合闸逻辑。"
             sc = '#006400'
         elif state.round1_done and state.round2_done:
@@ -227,7 +227,7 @@ class SyncTestTabMixin:
             df = abs(gen2.freq - gen1.freq)
             dv = abs(gen2.amp - gen1.amp)
             dp = _phase_diff(gen2, gen1)
-            ok = self.ctrl._is_gen_synced(gen2, gen1)
+            ok = self.ctrl.sync_svc._is_gen_synced(gen2, gen1)
             color = '#006400' if ok else '#cc4400'
             self.sync_test_live_lbl.setText(
                 f"[第一轮] Gen2跟踪Gen1 — Δf={df:.3f} Hz，ΔV={dv:.0f} V，Δθ={dp:.1f}°  "
@@ -237,7 +237,7 @@ class SyncTestTabMixin:
             df = abs(gen1.freq - gen2.freq)
             dv = abs(gen1.amp - gen2.amp)
             dp = _phase_diff(gen1, gen2)
-            ok = self.ctrl._is_gen_synced(gen1, gen2)
+            ok = self.ctrl.sync_svc._is_gen_synced(gen1, gen2)
             color = '#006400' if ok else '#cc4400'
             self.sync_test_live_lbl.setText(
                 f"[第二轮] Gen1跟踪Gen2 — Δf={df:.3f} Hz，ΔV={dv:.0f} V，Δθ={dp:.1f}°  "
@@ -247,7 +247,7 @@ class SyncTestTabMixin:
             df = abs(gen1.freq - gen2.freq)
             dv = abs(gen1.amp - gen2.amp)
             dp = _phase_diff(gen1, gen2)
-            ok = self.ctrl._is_gen_synced(gen1, gen2)
+            ok = self.ctrl.sync_svc._is_gen_synced(gen1, gen2)
             color = '#006400' if ok else '#cc4400'
             self.sync_test_live_lbl.setText(
                 f"[最终] 双机自动 — Δf={df:.3f} Hz，ΔV={dv:.0f} V，Δθ={dp:.1f}°  "
@@ -265,12 +265,12 @@ class SyncTestTabMixin:
 
         if not started:
             for lbl, (text, _) in zip(self.sync_test_step_labels,
-                                      self.ctrl.get_sync_test_steps()):
+                                      self.ctrl.sync_svc.get_sync_test_steps()):
                 lbl.setText("□ " + text)
                 lbl.setStyleSheet("font-size:15px; color:#aaaaaa;")
         else:
             for lbl, (text, done) in zip(self.sync_test_step_labels,
-                                         self.ctrl.get_sync_test_steps()):
+                                         self.ctrl.sync_svc.get_sync_test_steps()):
                 lbl.setText(("√ " if done else "□ ") + text)
                 lbl.setStyleSheet(f"font-size:15px; color:{'#006400' if done else '#666666'};")
 

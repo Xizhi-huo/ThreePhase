@@ -198,9 +198,9 @@ class AssessmentService:
         pt_exam_records_2 = pt_exam_records.get(2, self._ctrl.pt_exam_states[2].records)
 
         completed = snapshot.get('completed', {})
-        loop_complete = bool(completed.get('loop', self._ctrl.is_loop_test_complete()))
-        voltage_complete = bool(completed.get('voltage', self._ctrl.is_pt_voltage_check_complete()))
-        phase_complete = bool(completed.get('phase', self._ctrl.is_pt_phase_check_complete()))
+        loop_complete = bool(completed.get('loop', self._ctrl.loop_svc.is_loop_test_complete()))
+        voltage_complete = bool(completed.get('voltage', self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete()))
+        phase_complete = bool(completed.get('phase', self._ctrl.pt_phase_svc.is_pt_phase_check_complete()))
         pt_exam_complete = (
             bool(completed.get('pt_exam_1', self._ctrl.pt_exam_states[1].completed))
             and bool(completed.get('pt_exam_2', self._ctrl.pt_exam_states[2].completed))

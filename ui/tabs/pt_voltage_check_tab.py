@@ -231,7 +231,7 @@ class PtVoltageCheckTabMixin:
                 "操作提示：第二步测试已完成，请继续进行第三步 PT 相序检查。")
             set_live_text(self.pt_voltage_feedback_lbl, "success")
             for lbl, (text, _) in zip(self.pt_voltage_step_labels,
-                                      self.ctrl.get_pt_voltage_check_steps()):
+                                      self.ctrl.pt_voltage_svc.get_pt_voltage_check_steps()):
                 set_step_item(lbl, text, True, True)
             for key, lbl in self.pt_voltage_record_labels.items():
                 rec = records.get(key)
@@ -278,11 +278,11 @@ class PtVoltageCheckTabMixin:
 
         if not started:
             for lbl, (text, _) in zip(self.pt_voltage_step_labels,
-                                      self.ctrl.get_pt_voltage_check_steps()):
+                                      self.ctrl.pt_voltage_svc.get_pt_voltage_check_steps()):
                 set_step_item(lbl, text, False, False)
         else:
             for lbl, (text, done) in zip(self.pt_voltage_step_labels,
-                                         self.ctrl.get_pt_voltage_check_steps()):
+                                         self.ctrl.pt_voltage_svc.get_pt_voltage_check_steps()):
                 set_step_item(lbl, text, done, True)
 
         for key, lbl in self.pt_voltage_record_labels.items():

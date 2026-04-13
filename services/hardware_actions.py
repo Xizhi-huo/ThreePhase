@@ -12,19 +12,19 @@ class HardwareActions:
 
     def get_preclose_flow_blockers(self, gen_id):
         sections = []
-        loop_done = self._ctrl.is_loop_test_complete()
+        loop_done = self._ctrl.loop_svc.is_loop_test_complete()
 
         if not loop_done:
             # 第一步未完成：同时列出所有后续步骤，让用户一次看到全部要求
             sections.append(("第一步：回路连通性测试", ["三相回路连通性测试尚未完成"]))
-            if not self._ctrl.is_pt_voltage_check_complete():
+            if not self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete():
                 sections.append(("第二步：PT 单体线电压检查", ["PT1/PT2/PT3 线电压检查尚未完成"]))
-            if not self._ctrl.is_pt_phase_check_complete():
+            if not self._ctrl.pt_phase_svc.is_pt_phase_check_complete():
                 sections.append(("第三步：PT 相序检查", ["PT1/PT3 相序检查尚未完成"]))
-            if not self._ctrl.is_pt_exam_recorded(2):
+            if not self._ctrl.pt_exam_svc.is_pt_exam_recorded(2):
                 sections.append(("第四步：PT 二次端子压差考核（Gen 2）",
                                  ["Gen 2 三相 PT 二次端子压差尚未全部记录"]))
-            if not self._ctrl.is_sync_test_complete() and not self._ctrl.is_sync_test_active():
+            if not self._ctrl.sync_svc.is_sync_test_complete() and not self._ctrl.is_sync_test_active():
                 sections.append(("第五步：同步功能测试",
                                  ["同步功能测试尚未完成（需完成两轮同步跟踪记录）"]))
         elif gen_id == 1:
@@ -32,20 +32,20 @@ class HardwareActions:
             bus_live = getattr(self._ctrl.physics, 'bus_live', False)
             bus_ref = getattr(self._ctrl.physics, 'bus_reference_gen', None)
             if bus_live and bus_ref == 2:
-                if not self._ctrl.is_sync_test_complete() and not self._ctrl.is_sync_test_active():
+                if not self._ctrl.sync_svc.is_sync_test_complete() and not self._ctrl.is_sync_test_active():
                     sections.append(("第五步：同步功能测试",
                                      ["母排当前由 Gen 2 供电，Gen 1 合闸前需完成同步功能测试"]))
         elif gen_id == 2:
             # 第一步已完成；Gen1 已建立母排参考，Gen2 需完成第二至五步
-            if not self._ctrl.is_pt_voltage_check_complete():
+            if not self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete():
                 sections.append(("第二步：PT 单体线电压检查", ["PT1/PT2/PT3 线电压检查尚未完成"]))
-            if not self._ctrl.is_pt_phase_check_complete():
+            if not self._ctrl.pt_phase_svc.is_pt_phase_check_complete():
                 sections.append(("第三步：PT 相序检查", ["PT1/PT3 相序检查尚未完成"]))
-            if not self._ctrl.is_pt_exam_recorded(2):
+            if not self._ctrl.pt_exam_svc.is_pt_exam_recorded(2):
                 sections.append(("第四步：PT 二次端子压差考核（Gen 2）",
                                  ["Gen 2 三相 PT 二次端子压差尚未全部记录"]))
             # 同步测试进行中（Gen2 需合闸作第二轮基准）不拦截
-            if not self._ctrl.is_sync_test_complete() and not self._ctrl.is_sync_test_active():
+            if not self._ctrl.sync_svc.is_sync_test_complete() and not self._ctrl.is_sync_test_active():
                 sections.append(("第五步：同步功能测试",
                                  ["同步功能测试尚未完成（需完成两轮同步跟踪记录）"]))
         return sections
@@ -59,7 +59,7 @@ class HardwareActions:
             sim.grounding_mode == "小电阻接地" and
             sim.gen1.mode == "manual" and
             sim.gen2.mode == "manual" and
-            not self._ctrl.is_sync_test_complete() and
+            not self._ctrl.sync_svc.is_sync_test_complete() and
             self._ctrl.pt_exam_states[1].started
         )
 
@@ -102,7 +102,7 @@ class HardwareActions:
             return
         # ── 拦截：Gen1 考核期间禁止 Gen2 合闸 ─────────────────────────────
         if gen_id == 2 and self._should_limit_close_to_selected_pt_target():
-            self._ctrl._pt_exam_svc._set_pt_exam_feedback(
+            self._ctrl.pt_exam_svc._set_pt_exam_feedback(
                 1,
                 "当前第四步正在测试 Gen 1，请先完成 Gen 1 的 PT 二次端子压差测试，再合闸 Gen 2。",
                 "red"
@@ -141,7 +141,7 @@ class HardwareActions:
                     msg_lines.append(f"\n{section_title}")
                     msg_lines.extend(f"{i}. {item}" for i, item in enumerate(items, 1))
                 warn_msg = "\n".join(msg_lines)
-                self._ctrl._pt_exam_svc._set_pt_exam_feedback(
+                self._ctrl.pt_exam_svc._set_pt_exam_feedback(
                     gen_id, warn_msg.replace("\n", "；"), "red")
                 self._on_breaker_blocked(gen_id, "合闸前步骤未完成", warn_msg)
                 return

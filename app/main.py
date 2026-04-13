@@ -98,25 +98,25 @@ class PowerSyncController:
         # ── 业务服务（各服务通过 self._ctrl 回写状态 dataclass）─────────
         self._assessment_svc      = AssessmentService(self)
         self._assessment_coord    = AssessmentCoordinator(self)
-        self._blackbox_handler    = BlackboxRepairHandler(self)
-        self._phase_resolver      = PhaseOrderResolver(self)
-        self._hw                  = HardwareActions(self)
-        self._fault_mgr           = FaultManager(self)
-        self._loop_svc            = LoopTestService(self)
-        self._pt_voltage_svc      = PtVoltageCheckService(self)
-        self._pt_phase_svc        = PtPhaseCheckService(self)
-        self._pt_exam_svc         = PtExamService(self)
-        self._sync_svc            = SyncTestService(self)
+        self.blackbox_handler     = BlackboxRepairHandler(self)
+        self.phase_resolver       = PhaseOrderResolver(self)
+        self.hw                   = HardwareActions(self)
+        self.fault_mgr            = FaultManager(self)
+        self.loop_svc             = LoopTestService(self)
+        self.pt_voltage_svc       = PtVoltageCheckService(self)
+        self.pt_phase_svc         = PtPhaseCheckService(self)
+        self.pt_exam_svc          = PtExamService(self)
+        self.sync_svc             = SyncTestService(self)
 
         # ── 状态 dataclass（UI 直接读取属性，服务通过 ctrl 写入）────────
-        self.loop_test_state         = self._loop_svc.create_loop_test_state()
-        self.pt_voltage_check_state  = self._pt_voltage_svc.create_pt_voltage_check_state()
-        self.pt_phase_check_state    = self._pt_phase_svc.create_pt_phase_check_state()
+        self.loop_test_state         = self.loop_svc.create_loop_test_state()
+        self.pt_voltage_check_state  = self.pt_voltage_svc.create_pt_voltage_check_state()
+        self.pt_phase_check_state    = self.pt_phase_svc.create_pt_phase_check_state()
         self.pt_exam_states          = {
-            1: self._pt_exam_svc.create_pt_exam_state(),
-            2: self._pt_exam_svc.create_pt_exam_state(),
+            1: self.pt_exam_svc.create_pt_exam_state(),
+            2: self.pt_exam_svc.create_pt_exam_state(),
         }
-        self.sync_test_state         = self._sync_svc.create_sync_test_state()
+        self.sync_test_state         = self.sync_svc.create_sync_test_state()
 
         # ── 物理引擎 ──────────────────────────────────────────────────────
         self.physics = PhysicsEngine(self)
@@ -250,34 +250,6 @@ class PowerSyncController:
     def finish_assessment_session_if_ready(self, current_step: int) -> Optional[object]:
         return self._assessment_coord.finish_assessment_session_if_ready(current_step)
 
-    def get_blackbox_runtime_state(self, target: str) -> dict:
-        return self._blackbox_handler.get_blackbox_runtime_state(target)
-
-    def apply_blackbox_repair_attempt(
-            self,
-            target: str,
-            step: int,
-            *,
-            initial_order=None,
-            new_order=None,
-            initial_pri_order=None,
-            new_pri_order=None,
-            initial_sec_order=None,
-            new_sec_order=None) -> BlackboxRepairOutcome:
-        return self._blackbox_handler.apply_blackbox_repair_attempt(
-            target,
-            step,
-            initial_order=initial_order,
-            new_order=new_order,
-            initial_pri_order=initial_pri_order,
-            new_pri_order=new_pri_order,
-            initial_sec_order=initial_sec_order,
-            new_sec_order=new_sec_order,
-        )
-
-    def record_phase_sequence(self, pt_name: str, seq: str) -> bool:
-        return self._pt_phase_svc.record_phase_sequence(pt_name, seq)
-
     def update_pt_ratio(self, ratio_attr: str, ratio: float):
         if ratio_attr not in {'pt_gen_ratio', 'pt3_ratio', 'pt_bus_ratio'}:
             raise ValueError(f"Unsupported PT ratio attribute: {ratio_attr}")
@@ -302,32 +274,11 @@ class PowerSyncController:
     # ════════════════════════════════════════════════════════════════════════
     # PT 节点解析辅助（physics_engine.py 通过 self.ctrl 调用）
     # ════════════════════════════════════════════════════════════════════════
-    def resolve_pt_node_plot_key(self, node_name):
-        return self._phase_resolver.resolve_pt_node_plot_key(node_name)
-
-    def get_pt_phase_sequence(self, pt_name: str) -> str:
-        return self._phase_resolver.get_pt_phase_sequence(pt_name)
-
-    def resolve_loop_node_phase(self, node_name):
-        return self._phase_resolver.resolve_loop_node_phase(node_name)
-
     # ════════════════════════════════════════════════════════════════════════
     # 小型辅助（被 UI 或多个服务直接调用）
     # ════════════════════════════════════════════════════════════════════════
     def _get_generator_state(self, gen_id):
         return self.sim_state.gen1 if gen_id == 1 else self.sim_state.gen2
-
-    def _expected_pt_probe_pair(self, gen_id, gen_phase, bus_phase):
-        return self._pt_exam_svc._expected_pt_probe_pair(gen_id, gen_phase, bus_phase)
-
-    def _get_current_pt_phase_match(self, gen_id):
-        return self._pt_exam_svc._get_current_pt_phase_match(gen_id)
-
-    def _get_current_loop_phase_match(self):
-        return self._loop_svc._get_current_loop_phase_match()
-
-    def _is_gen_synced(self, follower, master, freq_tol=0.5, amp_tol=500.0):
-        return self._sync_svc._is_gen_synced(follower, master, freq_tol, amp_tol)
 
     def set_loop_test_feedback(self, message, color='#444444'):
         self.loop_test_state.feedback = message
@@ -360,24 +311,15 @@ class PowerSyncController:
     # ════════════════════════════════════════════════════════════════════════
     # 第一步：回路连通性测试 — 委托给 LoopTestService
     # ════════════════════════════════════════════════════════════════════════
-    def get_loop_test_steps(self):
-        return self._loop_svc.get_loop_test_steps()
-
     def record_loop_measurement(self, phase):
-        self._loop_svc.record_loop_measurement(phase)
-
-    def is_loop_test_complete(self):
-        return self._loop_svc.is_loop_test_complete()
+        self.loop_svc.record_loop_measurement(phase)
 
     def finalize_loop_test(self):
-        self._loop_svc.finalize_loop_test()
+        self.loop_svc.finalize_loop_test()
 
     def reset_loop_test(self):
-        self._loop_svc.reset_loop_test()
+        self.loop_svc.reset_loop_test()
         self.exit_loop_test_mode()
-
-    def get_loop_test_blockers(self):
-        return self._loop_svc.get_loop_test_blockers()
 
     def enter_loop_test_mode(self):
         """进入第一步回路检查模式：跳过失压联锁，允许不起机合闸。"""
@@ -394,138 +336,90 @@ class PowerSyncController:
     # ════════════════════════════════════════════════════════════════════════
     # 第二步：PT 单体线电压检查 — 委托给 PtVoltageCheckService
     # ════════════════════════════════════════════════════════════════════════
-    def get_pt_voltage_check_steps(self):
-        return self._pt_voltage_svc.get_pt_voltage_check_steps()
-
     def record_pt_voltage_measurement(self, pt_name, phase_pair):
-        self._pt_voltage_svc.record_pt_voltage_measurement(pt_name, phase_pair)
-
-    def is_pt_voltage_check_complete(self):
-        return self._pt_voltage_svc.is_pt_voltage_check_complete()
+        self.pt_voltage_svc.record_pt_voltage_measurement(pt_name, phase_pair)
 
     def finalize_pt_voltage_check(self):
-        self._pt_voltage_svc.finalize_pt_voltage_check()
+        self.pt_voltage_svc.finalize_pt_voltage_check()
 
     def reset_pt_voltage_check(self):
-        self._pt_voltage_svc.reset_pt_voltage_check()
+        self.pt_voltage_svc.reset_pt_voltage_check()
 
     def start_pt_voltage_check(self):
-        self._pt_voltage_svc.start_pt_voltage_check()
+        self.pt_voltage_svc.start_pt_voltage_check()
 
     def stop_pt_voltage_check(self):
-        self._pt_voltage_svc.stop_pt_voltage_check()
-
-    def get_pt_voltage_check_blockers(self):
-        return self._pt_voltage_svc.get_pt_voltage_check_blockers()
+        self.pt_voltage_svc.stop_pt_voltage_check()
 
     # ════════════════════════════════════════════════════════════════════════
     # 第三步：PT 相序检查 — 委托给 PtPhaseCheckService
     # ════════════════════════════════════════════════════════════════════════
-    def get_pt_phase_check_steps(self):
-        return self._pt_phase_svc.get_pt_phase_check_steps()
-
     def record_pt_phase_check(self, pt_name, phase):
-        self._pt_phase_svc.record_pt_phase_check(pt_name, phase)
-
-    def is_pt_phase_check_complete(self):
-        return self._pt_phase_svc.is_pt_phase_check_complete()
+        self.pt_phase_svc.record_pt_phase_check(pt_name, phase)
 
     def finalize_pt_phase_check(self):
-        self._pt_phase_svc.finalize_pt_phase_check()
+        self.pt_phase_svc.finalize_pt_phase_check()
 
     def start_pt_phase_check(self):
-        self._pt_phase_svc.start_pt_phase_check()
+        self.pt_phase_svc.start_pt_phase_check()
 
     def stop_pt_phase_check(self):
-        self._pt_phase_svc.stop_pt_phase_check()
+        self.pt_phase_svc.stop_pt_phase_check()
 
     def reset_pt_phase_check(self):
-        self._pt_phase_svc.reset_pt_phase_check()
+        self.pt_phase_svc.reset_pt_phase_check()
 
     # ════════════════════════════════════════════════════════════════════════
     # 第四步：PT 二次端子压差考核 — 委托给 PtExamService
     # ════════════════════════════════════════════════════════════════════════
     def reset_pt_exam(self, gen_id=None):
-        self._pt_exam_svc.reset_pt_exam(gen_id)
+        self.pt_exam_svc.reset_pt_exam(gen_id)
 
     def record_pt_measurement(self, gen_phase, bus_phase, gen_id):
-        self._pt_exam_svc.record_pt_measurement(gen_phase, bus_phase, gen_id)
+        self.pt_exam_svc.record_pt_measurement(gen_phase, bus_phase, gen_id)
 
     def record_current_pt_measurement(self, gen_id):
         """记录当前表笔位置对应的 PT 压差（由测试面板"记录当前"按钮调用）。"""
-        matched = self._pt_exam_svc._get_current_pt_phase_match(gen_id)
+        matched = self.pt_exam_svc._get_current_pt_phase_match(gen_id)
         if matched is None:
-            self._pt_exam_svc._set_pt_exam_feedback(
+            self.pt_exam_svc._set_pt_exam_feedback(
                 gen_id, "表笔未放置在有效 PT 端子上，请在母排拓扑页放置表笔后再记录。", "red")
             return
-        self._pt_exam_svc.record_pt_measurement(matched[0], matched[1], gen_id)
-
-    def get_pt_exam_steps(self, gen_id):
-        return self._pt_exam_svc.get_pt_exam_steps(gen_id)
-
-    def is_pt_exam_recorded(self, gen_id):
-        return self._pt_exam_svc.is_pt_exam_recorded(gen_id)
+        self.pt_exam_svc.record_pt_measurement(matched[0], matched[1], gen_id)
 
     def finalize_all_pt_exams(self):
-        self._pt_exam_svc.finalize_all_pt_exams()
+        self.pt_exam_svc.finalize_all_pt_exams()
 
     def record_all_pt_measurements_quick(self):
-        self._pt_exam_svc.record_all_pt_measurements_quick()
+        self.pt_exam_svc.record_all_pt_measurements_quick()
 
     def start_pt_exam(self, gen_id):
-        self._pt_exam_svc.start_pt_exam(gen_id)
+        self.pt_exam_svc.start_pt_exam(gen_id)
 
     def stop_pt_exam(self, gen_id):
-        self._pt_exam_svc.stop_pt_exam(gen_id)
+        self.pt_exam_svc.stop_pt_exam(gen_id)
 
     # ════════════════════════════════════════════════════════════════════════
     # 第五步：同步功能测试 — 委托给 SyncTestService
     # ════════════════════════════════════════════════════════════════════════
-    def get_sync_test_steps(self):
-        return self._sync_svc.get_sync_test_steps()
-
     def record_sync_round(self, round_num):
-        self._sync_svc.record_sync_round(round_num)
-
-    def is_sync_test_complete(self):
-        return self._sync_svc.is_sync_test_complete()
+        self.sync_svc.record_sync_round(round_num)
 
     def is_sync_test_active(self):
         """同步测试已开始但尚未最终完成——此期间屏蔽自动合闸。"""
         return self.sync_test_state.started and not self.sync_test_state.completed
 
-    def is_sync_test_rounds_done(self):
-        return self._sync_svc.is_sync_test_rounds_done()
-
     def finalize_sync_test(self):
-        self._sync_svc.finalize_sync_test()
+        self.sync_svc.finalize_sync_test()
 
     def reset_sync_test(self):
-        self._sync_svc.reset_sync_test()
+        self.sync_svc.reset_sync_test()
 
     def start_sync_test(self):
-        self._sync_svc.start_sync_test()
+        self.sync_svc.start_sync_test()
 
     def stop_sync_test(self):
-        self._sync_svc.stop_sync_test()
-
-    def get_sync_test_blockers(self):
-        return self._sync_svc.get_sync_test_blockers()
-
-    # ════════════════════════════════════════════════════════════════════════
-    # 合闸前置流程检查
-    # ════════════════════════════════════════════════════════════════════════
-    def get_preclose_flow_blockers(self, gen_id):
-        return self._hw.get_preclose_flow_blockers(gen_id)
-
-    # ════════════════════════════════════════════════════════════════════════
-    # 控制动作（直接操作 sim_state，不经过服务）
-    # ════════════════════════════════════════════════════════════════════════
-    def instant_sync(self):
-        return self._hw.instant_sync()
-
-    def toggle_engine(self, gen_id: int):
-        return self._hw.toggle_engine(gen_id)
+        self.sync_svc.stop_sync_test()
 
     def queue_accident_dialog(self, scene_id: str):
         if self._pending_accident_scene_id is None:
@@ -555,9 +449,6 @@ class PowerSyncController:
             self.ui.statusBar().clearMessage()
         self._consecutive_tick_failures = 0
         self._tick_error_notified = False
-
-    def toggle_breaker(self, gen_id: int):
-        return self._hw.toggle_breaker(gen_id)
 
     def toggle_pause(self):
         self.sim_state.paused = not self.sim_state.paused
@@ -593,29 +484,11 @@ class PowerSyncController:
         self.pt1_pri_blackbox_order = ['A', 'B', 'C']
         self.pt1_sec_blackbox_order = ['A', 'B', 'C']
 
-    def sync_pt1_blackbox_to_phase_orders(self):
-        return self._blackbox_handler.sync_pt1_blackbox_to_phase_orders()
-
-    def sync_g2_blackbox_to_phase_orders(self):
-        return self._blackbox_handler.sync_g2_blackbox_to_phase_orders()
-
     def set_g2_terminal_fault(self, enabled: bool):
         self.sim_state.fault_reverse_bc = False
         self.g2_blackbox_order = ['A', 'C', 'B'] if enabled else ['A', 'B', 'C']
-        self.sync_g2_blackbox_to_phase_orders()
+        self.blackbox_handler.sync_g2_blackbox_to_phase_orders()
         self.rebuild_circuit_view()
-
-    def has_unrepaired_wiring_fault(self) -> bool:
-        return self._fault_mgr.has_unrepaired_wiring_fault()
-
-    def all_repairable_wiring_targets_normal(self) -> bool:
-        return self._fault_mgr.all_repairable_wiring_targets_normal()
-
-    def fault_has_repairable_wiring_targets(self) -> bool:
-        return self._fault_mgr.fault_has_repairable_wiring_targets()
-
-    def _get_repairable_wiring_orders(self):
-        return self._fault_mgr._get_repairable_wiring_orders()
 
     def on_pt_blackbox_toggle(self, checked: bool):
         self.pt_blackbox_mode_val = checked
@@ -631,10 +504,10 @@ class PowerSyncController:
     # 故障训练模式（FaultConfig 管理）
     # ════════════════════════════════════════════════════════════════════════
     def inject_fault(self, scenario_id: str):
-        self._fault_mgr.inject_fault(scenario_id)
+        self.fault_mgr.inject_fault(scenario_id)
 
     def repair_fault(self, step: int = 4, source: str = 'repair_fault'):
-        self._fault_mgr.repair_fault(step=step, source=source)
+        self.fault_mgr.repair_fault(step=step, source=source)
 
     def reset_for_scenario(self, scenario_id: str):
         """
@@ -652,14 +525,14 @@ class PowerSyncController:
         sim.loop_test_mode = False
 
         # 2. 重置所有步骤状态
-        self.loop_test_state        = self._loop_svc.create_loop_test_state()
-        self.pt_voltage_check_state = self._pt_voltage_svc.create_pt_voltage_check_state()
-        self.pt_phase_check_state   = self._pt_phase_svc.create_pt_phase_check_state()
+        self.loop_test_state        = self.loop_svc.create_loop_test_state()
+        self.pt_voltage_check_state = self.pt_voltage_svc.create_pt_voltage_check_state()
+        self.pt_phase_check_state   = self.pt_phase_svc.create_pt_phase_check_state()
         self.pt_exam_states = {
-            1: self._pt_exam_svc.create_pt_exam_state(),
-            2: self._pt_exam_svc.create_pt_exam_state(),
+            1: self.pt_exam_svc.create_pt_exam_state(),
+            2: self.pt_exam_svc.create_pt_exam_state(),
         }
-        self.sync_test_state = self._sync_svc.create_sync_test_state()
+        self.sync_test_state = self.sync_svc.create_sync_test_state()
 
         # 3. 恢复 PT 相序（inject_fault 会再按场景设置）
         self.pt_phase_orders = {

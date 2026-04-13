@@ -220,7 +220,7 @@ class PtExamTabMixin:
             self.pt_exam_feedback_lbl.setText("考核提示：第四步测试已完成，请继续进行第五步。")
             self.pt_exam_feedback_lbl.setStyleSheet("font-size:15px; color:#006400;")
             for lbl, (text, _) in zip(self.pt_exam_step_labels,
-                                      self.ctrl.get_pt_exam_steps(gen_id)):
+                                      self.ctrl.pt_exam_svc.get_pt_exam_steps(gen_id)):
                 lbl.setText("√ " + text)
                 lbl.setStyleSheet("font-size:15px; color:#006400;")
             for key, lbl in self.pt_exam_record_labels.items():
@@ -245,7 +245,7 @@ class PtExamTabMixin:
         feedback  = state.feedback
         fb_color  = state.feedback_color
         generator = self.ctrl._get_generator_state(gen_id)
-        current_combo = self.ctrl._get_current_pt_phase_match(gen_id)
+        current_combo = self.ctrl.pt_exam_svc._get_current_pt_phase_match(gen_id)
 
         _all_keys = [f'{g}{b}' for g in 'ABC' for b in 'ABC']
         other_id = 2 if gen_id == 1 else 1
@@ -275,12 +275,12 @@ class PtExamTabMixin:
 
         if not started:
             for lbl, (text, _) in zip(self.pt_exam_step_labels,
-                                      self.ctrl.get_pt_exam_steps(gen_id)):
+                                      self.ctrl.pt_exam_svc.get_pt_exam_steps(gen_id)):
                 lbl.setText("□ " + text)
                 lbl.setStyleSheet("font-size:15px; color:#aaaaaa;")
         else:
             for lbl, (text, done) in zip(self.pt_exam_step_labels,
-                                         self.ctrl.get_pt_exam_steps(gen_id)):
+                                         self.ctrl.pt_exam_svc.get_pt_exam_steps(gen_id)):
                 lbl.setText(("√ " if done else "□ ") + text)
                 lbl.setStyleSheet(f"font-size:15px; color:{'#006400' if done else '#666666'};")
 

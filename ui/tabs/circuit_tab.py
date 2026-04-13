@@ -547,7 +547,7 @@ class CircuitTabMixin:
     # ── 相序仪 Public API ─────────────────────────────────────────────────
     def connect_phase_seq_meter(self, pt_name: str):
         """接入相序仪到指定 PT，浮动显示在 canvas 中央两台发电机之间。"""
-        seq = self.ctrl.get_pt_phase_sequence(pt_name)
+        seq = self.ctrl.phase_resolver.get_pt_phase_sequence(pt_name)
         self.phase_seq_meter.connect_pt(pt_name, seq)
         sim = self.ctrl.sim_state
         freq = sim.gen1.freq if pt_name in ('PT1', 'PT2') else sim.gen2.freq
@@ -681,7 +681,7 @@ class CircuitTabMixin:
 
     def _render_gen_wire_visibility(self):
         visible = self.ctrl.sim_state.show_gen_wires
-        if self.ctrl.is_assessment_mode() and not self.ctrl.is_loop_test_complete():
+        if self.ctrl.is_assessment_mode() and not self.ctrl.loop_svc.is_loop_test_complete():
             visible = False
         for art in self._g1_wire_artists + self._g2_wire_artists:
             art.set_visible(visible)
@@ -846,7 +846,7 @@ class CircuitTabMixin:
                 tbl[(1, 0)].get_text().set_text(pt_name)
                 if all(r is not None for r in all_recs):
                     ok = all(r.get('phase_match', False) for r in all_recs)
-                    seq = self.ctrl.get_pt_phase_sequence(pt_name)
+                    seq = self.ctrl.phase_resolver.get_pt_phase_sequence(pt_name)
                     if ok:
                         label, bg = "正序", '#dcfce7'
                     elif seq == 'FAULT':

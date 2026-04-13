@@ -189,7 +189,7 @@ class LoopTestTabMixin:
             self.loop_test_feedback_lbl.setText("操作提示：第一步测试已完成，请继续进行第二步 PT 单体线电压检查。")
             set_live_text(self.loop_test_feedback_lbl, "success")
             for lbl, (text, _) in zip(self.loop_test_step_labels,
-                                      self.ctrl.get_loop_test_steps()):
+                                      self.ctrl.loop_svc.get_loop_test_steps()):
                 set_step_item(lbl, text, True, True)
             for phase, lbl in self.loop_test_record_labels.items():
                 lbl.setText("导通 [≈0Ω] ✓")
@@ -208,10 +208,10 @@ class LoopTestTabMixin:
         # ── 动态显示 ──────────────────────────────────────────────────────
         feedback = state.feedback
         fb_color = state.feedback_color
-        current_phase = self.ctrl._get_current_loop_phase_match()
+        current_phase = self.ctrl.loop_svc._get_current_loop_phase_match()
         sim = self.ctrl.sim_state
 
-        if self.ctrl.is_loop_test_complete():
+        if self.ctrl.loop_svc.is_loop_test_complete():
             summary = "第一步已确认完成：三相回路连通性测试通过，后续操作不再影响本步骤。"
             sc = '#006400'
         elif (sim.gen1.breaker_closed
@@ -237,11 +237,11 @@ class LoopTestTabMixin:
         # 未进入回路检查模式前，子步骤全部保持灰色，不响应实时状态
         if not in_mode:
             for lbl, (text, _) in zip(self.loop_test_step_labels,
-                                      self.ctrl.get_loop_test_steps()):
+                                      self.ctrl.loop_svc.get_loop_test_steps()):
                 set_step_item(lbl, text, False, False)
         else:
             for lbl, (text, done) in zip(self.loop_test_step_labels,
-                                         self.ctrl.get_loop_test_steps()):
+                                         self.ctrl.loop_svc.get_loop_test_steps()):
                 set_step_item(lbl, text, done, True)
 
         for phase, lbl in self.loop_test_record_labels.items():

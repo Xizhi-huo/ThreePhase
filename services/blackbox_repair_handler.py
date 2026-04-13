@@ -174,7 +174,7 @@ class BlackboxRepairHandler:
         disable_repair_button = False
         if (
             fault_active
-            and self._ctrl.all_repairable_wiring_targets_normal()
+            and self._ctrl.fault_mgr.all_repairable_wiring_targets_normal()
             and self._ctrl.should_auto_clear_fault_only_when_all_blackboxes_normal()
         ):
             self._ctrl.repair_fault(step=step, source=f'{target}_blackbox')

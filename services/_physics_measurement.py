@@ -141,8 +141,8 @@ class MeasurementMixin:
             self.meter_status = "invalid"
             self.meter_reading = "请分别选择 G1 与 G2 的三相回路测点进行比较"
         else:
-            phase1 = self.ctrl.resolve_loop_node_phase(n1)
-            phase2 = self.ctrl.resolve_loop_node_phase(n2)
+            phase1 = self.ctrl.phase_resolver.resolve_loop_node_phase(n1)
+            phase2 = self.ctrl.phase_resolver.resolve_loop_node_phase(n2)
             self.meter_nodes = (n1, n2)
             fc = sim.fault_config
             if phase1 == phase2:

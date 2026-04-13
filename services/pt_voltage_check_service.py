@@ -53,7 +53,7 @@ class PtVoltageCheckService:
         sim = self._ctrl.sim_state
         gen1, gen2 = sim.gen1, sim.gen2
         state = self._ctrl.pt_voltage_check_state
-        loop_done = self._ctrl.is_loop_test_complete()
+        loop_done = self._ctrl.loop_svc.is_loop_test_complete()
         gnd_ok = sim.grounding_mode == "小电阻接地"
         gen1_on_bus = (gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed)
         gen2_running_open = gen2.running and not gen2.breaker_closed
@@ -106,7 +106,7 @@ class PtVoltageCheckService:
         phase_pair = phase_pair.upper()
         key = f"{pt_name}_{phase_pair}"
 
-        if not self._ctrl.is_loop_test_complete():
+        if not self._ctrl.loop_svc.is_loop_test_complete():
             _record_invalid("loop_test_incomplete")
             self._set_feedback("请先完成第一步【回路连通性测试】，再进行 PT 线电压检查。", "red")
             return

@@ -95,17 +95,17 @@ class PtExamService:
                 "red")
             return
 
-        if not self._ctrl.is_loop_test_complete():
+        if not self._ctrl.loop_svc.is_loop_test_complete():
             _record_invalid("loop_test_incomplete")
             self._set_pt_exam_feedback(
                 gen_id, "请先完成第一步【回路连通性测试】，再进行 PT 二次端子压差测量。", "red")
             return
-        if not self._ctrl.is_pt_voltage_check_complete():
+        if not self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete():
             _record_invalid("pt_voltage_incomplete")
             self._set_pt_exam_feedback(
                 gen_id, "请先完成第二步【PT 单体线电压检查】，再进行 PT 二次端子压差测量。", "red")
             return
-        if not self._ctrl.is_pt_phase_check_complete():
+        if not self._ctrl.pt_phase_svc.is_pt_phase_check_complete():
             _record_invalid("pt_phase_incomplete")
             self._set_pt_exam_feedback(
                 gen_id,
@@ -307,15 +307,15 @@ class PtExamService:
             self._set_pt_exam_feedback(
                 1, '请先点击"开始第四步测试"。', 'red')
             return
-        if not self._ctrl.is_loop_test_complete():
+        if not self._ctrl.loop_svc.is_loop_test_complete():
             self._set_pt_exam_feedback(
                 1, '请先完成第一步【回路连通性测试】。', 'red')
             return
-        if not self._ctrl.is_pt_voltage_check_complete():
+        if not self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete():
             self._set_pt_exam_feedback(
                 1, '请先完成第二步【PT 单体线电压检查】。', 'red')
             return
-        if not self._ctrl.is_pt_phase_check_complete():
+        if not self._ctrl.pt_phase_svc.is_pt_phase_check_complete():
             self._set_pt_exam_feedback(
                 1, '请先完成第三步【PT 相序检查】。', 'red')
             return

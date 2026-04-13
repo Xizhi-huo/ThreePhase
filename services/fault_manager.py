@@ -75,7 +75,7 @@ class FaultManager:
             self._ctrl.g1_blackbox_order = ['B', 'A', 'C']
         elif scenario_id == 'E02':
             self._ctrl.g2_blackbox_order = ['A', 'C', 'B']
-            self._ctrl.sync_g2_blackbox_to_phase_orders()
+            self._ctrl.blackbox_handler.sync_g2_blackbox_to_phase_orders()
         elif scenario_id == 'E04':
             self._ctrl.sim_state.pt3_ratio = 11000.0 / 93.0
             self._ctrl.request_pt_ratio_row_update('pt3_ratio', 11000, 93)
@@ -109,7 +109,7 @@ class FaultManager:
             self._ctrl.pt_phase_orders['PT2'] = new_pt2
 
         if scenario_id == 'E02':
-            self._ctrl.sync_g2_blackbox_to_phase_orders()
+            self._ctrl.blackbox_handler.sync_g2_blackbox_to_phase_orders()
         if any(
                 fc.params.get(key) is not None
                 for key in (
@@ -120,7 +120,7 @@ class FaultManager:
                     'pt1_sec_blackbox_order',
                     'pt2_sec_blackbox_order',
                 )):
-            self._ctrl.sync_pt1_blackbox_to_phase_orders()
+            self._ctrl.blackbox_handler.sync_pt1_blackbox_to_phase_orders()
 
     def repair_fault(self, step: int = 4, source: str = 'repair_fault'):
         """学员完成虚拟修复后调用，消除故障效果并重置检测标志。"""

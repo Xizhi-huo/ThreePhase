@@ -359,7 +359,7 @@ class WidgetBuilderMixin:
         # 紧急合闸
         instant_btn = QtWidgets.QPushButton("⚡ 紧急一键强行合闸")
         self._apply_button_tone(instant_btn, "danger", hero=True)
-        instant_btn.clicked.connect(c.instant_sync)
+        instant_btn.clicked.connect(c.hw.instant_sync)
         lay.addWidget(instant_btn)
 
         # 暂停
@@ -486,12 +486,12 @@ class WidgetBuilderMixin:
         engine_btn = QtWidgets.QPushButton("起机 (Start)")
         engine_btn.setFixedWidth(130)
         self._apply_button_tone(engine_btn, "success")
-        engine_btn.clicked.connect(lambda: c.toggle_engine(gen_id))
+        engine_btn.clicked.connect(lambda: c.hw.toggle_engine(gen_id))
 
         breaker_btn = QtWidgets.QPushButton("控合 (Close)")
         breaker_btn.setFixedWidth(130)
         self._apply_button_tone(breaker_btn, "primary")
-        breaker_btn.clicked.connect(lambda: c.toggle_breaker(gen_id))
+        breaker_btn.clicked.connect(lambda: c.hw.toggle_breaker(gen_id))
 
         setattr(self, f'btn_engine{gen_id}',  engine_btn)
         setattr(self, f'btn_breaker{gen_id}', breaker_btn)

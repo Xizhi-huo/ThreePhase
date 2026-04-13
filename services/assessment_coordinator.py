@@ -183,15 +183,15 @@ class AssessmentCoordinator:
 
     def is_assessment_closed_loop_ready(self) -> bool:
         if not (
-            self._ctrl.is_loop_test_complete()
-            and self._ctrl.is_pt_voltage_check_complete()
-            and self._ctrl.is_pt_phase_check_complete()
+            self._ctrl.loop_svc.is_loop_test_complete()
+            and self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete()
+            and self._ctrl.pt_phase_svc.is_pt_phase_check_complete()
             and self._ctrl.pt_exam_states[1].completed
             and self._ctrl.pt_exam_states[2].completed
         ):
             return False
         fc = self._ctrl.sim_state.fault_config
-        if fc.active and self._ctrl.fault_has_repairable_wiring_targets():
+        if fc.active and self._ctrl.fault_mgr.fault_has_repairable_wiring_targets():
             return fc.repaired
         return True
 
@@ -201,9 +201,9 @@ class AssessmentCoordinator:
         pre_step5_repair_triggered: bool,
     ) -> StepProgressSnapshot:
         ready_for_step5 = (
-            self._ctrl.is_loop_test_complete()
-            and self._ctrl.is_pt_voltage_check_complete()
-            and self._ctrl.is_pt_phase_check_complete()
+            self._ctrl.loop_svc.is_loop_test_complete()
+            and self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete()
+            and self._ctrl.pt_phase_svc.is_pt_phase_check_complete()
             and self._ctrl.pt_exam_states[1].completed
             and self._ctrl.pt_exam_states[2].completed
         )
@@ -211,7 +211,7 @@ class AssessmentCoordinator:
         block_before_step5 = (
             ready_for_step5
             and self._ctrl.should_block_step5_until_blackbox_fixed()
-            and self._ctrl.has_unrepaired_wiring_fault()
+            and self._ctrl.fault_mgr.has_unrepaired_wiring_fault()
             and fc.scenario_id not in ('E01', 'E02', 'E03')
         )
         should_emit_assessment_gate_event = (

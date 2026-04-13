@@ -42,7 +42,12 @@ class ControllerStub:
         self.g2_blackbox_order = ["A", "B", "C"]
         self.pt1_pri_blackbox_order = ["A", "B", "C"]
         self.pt1_sec_blackbox_order = ["A", "B", "C"]
-        self._phase_resolver = PhaseOrderResolver(self)
+        self.phase_resolver = PhaseOrderResolver(self)
+        self.loop_svc = self
+        self.pt_voltage_svc = self
+        self.pt_phase_svc = self
+        self.pt_exam_svc = self
+        self.sync_svc = self
 
         self.loop_test_state = LoopTestState()
         self.pt_voltage_check_state = PtVoltageCheckState()
@@ -88,19 +93,28 @@ class ControllerStub:
         return True
 
     def resolve_pt_node_plot_key(self, node_name: str) -> str | None:
-        return self._phase_resolver.resolve_pt_node_plot_key(node_name)
+        return self.phase_resolver.resolve_pt_node_plot_key(node_name)
 
     def get_pt_phase_sequence(self, pt_name: str) -> str:
-        return self._phase_resolver.get_pt_phase_sequence(pt_name)
+        return self.phase_resolver.get_pt_phase_sequence(pt_name)
 
     def resolve_loop_node_phase(self, node_name: str) -> str:
-        return self._phase_resolver.resolve_loop_node_phase(node_name)
+        return self.phase_resolver.resolve_loop_node_phase(node_name)
 
     def is_sync_test_active(self) -> bool:
         return self.sync_test_state.started and not self.sync_test_state.completed
 
     def is_sync_test_complete(self) -> bool:
         return self.sync_test_state.completed
+
+    def get_sync_test_steps(self):
+        return []
+
+    def is_sync_test_rounds_done(self) -> bool:
+        return self.sync_test_state.completed
+
+    def _is_gen_synced(self, follower, master, freq_tol=0.5, amp_tol=500.0):
+        return True
 
     def queue_accident_dialog(self, scene_id: str):
         self.queued_accident_dialogs.append(scene_id)
@@ -113,6 +127,18 @@ class ControllerStub:
 
     def is_pt_phase_check_complete(self) -> bool:
         return self.pt_phase_check_state.completed
+
+    def get_pt_exam_steps(self, gen_id: int):
+        return []
+
+    def is_pt_exam_recorded(self, gen_id: int) -> bool:
+        return self.pt_exam_states[gen_id].completed
+
+    def _get_current_pt_phase_match(self, gen_id: int):
+        return None
+
+    def _expected_pt_probe_pair(self, gen_id: int, gen_phase: str, bus_phase: str):
+        return gen_phase, bus_phase
 
     def is_assessment_closed_loop_ready(self) -> bool:
         return self.assessment_closed_loop_ready
