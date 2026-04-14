@@ -1,3 +1,360 @@
+'''
+
+任务：核查第 18 轮（Phase 2-1）— 评分事件常量化 + 建 AssessmentContext 并切断 ctrl 依赖 是否正确完成
+
+你的角色：
+你是一位资深 Python 架构审查员。你现在不是来继续开发，而是严格核查这一轮重构是否符合任务要求、是否存在越界修改、是否保持评分结果字节级一致。
+
+项目背景：
+这是一个 PyQt5 三相电并网仿真教学系统。
+Phase 1 已正式闭环。
+本轮是 Phase 2 的第一步，目标不是拆评分域，而是先给 `AssessmentService` 建立纯函数化入口边界。
+
+本轮唯一目标：
+1. 把 `AssessmentService.build_result()` 中的事件类型魔法字符串改为集中常量
+2. 定义 `AssessmentContext` dataclass
+3. 将 `build_result(session)` 改为 `build_result(session, context)`
+4. 删除 `build_result()` 入口段中对 `self._ctrl` 的兜底读取
+5. 不改评分逻辑本体，不改评分数值、不改规则、不改快照结果
+
+本轮完成后应满足：
+- `services/assessment_service.py` 中 `self._ctrl` 引用数从 `13 -> 0`
+- `AssessmentService.__init__` 可变为无参构造
+- 快照测试 `5/5 PASS`
+- `tests/snapshots/` 内容不变
+- `services/assessment_service.py` 行数约 `791 -> 784`
+
+第一步：先读这些文件
+请按顺序阅读并建立核查上下文：
+
+1. `MAINTENANCE_CHECKLIST.md`
+重点看：
+- §1 工程边界
+- §2 高风险文件基线
+- §3 当前总体进度
+- §4 Phase 2 路线图
+- §9 第 18 轮记录
+- §10 下一轮默认起点
+
+2. `domain/assessment.py`
+重点核查：
+- 是否新增 `AssessmentEventType`
+- 是否新增 `AssessmentContext`
+- `AssessmentContext` 是否是 `@dataclass(frozen=True)`
+- `AssessmentContext.from_snapshot_and_ctrl(snapshot, ctrl)` 是否存在
+- Context 字段是否只包含本轮要求的范围，没有过度膨胀
+
+3. `services/assessment_service.py`
+重点核查：
+- `build_result` 是否改签为 `build_result(self, session, context)`
+- `__init__` 是否改为无参
+- 是否已经删除 `build_result` 入口段中的 ctrl 兜底读取
+- 是否仍保留评分逻辑本体不变
+- 是否已将事件类型读取替换为 `AssessmentEventType.xxx`
+- 文件内 `self._ctrl` 是否已经清零
+
+4. `services/assessment_coordinator.py`
+重点核查：
+- 是否改为：
+  - `context = AssessmentContext.from_snapshot_and_ctrl(session.state_snapshot or {}, self._ctrl)`
+  - `result = self._ctrl.assessment_svc.build_result(session, context)`
+- 是否没有顺手改考核流程语义
+
+5. `tests/test_assessment_snapshot.py`
+重点核查：
+- 两处 `build_result(...)` 调用是否已同步改为传入 `context`
+- 是否使用 `AssessmentContext.from_snapshot_and_ctrl(...)`
+- 是否没有修改快照断言逻辑
+
+6. `tests/support/stubs.py`
+重点核查：
+- 是否无需大改结构，只补了本轮需要的最小适配
+- 是否没有为了容错而往 `AssessmentContext.from_snapshot_and_ctrl` 里塞 `getattr(..., default)` 逻辑
+- Stub 对外方法签名是否保持不变
+
+7. 如有必要，再读这些真实事件入队点文件
+用于核查事件常量是否已在主要生产路径中落地：
+- `services/loop_test_service.py`
+- `services/pt_voltage_check_service.py`
+- `services/pt_phase_check_service.py`
+- `services/pt_exam_service.py`
+- `services/hardware_actions.py`
+- `services/blackbox_repair_handler.py`
+- `services/fault_manager.py`
+- `ui/test_panel.py`
+
+第二步：严格按以下核查清单执行
+
+A. 事件常量化核查
+请确认：
+
+1. `domain/assessment.py` 中是否新增 `AssessmentEventType` 类
+2. 至少是否包含这些常量：
+- `ASSESSMENT_STARTED`
+- `STEP_ENTERED`
+- `STEP_FINALIZE_ATTEMPTED`
+- `ADVANCE_BLOCKED`
+- `ASSESSMENT_GATE_BLOCKED`
+- `MEASUREMENT_INVALID`
+- `MEASUREMENT_RECORDED`
+- `FAULT_DETECTED`
+- `FAULT_REPAIRED`
+- `BLACKBOX_OPENED`
+- `BLACKBOX_SWAP`
+- `BLACKBOX_CONFIRM_ATTEMPTED`
+- `HAZARD_ACTION`
+
+如果还额外包含：
+- `ASSESSMENT_FINISHED`
+- `FAULT_GUESS_SUBMITTED`
+- `STEP_COMPLETED`
+这可以接受，但必须明确说明这是“扩展的事件常量化”，不是越界问题。
+
+3. `services/assessment_service.py` 中：
+- `count(...)`
+- `all_events(...)`
+- `first(...)`
+这些读取调用是否已改为常量引用
+- 不能再保留如 `"fault_detected"`、`"step_entered"` 这种事件类型硬编码
+
+4. 真实生产路径中的主要入队点是否已部分同步到常量引用
+说明：
+- 本轮允许“只读侧常量化完成，写侧部分同步”
+- 但如果写侧几乎完全没动，需要指出
+- 如果写侧主要路径已同步，说明这是加分项，不算越界
+
+注意：
+- 不要把 payload 字段名误判为事件类型
+- 例如 `"target"`、`"layer"`、`"allowed"`、`"from_step"` 不是本轮要抽的东西
+
+B. AssessmentContext 核查
+请确认：
+
+1. `AssessmentContext` 是否为 `@dataclass(frozen=True)`
+
+2. 字段是否精确包含并只包含这些范围：
+- `loop_records`
+- `voltage_records`
+- `phase_records`
+- `pt_exam_records_1`
+- `pt_exam_records_2`
+- `loop_complete`
+- `voltage_complete`
+- `phase_complete`
+- `pt_exam_complete`
+- `closure_complete`
+- `fault_repaired`
+
+3. 是否没有顺手把以下内容塞进去：
+- `session`
+- `events`
+- `scene_info`
+- 其它非入口兜底所需字段
+
+4. `AssessmentContext.from_snapshot_and_ctrl(snapshot, ctrl)` 是否存在
+5. 它是否忠实承接了原 `build_result` 入口 13 处 ctrl 兜底读取逻辑
+6. 是否没有写这种防御性容错：
+- `getattr(ctrl, "xxx", default)`
+- `hasattr(ctrl, "xxx")`
+如果出现这种容错，请判定为不符合本轮要求
+
+C. build_result 改签核查
+请确认：
+
+1. `services/assessment_service.py`
+- `build_result(self, session)` 是否已改为 `build_result(self, session, context)`
+
+2. 原入口段这些逻辑是否已删除并改读 context：
+- `loop_records = ... self._ctrl.loop_test_state.records`
+- `voltage_records = ... self._ctrl.pt_voltage_check_state.records`
+- `phase_records = ... self._ctrl.pt_phase_check_state.records`
+- `pt_exam_records_1 / 2`
+- `loop_complete`
+- `voltage_complete`
+- `phase_complete`
+- `pt_exam_complete`
+- `closure_complete`
+- `repaired`
+
+3. `AssessmentService.__init__` 是否改为无参
+4. `app/main.py` 中构造是否已同步改为：
+- `AssessmentService()`
+
+5. `services/assessment_service.py` 中 `self._ctrl` 引用数是否确实为 `0`
+请给出你实际核查方式，例如：
+- `rg -n "self\._ctrl" services/assessment_service.py`
+
+D. 行为不变核查
+这是本轮最重要的部分。请确认：
+
+1. 本轮没有改动评分逻辑本体
+重点看这些区域是否保持不动或仅发生事件常量替换：
+- `_score_flow_discipline`
+- `_score_loop_test`
+- `_score_pt_voltage_check`
+- `_score_pt_phase_check`
+- `_score_pt_exam`
+- `_score_fault_localization`
+- `_score_blackbox_repair`
+- `_score_efficiency`
+- `_build_step_score_summaries`
+- `_apply_extra_deductions`
+- `_resolve_veto_reason`
+- `_build_metrics`
+- `_build_summary`
+- `_expected_blackbox_targets`
+
+2. 没有改评分分值、扣分值、通过/否决规则
+3. 没有修改 `score_context` 结构中影响评分逻辑的字段含义
+4. 没有引入 `Optional[AssessmentContext] = None` 这类回退参数
+5. 没有为了省事保留“旧签名兼容模式”
+
+E. 调用侧核查
+请确认：
+
+1. `services/assessment_coordinator.py` 的生产路径调用是否已改成：
+- 先构造 `AssessmentContext.from_snapshot_and_ctrl(...)`
+- 再调用 `assessment_svc.build_result(session, context)`
+
+2. `tests/test_assessment_snapshot.py` 两处调用是否已同步修改
+3. `tests/support/stubs.py` 是否无需额外 hack 就能支持 Context 构造
+4. 是否没有去改 `ui/` 中评分展示逻辑
+除非存在签名适配需要，否则不应碰 UI
+
+F. 越界修改核查
+请重点检查以下内容是否被误改。若被改，视为越界：
+
+1. `domain/` 下除 `domain/assessment.py` 之外的文件
+2. `services/assessment_service.py` 中评分逻辑本体
+3. `services/scoring/` 子包新增
+4. `AssessmentContext` 之外的新 dataclass / 新架构层
+5. `tests/test_physics_snapshot.py`
+6. `tests/snapshots/` 内容
+7. `ui/` 下评分展示层
+8. README / context / 其它无关文档
+
+说明：
+- `MAINTENANCE_CHECKLIST.md` 的更新属于本轮范围
+- 少量真实事件入队点改常量属于本轮允许范围
+- `app/main.py` 中仅把 `AssessmentService(self)` 改成 `AssessmentService()` 属于本轮范围
+
+G. 测试与快照核查
+请确认：
+
+1. 开工前是否跑了基线：
+- `python -m pytest tests/ -q -p no:cacheprovider`
+
+2. 常量化后是否至少跑过一次测试
+3. 改签接入后是否再次跑了：
+- `python -m pytest tests/ -q -p no:cacheprovider`
+
+4. 结果是否为：
+- `5 passed`
+- `0 failed`
+
+5. 是否能确认：
+- `tests/snapshots/` 无差异
+- 快照结果字节级一致
+
+如果你无法实际运行测试，请明确写：
+- “只完成静态核查，未完成运行验证”
+
+H. 维护清单核查
+请核查 `MAINTENANCE_CHECKLIST.md` 是否同步更新了以下内容：
+
+1. §2
+- `services/assessment_service.py` 行数是否更新为 `784`
+- 风险描述是否反映“仍需拆评分域”
+
+2. §3
+- 当前阶段是否改为：
+  - `Phase 2 — 评分系统模块化（Phase 2-1 已完成，准备进入评分域拆分）`
+- 下一轮默认起点是否改为：
+  - `Phase 2-2 — 按评分域拆分为纯函数模块（services/scoring/ 子包）`
+
+3. §4
+- `定义 AssessmentContext dataclass` 是否打勾 `[x]`
+- `评分事件常量化` 是否打勾 `[x]`
+
+4. §9
+- 是否新增第 18 轮记录
+- 是否写明：
+  - `self._ctrl` 引用数 `13 -> 0`
+  - `services/assessment_service.py` 行数 `791 -> 784`
+  - 快照测试 `5/5 PASS`
+  - 下一轮起点为 `Phase 2-2`
+
+5. §10
+- 是否改为以 `Phase 2-2` 为默认起点
+- 是否不再写旧的“定义 AssessmentContext”作为下一轮目标
+
+I. 结果判定核查
+请确认是否能支持以下结论：
+
+1. `AssessmentService` 已完成“入口纯化”的第一阶段
+2. `build_result()` 已不再依赖 ctrl 读取入口兜底状态
+3. 本轮没有触碰评分逻辑本体
+4. `Phase 2-2` 可以安全开始做评分域拆分
+
+第三步：输出格式要求
+请严格按下面格式输出你的核查结果：
+
+1. 总结结论
+- 直接给出：
+  - “通过”
+  - 或 “未通过”
+
+2. 已完成项
+- 用列表写清楚本轮已满足的要求
+
+3. 不符合项
+- 如果有，逐条列出
+- 每条必须包含：
+  - 文件路径
+  - 问题描述
+  - 为什么不符合本轮要求
+
+4. 越界修改检查
+- 明确写：
+  - “未发现越界修改”
+  - 或 “发现越界修改”，并列出具体文件和内容
+
+5. 事件常量化检查
+- 明确写：
+  - 读侧是否已完全常量化
+  - 写侧是否已部分/全部常量化
+  - 是否存在残留事件类型字面量
+
+6. AssessmentContext 检查
+- 明确写：
+  - 字段是否精确
+  - 是否有冗余字段
+  - `from_snapshot_and_ctrl(...)` 是否忠实承接原兜底逻辑
+
+7. 测试与回归结果
+- 报告 pytest 的核查结论
+- 如果无法实际运行测试，必须明确说明
+
+8. 最终判定
+- 用一句话给出：
+  - “第 18 轮可视为完成，可进入 Phase 2-2”
+  - 或
+  - “第 18 轮暂不能视为完成”
+
+核查原则：
+- 你是审查，不是开发
+- 不要顺手修代码
+- 不要给大段发散建议
+- 只围绕“这一轮是否按要求完成”给出结论
+- 优先找：
+  - 是否误动评分逻辑本体
+  - 是否真的把 `self._ctrl` 清零
+  - 是否快照结果未变
+  - 是否有 Context 设计过大/过小
+  - 是否仍残留大量事件类型魔法字符串
+
+'''
+
 # 维护与重构清单 v2
 
 最后更新：`2026-04-13`
