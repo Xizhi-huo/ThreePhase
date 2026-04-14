@@ -1,123 +1,3 @@
-'''
-
-任务：第 21 轮（Phase 2-4）— 评分域独立快照测试
-
-## 背景
-第 19 轮把 `build_result` 拆成四个评分域纯函数，第 20 轮把共享状态凝结为 `ScoringContext` 不可变值对象。目前四域只在「整链路快照」(`tests/test_assessment_snapshot.py`) 中被间接覆盖——一旦某域内部改动破坏了该域的评分但被其他域补偿掩盖，或者与非评分代码耦合出现回归，现有测试无法精确定位。
-
-本轮目标：为四个评分域各自建立**输入/输出级别的独立快照测试**，把每个域的行为固定成一份 JSON 基线。以后只要改动评分规则或 `ScoringContext` 字段，就能从单域快照直接看到差异。
-
-## 范围边界
-
-### 允许修改/新增
-- `tests/test_scoring_discipline.py`（新增）
-- `tests/test_scoring_step_quality.py`（新增）
-- `tests/test_scoring_fault_diagnosis.py`（新增）
-- `tests/test_scoring_blackbox_efficiency.py`（新增）
-- `tests/snapshots/scoring_discipline_*.json`（新增）
-- `tests/snapshots/scoring_step_quality_*.json`（新增）
-- `tests/snapshots/scoring_fault_diagnosis_*.json`（新增）
-- `tests/snapshots/scoring_blackbox_efficiency_*.json`（新增）
-- `tests/support/scoring_fixtures.py`（新增，构造 `ScoringContext` 夹具的工厂）
-- `MAINTENANCE_CHECKLIST.md`（§2/§3/§9/§10 更新，顶部提示词清理）
-
-### 禁止修改
-- `services/scoring/**`（包括 `context.py` / `_common.py` / 四域实现）——评分逻辑本轮只读
-- `services/assessment_service.py`——整链路装配本轮只读
-- `domain/**`——值对象本轮只读
-- `tests/snapshots/assessment_normal.json` / `assessment_fault_random.json`——整链路基线字节级不变
-- `tests/test_assessment_snapshot.py`——已有测试保持原样
-- `ui/**` / `adapters/**` / `controllers/**`
-
-## 具体步骤
-
-### Step 1：建立 ScoringContext 夹具工厂
-在 `tests/support/scoring_fixtures.py` 新增：
-- `build_normal_scoring_context() -> ScoringContext`
-- `build_fault_scoring_context() -> ScoringContext`
-
-实现方式：**直接手动填充 `ScoringContext(...)` 的 33 个字段**，场景一"常规通过"、场景二"随机故障"。字段取值可由 `assessment_normal.json` / `assessment_fault_random.json` 反推，或先运行一次 `build_result` 的中间态打印导出再固化进夹具。
-
-这样做的目的是让夹具与 `AssessmentService` 解耦：以后评分域内部或 `build_result` 构造逻辑改动时，不会牵动夹具；夹具只随 `ScoringContext` 字段签名变化。
-
-夹具同时导出模块级常量，供 4 个测试文件 import：
-- `NORMAL_CONTEXT: ScoringContext`
-- `FAULT_CONTEXT: ScoringContext`
-
-### Step 2：四个域各建 2 条快照测试
-每个 `tests/test_scoring_<domain>.py` 文件结构如下：
-
-```python
-from tests.support.scoring_fixtures import NORMAL_CONTEXT, FAULT_CONTEXT
-from tests.support.snapshots import assert_json_snapshot
-from services.scoring.<domain> import score_<domain>
-from pathlib import Path
-
-SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
-
-
-def _payload(items, penalties):
-    return {
-        "items": [item.__dict__ for item in items],
-        "penalties": [p.__dict__ for p in penalties],
-    }
-
-
-def test_<domain>_normal():
-    items, penalties = score_<domain>(NORMAL_CONTEXT)
-    assert_json_snapshot(SNAPSHOT_DIR / "scoring_<domain>_normal.json", _payload(items, penalties))
-
-
-def test_<domain>_fault():
-    items, penalties = score_<domain>(FAULT_CONTEXT)
-    assert_json_snapshot(SNAPSHOT_DIR / "scoring_<domain>_fault.json", _payload(items, penalties))
-```
-
-（如果 `AssessmentScoreItem` / `AssessmentPenalty` 是 dataclass，可用 `dataclasses.asdict` 替代 `__dict__`——自行判断。）
-
-### Step 3：生成基线
-首次运行时 `assert_json_snapshot` 会自动写入 JSON 基线文件。跑一次 `pytest tests/ -q` 后：
-- `tests/snapshots/scoring_*_normal.json`（4 份）
-- `tests/snapshots/scoring_*_fault.json`（4 份）
-
-共新增 8 份快照文件。
-
-### Step 4：回归验证
-- `pytest tests/ -q` → 原 5 条 + 新 8 条 = **13 passed**
-- `tests/snapshots/assessment_normal.json` / `assessment_fault_random.json` **字节不变**（`git diff` 确认）
-
-### Step 5：更新 MAINTENANCE_CHECKLIST.md
-- 清理顶部 Round 21 提示词（如仍存在）
-- §9 新增 Round 21 条目：评分域独立快照，新增 8 份基线
-- §2/§3/§10 更新当前状态
-- 不需要在顶部留 Round 21 提示词
-
-## 验收标准（Hard gates）
-
-1. `services/scoring/**`、`services/assessment_service.py`、`domain/**`、既有两份 assessment 快照 JSON **零修改**（`git diff` 验证）
-2. `pytest tests/ -q` 输出 `13 passed`
-3. 新增 8 份快照文件全部存在且非空
-4. `tests/support/scoring_fixtures.py` 为手动填充 `ScoringContext`，不走 `AssessmentService`
-5. 4 个新测试文件互不 import 对方，也不 import `assessment_service`
-6. `MAINTENANCE_CHECKLIST.md` §9 有 Round 21 条目
-
-## 提交
-完成后执行一次 commit，消息格式：`为四个评分域新增独立快照测试（Phase 2-4）`
-
-## 审计输出格式
-完成后按以下七段输出：
-1. 总结结论
-2. 已完成项（含文件行数、快照条数）
-3. 不符合项
-4. 越界修改检查（列出 services/scoring、assessment_service、domain、旧快照的 diff 状态）
-5. 夹具与测试结构检查（验证手动填充、互不依赖）
-6. 快照与回归结果（13 passed，旧快照字节不变）
-7. 最终判定（"第 21 轮可视为完成" 或 "暂不能视为完成"）
-
-'''
-
-
-
 # 维护与重构清单 v2
 
 最后更新：`2026-04-14`
@@ -223,7 +103,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 | `ui/test_panel.py` | 2417 | 必须拆分 | 9 个 Mixin 中最大的，111 处 ctrl 引用 |
 | `app/main.py` | 502 | 需要审查 | Controller 已完成 Phase 1 收尾，保留编排与少量 UI 胶水 |
 | `ui/styles.py` | 1007 | 纯数据，暂缓 | 纯静态样式声明，无逻辑耦合，优先级低 |
-| `services/assessment_service.py` | 399 | 健康 | 评分系统已完成模块化 + 类型化，Phase 2 核心目标完成 |
+| `services/assessment_service.py` | 399 | 健康 | 评分系统已完成模块化 + 类型化 + 单域快照保护，Phase 2 已闭环 |
 | `ui/main_window.py` | 528 | 需要审查 | 9-Mixin 继承入口，待迁移为组合式 |
 | `domain/fault_scenarios.py` | 520 | 纯数据，暂缓 | 纯场景定义字典，不含逻辑 |
 | `services/pt_exam_service.py` | 385 | 健康，观察 | 48 处 `self._ctrl` 引用需逐步收口 |
@@ -231,7 +111,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 | `services/pt_phase_check_service.py` | 345 | 健康，观察 | 37 处 `self._ctrl` 引用需逐步收口 |
 
 说明：
-- 核心攻坚对象：`ui/test_panel.py`、`services/assessment_service.py`。
+- 核心攻坚对象：`ui/test_panel.py`。
 - **耦合度指标比行数更重要**。各文件的 `self._ctrl` / `self.ctrl` 引用数是关键度量。
 
 ### 当前耦合度基线（2026-04-09）
@@ -258,10 +138,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 2 — 评分系统模块化（Phase 2-3 已完成，Phase 2 核心目标完成） |
+| 当前阶段 | Phase 2 — 评分系统模块化（Phase 2-4 已完成，Phase 2 已闭环） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/test_panel.py`(2417)、`ui/styles.py`(1007) |
-| 下一轮默认起点 | Phase 2-4（可选）— 评分域独立快照测试 |
+| 下一轮默认起点 | Phase 3 — UI 组件化（告别 Mixin），从 `LoopTestTab` 概念验证开始 |
 
 ---
 
@@ -367,7 +247,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
   - 评分阶段所需的 4 个原闭包已迁入 `services/scoring/_common.py`，改为独立纯函数
 - [x] **`assessment_service.py` 主文件降到 <= 500 行**
   - 主文件只做组装：调用各评分域函数，合并结果
-- [ ] **为每个评分域补充独立快照测试**
+- [x] **为每个评分域补充独立快照测试**
 
 完成标准：
 - `build_result()` 只做组装，不含具体评分逻辑。
@@ -589,8 +469,24 @@ class PowerSyncUI(QMainWindow):
 - `H5`：死母线倒计时已改为使用真实 `frame_dt`，不再写死 `0.033`。
 
 ### 当前未完成但已明确方向
-- `services/scoring/` 各评分域仍缺独立快照测试。
 - `ui/test_panel.py` 仍是当前最大风险文件。
+
+### 第 21 轮 (2026-04-14)：Phase 2-4（评分域独立快照测试）
+- 本轮唯一主攻目标：为四个评分域各自建立输入/输出级别的独立快照测试，补齐 Phase 2 的最后一块安全网。
+- 实际完成：
+  - 新增 `tests/support/scoring_fixtures.py`，手动构造 `NORMAL_CONTEXT` / `FAULT_CONTEXT` 两套 `ScoringContext` 夹具，不依赖 `AssessmentService` 组装路径。
+  - 新增 4 个评分域测试文件：`tests/test_scoring_discipline.py`、`tests/test_scoring_step_quality.py`、`tests/test_scoring_fault_diagnosis.py`、`tests/test_scoring_blackbox_efficiency.py`。
+  - 为四个评分域各补 2 份 JSON 快照基线（normal / fault），共新增 8 份 `tests/snapshots/scoring_*.json`。
+  - 保持整链路评分快照测试不变，新增测试只覆盖评分域纯函数输入/输出。
+- 删除了哪些旧代码：
+  - 删除本文件顶部遗留的 Round 21 任务提示词，恢复 checklist 作为唯一长期事实来源的入口形态。
+- 接口变化：
+  - 无生产代码接口变化；仅新增测试侧 `ScoringContext` 夹具工厂与 4 组评分域独立快照。
+- 耦合度变化：
+  - 生产代码零耦合变化；评分系统的测试颗粒度从“整链路”补齐到“整链路 + 单评分域”双层保护。
+- 快照测试：PASS（`pytest tests/ -q`，13/13 通过）
+- 回归清单：PASS（原 5 条 + 新 8 条快照均通过；既有 `assessment_*.json` 基线无改动）
+- 下一轮起点：Phase 3 — UI 组件化（告别 Mixin），从 `LoopTestTab` 概念验证开始
 
 ### 第 20 轮 (2026-04-14)：Phase 2-3（`score_context` 改为 `ScoringContext` dataclass）
 - 本轮唯一主攻目标：将 dict 型 `score_context` 升级为 `@dataclass(frozen=True) ScoringContext`，并把 4 个闭包抽成共享纯函数。
@@ -880,9 +776,10 @@ class PowerSyncUI(QMainWindow):
 
 如果后续没有新的明确指令，默认按以下顺序继续：
 
-**Phase 2 / Phase 3（下一步待决策）：**
-1. Phase 2-4（可选）— 评分域独立快照测试
-2. Phase 3 — UI 组件化（告别 Mixin）
+**Phase 3：**
+1. `LoopTestTab` 组件化概念验证
+2. `PtVoltageCheckTab` / `PtPhaseCheckTab` 顺序迁移
+3. 最后处理 `ui/test_panel.py`
 
 ---
 
