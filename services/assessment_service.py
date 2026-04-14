@@ -10,6 +10,10 @@ from domain.assessment import (
     AssessmentSession,
 )
 from domain.fault_scenarios import SCENARIOS
+from services.scoring.blackbox_efficiency import score_blackbox_efficiency
+from services.scoring.discipline import score_discipline
+from services.scoring.fault_diagnosis import score_fault_diagnosis
+from services.scoring.step_quality import score_step_quality
 
 
 class AssessmentService:
@@ -31,52 +35,7 @@ class AssessmentService:
         detection_step = scene_info.get("detection_step")
         expected_targets = self._expected_blackbox_targets(scene_info)
         expected_target_set = set(expected_targets)
-        expected_device_set = {target.split('.', 1)[0] for target in expected_targets}
-        def add_penalty(code: str, message: str, score_delta: int, step: int = 0, timestamp: str = ""):
-            if score_delta == 0:
-                return
-            penalties.append(
-                AssessmentPenalty(
-                    code=code,
-                    message=message,
-                    score_delta=score_delta,
-                    step=step,
-                    timestamp=timestamp,
-                )
-            )
-
-        def add_score_item(
-            code: str,
-            title: str,
-            category: str,
-            max_score: int,
-            earned_score: int,
-            step: int = 0,
-            detail: str = "",
-            penalty_message: str = "",
-        ):
-            earned_score = max(0, min(max_score, earned_score))
-            if earned_score >= max_score:
-                status = "通过"
-            elif earned_score <= 0:
-                status = "未通过"
-            else:
-                status = "部分扣分"
-            score_items.append(
-                AssessmentScoreItem(
-                    code=code,
-                    title=title,
-                    category=category,
-                    status=status,
-                    max_score=max_score,
-                    earned_score=earned_score,
-                    step=step,
-                    detail=detail,
-                )
-            )
-            lost_score = max_score - earned_score
-            if lost_score > 0 and penalty_message:
-                add_penalty(code, penalty_message, -lost_score, step)
+        expected_device_set = {target.split(".", 1)[0] for target in expected_targets}
 
         def count(event_type: str) -> int:
             return sum(1 for event in events if event.event_type == event_type)
@@ -213,9 +172,9 @@ class AssessmentService:
 
         score_context = {
             "session": session,
-            "add_score_item": add_score_item,
             "first_step_index": first_step_index,
             "blocked_events": blocked_events,
+            "blocked_by_step": blocked_by_step,
             "finalize_rejected": finalize_rejected,
             "gate_block_events": gate_block_events,
             "loop_records": loop_records,
@@ -249,14 +208,15 @@ class AssessmentService:
             "elapsed_seconds": elapsed_seconds,
             "invalid_events": invalid_events,
         }
-        self._score_flow_discipline(score_context)
-        self._score_loop_test(score_context)
-        self._score_pt_voltage_check(score_context)
-        self._score_pt_phase_check(score_context)
-        self._score_pt_exam(score_context)
-        self._score_fault_localization(score_context)
-        self._score_blackbox_repair(score_context)
-        self._score_efficiency(score_context)
+        for scorer in (
+            score_discipline,
+            score_step_quality,
+            score_fault_diagnosis,
+            score_blackbox_efficiency,
+        ):
+            items, domain_penalties = scorer(score_context)
+            score_items.extend(items)
+            penalties.extend(domain_penalties)
 
         step_scores, step_max_scores = self._build_step_score_summaries(score_items)
         total_score = sum(step_scores.values())
@@ -317,321 +277,6 @@ class AssessmentService:
             metrics=metrics,
             summary=summary,
         )
-
-    def _score_flow_discipline(self, ctx: Dict[str, object]):
-        add_score_item = ctx["add_score_item"]
-        first_step_index = ctx["first_step_index"]
-        blocked_events = ctx["blocked_events"]
-        finalize_rejected = ctx["finalize_rejected"]
-        gate_block_events = ctx["gate_block_events"]
-
-        idx1 = first_step_index(1)
-        idx2 = first_step_index(2)
-        idx3 = first_step_index(3)
-        idx4 = first_step_index(4)
-
-        a1_score = 2 if idx1 is not None and idx2 is not None and idx1 < idx2 else 0
-        add_score_item("A1", "顺序进入第二步", "流程纪律", 2, a1_score, 2,
-                       "第二步进入顺序正确。" if a1_score else "第二步进入顺序异常。", "第二步进入顺序异常。")
-
-        a2_score = 2 if idx2 is not None and idx3 is not None and idx2 < idx3 else 0
-        add_score_item("A2", "顺序进入第三步", "流程纪律", 2, a2_score, 3,
-                       "第三步进入顺序正确。" if a2_score else "第三步进入顺序异常。", "第三步进入顺序异常。")
-
-        a3_score = 2 if idx3 is not None and idx4 is not None and idx3 < idx4 else 0
-        add_score_item("A3", "顺序进入第四步", "流程纪律", 2, a3_score, 4,
-                       "第四步进入顺序正确。" if a3_score else "第四步进入顺序异常。", "第四步进入顺序异常。")
-
-        a4_deduction = min(5, len(blocked_events))
-        a4_score = 5 - a4_deduction
-        add_score_item(
-            "A4", "不越级推进", "流程纪律", 5, a4_score, detail=
-            "未出现越级推进尝试。" if a4_score == 5 else f"共发生 {len(blocked_events)} 次越级或门禁拦截。",
-            penalty_message="存在越级推进或门禁拦截记录。"
-        )
-
-        gate_violations = len(finalize_rejected) + len(gate_block_events)
-        a5_deduction = min(5, gate_violations)
-        a5_score = 5 - a5_deduction
-        add_score_item(
-            "A5", "遵守异常与闭环门禁", "流程纪律", 5, a5_score, 4, detail=
-            "未出现异常后强行完成步骤或闭环未完成仍继续推进。" if a5_score == 5 else f"共发生 {gate_violations} 次违规推进尝试。",
-            penalty_message="未严格遵守异常停留或闭环门禁。"
-        )
-
-    def _score_loop_test(self, ctx: Dict[str, object]):
-        add_score_item = ctx["add_score_item"]
-        loop_records = ctx["loop_records"]
-        loop_complete = ctx["loop_complete"]
-        count_present = ctx["count_present"]
-
-        for code, phase, step_score in (("B1", "A", 2), ("B2", "B", 2), ("B3", "C", 2)):
-            recorded = loop_records.get(phase) is not None
-            add_score_item(
-                code,
-                f"{phase}相回路记录完成",
-                "第一步回路测试",
-                step_score,
-                step_score if recorded else 0,
-                1,
-                f"{phase}相回路已完成记录。" if recorded else f"{phase}相回路记录缺失。",
-                f"{phase}相回路记录缺失。"
-            )
-
-        b4_score = 4 if loop_complete else 2 if count_present(loop_records) >= 2 else 0
-        add_score_item(
-            "B4", "第一步结果提交规范",
-            "第一步回路测试", 4, b4_score, 1,
-            "第一步已形成完整闭环。" if b4_score == 4 else "第一步存在漏项或未完成确认。",
-            "第一步结果提交不规范。"
-        )
-
-    def _score_pt_voltage_check(self, ctx: Dict[str, object]):
-        add_score_item = ctx["add_score_item"]
-        trio_completion_score = ctx["trio_completion_score"]
-        pt1_voltage_count = ctx["pt1_voltage_count"]
-        pt2_voltage_count = ctx["pt2_voltage_count"]
-        pt3_voltage_count = ctx["pt3_voltage_count"]
-        session = ctx["session"]
-        detection_step = ctx["detection_step"]
-        fault_detected_event = ctx["fault_detected_event"]
-
-        c1_score = trio_completion_score(pt1_voltage_count)
-        add_score_item("C1", "PT1电压记录完整", "第二步PT电压检查", 3, c1_score, 2,
-                       f"PT1 已记录 {pt1_voltage_count}/3 项。", "PT1 电压记录不完整。")
-        c2_score = trio_completion_score(pt2_voltage_count)
-        add_score_item("C2", "PT2电压记录完整", "第二步PT电压检查", 3, c2_score, 2,
-                       f"PT2 已记录 {pt2_voltage_count}/3 项。", "PT2 电压记录不完整。")
-        c3_score = trio_completion_score(pt3_voltage_count)
-        add_score_item("C3", "PT3电压记录完整", "第二步PT电压检查", 3, c3_score, 2,
-                       f"PT3 已记录 {pt3_voltage_count}/3 项。", "PT3 电压记录不完整。")
-
-        if not session.scene_id or detection_step != 2:
-            c4_score = 3
-            c4_detail = "第二步不承担本场景的关键异常识别。"
-        else:
-            c4_score = 3 if fault_detected_event is not None and fault_detected_event.step <= 2 else 0
-            c4_detail = "已在第二步形成有效电压异常判断。" if c4_score else "未在第二步形成有效电压异常判断。"
-        add_score_item("C4", "第二步结果判读有效", "第二步PT电压检查", 3, c4_score, 2, c4_detail, "第二步结果判读不足。")
-
-    def _score_pt_phase_check(self, ctx: Dict[str, object]):
-        add_score_item = ctx["add_score_item"]
-        trio_completion_score = ctx["trio_completion_score"]
-        pt1_phase_count = ctx["pt1_phase_count"]
-        pt3_phase_count = ctx["pt3_phase_count"]
-        invalid_by_step = ctx["invalid_by_step"]
-        session = ctx["session"]
-        detection_step = ctx["detection_step"]
-        fault_detected_event = ctx["fault_detected_event"]
-
-        d1_score = trio_completion_score(pt1_phase_count)
-        add_score_item("D1", "PT1相序记录完整", "第三步PT相序检查", 3, d1_score, 3,
-                       f"PT1 已记录 {pt1_phase_count}/3 项。", "PT1 相序记录不完整。")
-        d2_score = trio_completion_score(pt3_phase_count)
-        add_score_item("D2", "PT3相序记录完整", "第三步PT相序检查", 3, d2_score, 3,
-                       f"PT3 已记录 {pt3_phase_count}/3 项。", "PT3 相序记录不完整。")
-
-        d3_score = 2 if invalid_by_step[3] == 0 else 1 if invalid_by_step[3] == 1 else 0
-        add_score_item(
-            "D3", "第三步记录顺序规范", "第三步PT相序检查", 2, d3_score, 3,
-            "第三步记录顺序与接线选择规范。" if d3_score == 2 else f"第三步存在 {invalid_by_step[3]} 次无效测量。",
-            "第三步记录顺序或接线操作不规范。"
-        )
-
-        if not session.scene_id or detection_step != 3:
-            d4_score = 4
-            d4_detail = "第三步不承担本场景的关键异常识别。"
-        else:
-            d4_score = 4 if fault_detected_event is not None and fault_detected_event.step <= 3 else 0
-            d4_detail = "已在第三步形成有效相序异常判断。" if d4_score else "未在第三步形成有效相序异常判断。"
-        add_score_item("D4", "第三步能识别相序异常", "第三步PT相序检查", 4, d4_score, 3, d4_detail, "第三步异常识别不足。")
-
-    def _score_pt_exam(self, ctx: Dict[str, object]):
-        add_score_item = ctx["add_score_item"]
-        nine_group_completion_score = ctx["nine_group_completion_score"]
-        gen1_exam_count = ctx["gen1_exam_count"]
-        gen2_exam_count = ctx["gen2_exam_count"]
-        invalid_by_step = ctx["invalid_by_step"]
-        finalize_rejected_by_step = ctx["finalize_rejected_by_step"]
-        session = ctx["session"]
-        hidden_fault = ctx["hidden_fault"]
-        blackbox_open_before_gate = ctx["blackbox_open_before_gate"]
-        fault_detected_event = ctx["fault_detected_event"]
-
-        e1_score = nine_group_completion_score(gen1_exam_count)
-        add_score_item("E1", "Gen1压差记录完整", "第四步压差考核", 4, e1_score, 4,
-                       f"Gen1 已记录 {gen1_exam_count}/9 组。", "Gen1 压差记录不完整。")
-        e2_score = nine_group_completion_score(gen2_exam_count)
-        add_score_item("E2", "Gen2压差记录完整", "第四步压差考核", 4, e2_score, 4,
-                       f"Gen2 已记录 {gen2_exam_count}/9 组。", "Gen2 压差记录不完整。")
-
-        e3_score = 2 if invalid_by_step[4] == 0 and finalize_rejected_by_step[4] == 0 else 1 if invalid_by_step[4] <= 1 else 0
-        add_score_item(
-            "E3", "第四步操作顺序规范", "第四步压差考核", 2, e3_score, 4,
-            "第四步操作顺序规范。" if e3_score == 2 else "第四步存在无效测量或过早完成尝试。",
-            "第四步操作顺序不规范。"
-        )
-
-        if not session.scene_id:
-            e4_score = 6
-            e4_detail = "正常场景无需形成故障判断。"
-        elif hidden_fault:
-            e4_score = 6 if blackbox_open_before_gate else 0
-            e4_detail = "已在系统拦截前通过拆检形成判断。" if e4_score else "直到系统门禁拦截后才意识到第四步仍未闭环。"
-        else:
-            e4_score = 6 if fault_detected_event is not None and fault_detected_event.step <= 4 else 0
-            e4_detail = "已在第四步内形成有效判断。" if e4_score else "未在第四步内形成有效判断。"
-        add_score_item("E4", "第四步形成有效判断", "第四步压差考核", 6, e4_score, 4, e4_detail, "第四步未形成有效判断。")
-
-    def _score_fault_localization(self, ctx: Dict[str, object]):
-        add_score_item = ctx["add_score_item"]
-        session = ctx["session"]
-        hidden_fault = ctx["hidden_fault"]
-        blackbox_open_before_gate = ctx["blackbox_open_before_gate"]
-        detected_before_gate = ctx["detected_before_gate"]
-        expected_targets = ctx["expected_targets"]
-        expected_target_set = ctx["expected_target_set"]
-        expected_device_set = ctx["expected_device_set"]
-        opened_target_set = ctx["opened_target_set"]
-        touched_layers = ctx["touched_layers"]
-
-        if not session.scene_id:
-            f1_score = 4
-            f1_detail = "正常场景不要求故障识别。"
-        else:
-            identified = detected_before_gate or (hidden_fault and blackbox_open_before_gate)
-            f1_score = 4 if identified else 0
-            f1_detail = "已在第四步门禁前识别到异常。" if f1_score else "未在第四步门禁前识别到异常。"
-        add_score_item("F1", "第四步门禁前识别异常", "异常识别与故障定位", 4, f1_score, 4, f1_detail, "未在第四步门禁前识别异常。")
-
-        if hidden_fault:
-            f2_score = 4 if blackbox_open_before_gate else 0
-            f2_detail = "已主动识别隐性故障。" if f2_score else "依赖系统门禁后才意识到隐性故障。"
-        else:
-            f2_score = 4
-            f2_detail = "本场景不属于隐性故障，或已满足识别要求。"
-        add_score_item("F2", "隐性故障识别能力", "异常识别与故障定位", 4, f2_score, 4, f2_detail, "隐性故障识别能力不足。")
-
-        if not expected_targets:
-            f3_score = 3
-            f3_detail = "本场景无黑盒定位要求。"
-        else:
-            correct_side_hit = bool(opened_target_set & expected_device_set)
-            f3_score = 3 if correct_side_hit else 0
-            f3_detail = "已命中正确设备侧。" if f3_score else "未命中正确设备侧。"
-        add_score_item("F3", "定位到正确设备侧", "异常识别与故障定位", 3, f3_score, 4, f3_detail, "故障定位未命中正确设备侧。")
-
-        if not expected_targets:
-            f4_score = 3
-            f4_detail = "本场景无黑盒门禁定位要求。"
-        else:
-            layer_hit = bool(touched_layers & expected_target_set)
-            f4_score = 3 if layer_hit else 0
-            f4_detail = "已命中正确故障层级。" if f4_score else "未命中正确故障层级。"
-        add_score_item("F4", "定位到正确故障层级", "异常识别与故障定位", 3, f4_score, 4, f4_detail, "故障层级定位不准确。")
-
-    def _score_blackbox_repair(self, ctx: Dict[str, object]):
-        add_score_item = ctx["add_score_item"]
-        expected_targets = ctx["expected_targets"]
-        expected_target_set = ctx["expected_target_set"]
-        expected_device_set = ctx["expected_device_set"]
-        opened_target_set = ctx["opened_target_set"]
-        touched_layers = ctx["touched_layers"]
-        repair_required = ctx["repair_required"]
-        repaired = ctx["repaired"]
-        blackbox_failed_confirms = ctx["blackbox_failed_confirms"]
-        blackbox_swap_count = ctx["blackbox_swap_count"]
-
-        if not expected_targets:
-            g1_score = 3
-            g1_detail = "本场景无黑盒范围控制要求。"
-        else:
-            extra_targets = len(opened_target_set - expected_device_set)
-            missing_targets = len(expected_device_set - opened_target_set)
-            if extra_targets == 0 and missing_targets == 0:
-                g1_score = 3
-            elif extra_targets <= 1 and missing_targets <= 1:
-                g1_score = 1
-            else:
-                g1_score = 0
-            g1_detail = (
-                "黑盒开启范围与场景需求一致。"
-                if g1_score == 3 else
-                f"存在额外打开 {extra_targets} 个、缺失 {missing_targets} 个目标。"
-            )
-        add_score_item("G1", "黑盒开启范围合理", "黑盒修复", 3, g1_score, 4, g1_detail, "黑盒开启范围不合理。")
-
-        if not repair_required:
-            g2_score = 5
-            g2_detail = "本场景不依赖黑盒修复闭环。"
-        else:
-            g2_score = 5 if repaired else 0
-            g2_detail = "最终修复结果正确。" if g2_score else "考核结束时仍未完成正确修复。"
-        add_score_item("G2", "最终修复结果正确", "黑盒修复", 5, g2_score, 4, g2_detail, "最终修复结果不正确。")
-
-        if not repair_required:
-            g3_score = 4
-            g3_detail = "本场景无黑盒修复路径要求。"
-        elif not repaired:
-            g3_score = 0
-            g3_detail = "未形成有效修复闭环。"
-        else:
-            g3_score = 4
-            if not touched_layers.issuperset(expected_target_set):
-                g3_score -= 2
-            g3_score -= min(1, blackbox_failed_confirms)
-            g3_score -= min(1, max(0, blackbox_swap_count - max(1, len(expected_target_set))))
-            g3_score = max(0, g3_score)
-            g3_detail = (
-                "修复路径合理，操作效率正常。"
-                if g3_score == 4 else
-                f"存在黑盒操作折返：交换 {blackbox_swap_count} 次，错误确认 {blackbox_failed_confirms} 次。"
-            )
-        add_score_item("G3", "修复路径合理", "黑盒修复", 4, g3_score, 4, g3_detail, "黑盒修复路径合理性不足。")
-
-    def _score_efficiency(self, ctx: Dict[str, object]):
-        add_score_item = ctx["add_score_item"]
-        elapsed_seconds = ctx["elapsed_seconds"]
-        blocked_events = ctx["blocked_events"]
-        finalize_rejected = ctx["finalize_rejected"]
-        invalid_events = ctx["invalid_events"]
-
-        if elapsed_seconds <= 300:
-            h1_score = 4
-        elif elapsed_seconds <= 480:
-            h1_score = 3
-        elif elapsed_seconds <= 660:
-            h1_score = 2
-        elif elapsed_seconds <= 900:
-            h1_score = 1
-        else:
-            h1_score = 0
-        h1_detail = {
-            4: "总耗时控制优秀。",
-            3: "总耗时控制良好。",
-            2: "总耗时偏长。",
-            1: "总耗时明显偏长。",
-            0: "总耗时严重超标。",
-        }[h1_score]
-        add_score_item("H1", "总耗时控制", "效率与规范性", 4, h1_score, detail=h1_detail, penalty_message="总耗时控制未达到理想水平。")
-
-        invalid_operation_count = len(blocked_events) + len(finalize_rejected) + len(invalid_events)
-        if invalid_operation_count <= 2:
-            h2_score = 4
-        elif invalid_operation_count <= 4:
-            h2_score = 3
-        elif invalid_operation_count <= 6:
-            h2_score = 2
-        elif invalid_operation_count <= 8:
-            h2_score = 1
-        else:
-            h2_score = 0
-        h2_detail = (
-            "无效测量与违规操作控制良好。"
-            if h2_score == 4 else
-            f"累计无效/违规操作 {invalid_operation_count} 次。"
-        )
-        add_score_item("H2", "无效操作控制", "效率与规范性", 4, h2_score, detail=h2_detail, penalty_message="无效测量或违规操作次数偏多。")
 
     @staticmethod
     def _build_step_score_summaries(score_items: List[AssessmentScoreItem]):

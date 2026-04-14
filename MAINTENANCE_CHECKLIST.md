@@ -1,3 +1,13 @@
+# 维护与重构清单 v2
+
+最后更新：`2026-04-13`
+
+用途：
+- 给人看：明确当前项目的维护边界、阶段目标、已完成进度。
+- 给 AI 看：后续新对话先读本文件，再决定下一轮该做什么，不再重复讨论方向。
+
+---
+
 ## 1. 维护边界总原则
 
 ### 1.1 总目标
@@ -93,7 +103,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 | `ui/test_panel.py` | 2417 | 必须拆分 | 9 个 Mixin 中最大的，111 处 ctrl 引用 |
 | `app/main.py` | 502 | 需要审查 | Controller 已完成 Phase 1 收尾，保留编排与少量 UI 胶水 |
 | `ui/styles.py` | 1007 | 纯数据，暂缓 | 纯静态样式声明，无逻辑耦合，优先级低 |
-| `services/assessment_service.py` | 784 | 必须拆分 | 单体 `build_result()` 仍过长，评分域尚未拆分 |
+| `services/assessment_service.py` | 429 | 健康 | 评分域已分离，剩 `ScoringContext` 待 dataclass 化 |
 | `ui/main_window.py` | 528 | 需要审查 | 9-Mixin 继承入口，待迁移为组合式 |
 | `domain/fault_scenarios.py` | 520 | 纯数据，暂缓 | 纯场景定义字典，不含逻辑 |
 | `services/pt_exam_service.py` | 385 | 健康，观察 | 48 处 `self._ctrl` 引用需逐步收口 |
@@ -128,10 +138,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 2 — 评分系统模块化（Phase 2-1 已完成，准备进入评分域拆分） |
+| 当前阶段 | Phase 2 — 评分系统模块化（Phase 2-2 已完成，准备进入 ScoringContext dataclass 化） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
-| 当前最大风险文件 | `ui/test_panel.py`(2417)、`services/assessment_service.py`(784) |
-| 下一轮默认起点 | Phase 2-2 — 按评分域拆分为纯函数模块（`services/scoring/` 子包） |
+| 当前最大风险文件 | `ui/test_panel.py`(2417)、`ui/styles.py`(1007) |
+| 下一轮默认起点 | Phase 2-3 — ScoringContext dataclass 化 |
 
 ---
 
@@ -225,13 +235,13 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 - [x] **评分事件常量化**
   - 消除 `build_result()` 内部的魔法字符串（`"fault_detected"` / `"step_entered"` 等）
   - 集中到 `domain/assessment.py` 的常量类中
-- [ ] **按评分域拆分为纯函数模块**
+- [x] **按评分域拆分为纯函数模块**
   - `services/scoring/discipline.py` — A 类：流程纪律评分
   - `services/scoring/step_quality.py` — B/C/D/E 类：步骤 1-4 质量评分
   - `services/scoring/fault_diagnosis.py` — F 类：故障定位评分
   - `services/scoring/blackbox_efficiency.py` — G/H 类：黑盒与效率评分
   - 每个模块暴露纯函数：`score_xxx(context) -> List[AssessmentScoreItem]`
-- [ ] **`assessment_service.py` 主文件降到 <= 500 行**
+- [x] **`assessment_service.py` 主文件降到 <= 500 行**
   - 主文件只做组装：调用各评分域函数，合并结果
 - [ ] **为每个评分域补充独立快照测试**
 
@@ -479,6 +489,34 @@ class PowerSyncUI(QMainWindow):
 - 回归清单：PASS（评分结果与现有快照基线保持一致，`tests/snapshots/` 无改动）
 - 下一轮起点：Phase 2-2 — 按评分域拆分为纯函数模块（`services/scoring/` 子包）
 
+### 第 19 轮 (2026-04-14)：Phase 2-2（按评分域拆分为纯函数模块）
+- 本轮唯一主攻目标：将 `AssessmentService` 从单体评分器收口为“组装器 + 4 个评分域纯函数模块”。
+- 实际完成：
+  - 新增 `services/scoring/` 子包与 5 个文件：`_common.py`、`discipline.py`、`step_quality.py`、`fault_diagnosis.py`、`blackbox_efficiency.py`
+  - 建立 `make_score_item(...)` 纯函数，替代原 `add_score_item` / `add_penalty` 闭包语义
+  - 已将 A/B/C/D/E/F/G/H 八段评分逻辑按评分域迁出，`build_result()` 改为顺序组装 4 个评分器返回值
+  - 已删除 `AssessmentService` 中全部 `_score_*` 方法，以及 `score_context` 中闭包注入键
+- 删除了哪些旧代码：
+  - 删除 `services/assessment_service.py` 中 8 个 `_score_xxx` 方法
+  - 删除 `build_result()` 内的 `add_score_item` / `add_penalty` 两个闭包
+- 接口变化：
+  - `services/scoring/discipline.py` → `score_discipline(ctx)`
+  - `services/scoring/step_quality.py` → `score_step_quality(ctx)`
+  - `services/scoring/fault_diagnosis.py` → `score_fault_diagnosis(ctx)`
+  - `services/scoring/blackbox_efficiency.py` → `score_blackbox_efficiency(ctx)`
+  - `score_context` 仍保持 dict，留待下一轮做 `ScoringContext` dataclass 化
+- 耦合度变化：
+  - `services/assessment_service.py` 行数 `784 -> 429`
+  - `services/scoring/__init__.py` `11` 行
+  - `services/scoring/_common.py` `46` 行
+  - `services/scoring/discipline.py` `107` 行
+  - `services/scoring/step_quality.py` `299` 行
+  - `services/scoring/fault_diagnosis.py` `105` 行
+  - `services/scoring/blackbox_efficiency.py` `185` 行
+- 快照测试：PASS（`python -m pytest tests/ -q -p no:cacheprovider`，5/5 通过）
+- 回归清单：PASS（评分结果与现有快照基线保持一致，`tests/snapshots/` 无改动）
+- 下一轮起点：Phase 2-3 — ScoringContext dataclass 化
+
 ### 第 16 轮 (2026-04-13)：Phase 1 收尾（第二阶段：FlowMgr / AssessmentCoord / AssessmentService 公开化 + 剩余壳清理）
 - 本轮唯一主攻目标：公开 `flow_mgr / assessment_coord / assessment_svc`，删除 Controller 中剩余的流程策略与考核生命周期转发壳
 - 实际完成：
@@ -694,7 +732,7 @@ class PowerSyncUI(QMainWindow):
 如果后续没有新的明确指令，默认按以下顺序继续：
 
 **Phase 2（当前最优先）：**
-1. Phase 2-2 — 按评分域拆分为纯函数模块（`services/scoring/` 子包）
+1. Phase 2-3 — ScoringContext dataclass 化
 2. 继续收口评分上下文与遗留耦合
 
 ---
@@ -727,3 +765,373 @@ class PowerSyncUI(QMainWindow):
   - §10 下一轮默认起点
 - 未经确认，不得跳过当前 Phase 直接做后续 Phase 的大范围重构。
 - 每次完成后，本文件优先级高于临时对话记忆。
+## 第 19 轮审查提示词（可直接复制给 AI）
+
+```text
+任务：核查第 19 轮（Phase 2-2）— 按评分域拆分为纯函数模块（services/scoring/ 子包）是否正确完成
+
+你的角色：
+你是一位资深 Python 架构审查员。你当前不是来继续开发，而是严格核查这一轮重构是否符合任务要求、是否存在越界修改、是否保持评分结果字节级一致。
+
+项目背景：
+这是一个 PyQt5 三相电并网仿真教学系统。
+Phase 1 已正式闭环。
+Round 18 已完成：
+- `AssessmentEventType` 常量化
+- `AssessmentContext` 建立
+- `build_result(session, context)` 已切断 ctrl 入口依赖
+- `services/assessment_service.py` 中 `self._ctrl` 已为 0
+
+本轮唯一目标：
+把 `AssessmentService` 从单体评分器改成“组装器 + 4 个评分域纯函数模块”。
+
+本轮完成后应满足：
+1. 新建 `services/scoring/` 子包
+2. 建立 `_common.py` 中的 `make_score_item(...)`
+3. 将原 `AssessmentService` 中 8 个 `_score_xxx` 方法迁到 4 个评分域模块
+4. `build_result()` 变成评分组装器
+5. 删除 `add_score_item` / `add_penalty` 闭包
+6. 删除 `score_context` 中这两个闭包键
+7. `services/assessment_service.py` 行数降到 `<= 500`
+8. 快照测试 `5/5 PASS`
+9. `tests/snapshots/` 无差异
+
+第一步：先读这些文件
+请按顺序阅读并建立核查上下文：
+
+1. `MAINTENANCE_CHECKLIST.md`
+重点看：
+- §1 工程边界
+- §2 高风险文件基线
+- §3 当前总体进度
+- §4 Phase 2 路线图
+- §9 第 19 轮记录
+- §10 下一轮默认起点
+
+2. `services/assessment_service.py`
+重点核查：
+- 是否已变成组装器
+- 是否还保留评分域 `_score_xxx` 方法
+- 是否还保留 `add_score_item` / `add_penalty` 闭包
+- 是否还在 `score_context` 中塞 `"add_score_item"` / `"add_penalty"`
+- 行数是否已降到 `429`
+- `self._ctrl` 是否仍为 `0`
+
+3. `services/scoring/__init__.py`
+4. `services/scoring/_common.py`
+5. `services/scoring/discipline.py`
+6. `services/scoring/step_quality.py`
+7. `services/scoring/fault_diagnosis.py`
+8. `services/scoring/blackbox_efficiency.py`
+
+9. `domain/assessment.py`
+只读，用于确认本轮没有越界改动它
+
+10. `tests/test_assessment_snapshot.py`
+11. `tests/test_physics_snapshot.py`
+12. `tests/snapshots/assessment_normal.json`
+13. `tests/snapshots/assessment_fault_random.json`
+
+第二步：严格按以下核查清单执行
+
+A. 子包结构核查
+请确认：
+
+1. 是否新增了目录：
+- `services/scoring/`
+
+2. 是否包含以下文件：
+- `__init__.py`
+- `_common.py`
+- `discipline.py`
+- `step_quality.py`
+- `fault_diagnosis.py`
+- `blackbox_efficiency.py`
+
+3. 各文件职责是否符合要求：
+- `discipline.py`：A 类
+- `step_quality.py`：B/C/D/E 类
+- `fault_diagnosis.py`：F 类
+- `blackbox_efficiency.py`：G/H 类
+- `_common.py`：共享 score item 构造逻辑
+
+B. `make_score_item(...)` 核查
+请确认 `_common.py` 中是否存在：
+
+```python
+make_score_item(...)
+```
+
+并核查它是否与原 `add_score_item` 闭包等价：
+1. `earned_score` 是否 clamp 到 `[0, max_score]`
+2. `status` 是否仍是：
+- `通过`
+- `部分扣分`
+- `未通过`
+3. `lost_score > 0 and penalty_message` 时是否返回 `AssessmentPenalty`
+4. `penalty_message` 为空时是否不生成 penalty
+5. 返回值是否为：
+- `(AssessmentScoreItem, Optional[AssessmentPenalty])`
+
+如果行为与原闭包不一致，必须指出。
+
+C. 评分域迁移核查
+请确认以下迁移关系是否成立：
+
+1. `services/scoring/discipline.py`
+- `score_discipline(ctx)` 是否承接原 `_score_flow_discipline`
+
+2. `services/scoring/step_quality.py`
+- 是否承接原：
+  - `_score_loop_test`
+  - `_score_pt_voltage_check`
+  - `_score_pt_phase_check`
+  - `_score_pt_exam`
+- 是否对外暴露单一入口：
+  - `score_step_quality(ctx)`
+- 内部如果保留私有子函数是允许的，但对外应只有一个聚合入口
+
+3. `services/scoring/fault_diagnosis.py`
+- `score_fault_diagnosis(ctx)` 是否承接原 `_score_fault_localization`
+
+4. `services/scoring/blackbox_efficiency.py`
+- 是否承接原：
+  - `_score_blackbox_repair`
+  - `_score_efficiency`
+- 是否对外暴露：
+  - `score_blackbox_efficiency(ctx)`
+
+同时确认：
+- 4 个评分域之间无相互 import
+- 它们都只依赖：
+  - `ctx`
+  - `make_score_item`
+  - `domain.assessment` 数据类
+
+D. `build_result()` 组装器化核查
+请确认 `services/assessment_service.py` 中：
+
+1. `build_result()` 是否仍保留：
+- 事件提取
+- `score_context` 组装
+- `_expected_blackbox_targets`
+- `_build_step_score_summaries`
+- `_apply_extra_deductions`
+- `_resolve_veto_reason`
+- `_build_metrics`
+- `_build_summary`
+
+2. `build_result()` 是否已改为按顺序调用：
+- `score_discipline`
+- `score_step_quality`
+- `score_fault_diagnosis`
+- `score_blackbox_efficiency`
+
+3. 顺序是否与原先严格一致
+说明：
+- 顺序变化会影响 `score_items` 列表顺序，从而导致 snapshot diff
+- 必须确认 B/C/D/E 聚合之后的位置仍在原先 A 之后、F 之前、G/H 之前
+
+4. 是否已经删除：
+- `add_score_item`
+- `add_penalty`
+- `score_context["add_score_item"]`
+- `score_context["add_penalty"]`（如果原来没有，则确认未新增）
+
+5. `services/assessment_service.py` 中：
+- `def _score_` 数量是否为 `0`
+
+建议核查方式：
+- `rg -n "def _score_|add_score_item|add_penalty" services/assessment_service.py`
+
+E. 行为不变核查
+这是本轮最重要的部分。请确认：
+
+1. 评分逻辑本体没有变化
+也就是：
+- 分值
+- 阈值
+- penalty 触发条件
+- 通过/部分扣分/未通过判定
+- 扣分消息
+- 黑盒、效率、流程纪律的明细判定
+
+2. 迁移后中文文案没有被错误转码污染
+重点核查：
+- `score_items[*].title`
+- `score_items[*].category`
+- `score_items[*].detail`
+- `penalties[*].message`
+- `metrics["fault_selection_mode"]`
+- `metrics["fault_guess_correct"]`
+- `summary`
+
+说明：
+- 本轮若出现乱码再被修正，也要确认最终源码中是正常中文
+- 不允许以“测试通过”为由忽略源码里的字符串污染风险
+
+3. `score_items` 顺序是否与快照保持一致
+4. `penalties` 顺序是否与快照保持一致
+
+F. 行数与指标核查
+请确认：
+
+1. `services/assessment_service.py` 实际行数是否为 `429`
+2. 是否满足本轮硬指标：`<= 500`
+3. `services/scoring/` 各文件行数是否大致为：
+- `__init__.py`：11
+- `_common.py`：46
+- `discipline.py`：107
+- `step_quality.py`：299
+- `fault_diagnosis.py`：105
+- `blackbox_efficiency.py`：185
+
+允许少量偏差，但若明显不符，需要指出。
+
+4. `step_quality.py` 是否未超过 `450`
+5. `services/assessment_service.py` 中 `self._ctrl` 是否仍为 `0`
+
+G. 越界修改核查
+请重点检查以下内容是否被误改。若被改，视为越界：
+
+1. `domain/assessment.py`
+- 本轮不应改它
+
+2. `ui/` 目录
+- 本轮不应改 UI
+
+3. `tests/snapshots/`
+- 本轮不应修改快照基线文件内容
+
+4. 新 dataclass
+- 本轮不应引入新的 dataclass
+- `ScoringContext` 应明确留到 Round 20
+
+5. 这些汇总层函数本轮不应被拆或重写语义：
+- `_build_step_score_summaries`
+- `_apply_extra_deductions`
+- `_resolve_veto_reason`
+- `_build_metrics`
+- `_build_summary`
+
+6. 本轮不应处理 `AssessmentContext` 扩容
+7. 本轮不应处理评分展示 UI
+8. 本轮不应修改 README / context 等无关文档
+
+说明：
+- `MAINTENANCE_CHECKLIST.md` 更新属于本轮范围
+- 修正评分文案乱码若发生在新迁移文件内，属于本轮允许范围，因为它直接关系到快照一致性
+
+H. 测试与快照核查
+请确认：
+
+1. 是否执行了：
+- `python -m pytest tests/ -q -p no:cacheprovider`
+
+2. 结果是否为：
+- `5 passed`
+- `0 failed`
+
+3. 是否可以确认：
+- `tests/snapshots/assessment_normal.json` 无变化
+- `tests/snapshots/assessment_fault_random.json` 无变化
+- 即整体 `tests/snapshots/` 无 diff
+
+如果你无法实际运行测试，必须明确说明：
+- “只完成静态核查，未完成运行验证”
+
+I. 维护清单核查
+请核查 `MAINTENANCE_CHECKLIST.md` 是否同步更新了以下内容：
+
+1. §2
+- `services/assessment_service.py` 是否更新为 `429`
+- 状态是否改为“健康”
+- 风险描述是否改为：
+  - “评分域已分离，剩 ScoringContext 待 dataclass 化”
+
+2. §3
+- 当前阶段是否改为：
+  - `Phase 2 — 评分系统模块化（Phase 2-2 已完成，准备进入 ScoringContext dataclass 化）`
+- 下一轮默认起点是否改为：
+  - `Phase 2-3 — ScoringContext dataclass 化`
+
+3. §4
+- `按评分域拆分为纯函数模块` 是否已打勾 `[x]`
+- ``assessment_service.py` 主文件降到 <= 500 行` 是否已打勾 `[x]`
+
+4. §9
+- 是否新增第 19 轮记录
+- 是否写明：
+  - `assessment_service.py` 行数 `784 -> 429`
+  - `services/scoring/` 各文件行数
+  - 快照测试 `5/5 PASS`
+  - 下一轮起点 `Phase 2-3`
+
+5. §10
+- 是否已改为：
+  - `Phase 2-3 — ScoringContext dataclass 化`
+
+J. 复盘问题核查
+请结合源码给出结论：
+
+1. `make_score_item` 是否完全等价原闭包
+2. 四个评分域是否真正无相互依赖
+3. 当前 `score_context` 还剩哪些键
+4. 哪些键是 Round 20 `ScoringContext` dataclass 化时的核心必填字段
+5. 搬迁过程中是否留下任何可疑问题
+如果有，也只能记录，不能视为本轮必须修复项
+
+第三步：输出格式要求
+请严格按下面格式输出你的核查结果：
+
+1. 总结结论
+- 直接给出：
+  - “通过”
+  - 或 “未通过”
+
+2. 已完成项
+- 用列表写清楚本轮已满足的要求
+
+3. 不符合项
+- 如果有，逐条列出
+- 每条必须包含：
+  - 文件路径
+  - 问题描述
+  - 为什么不符合本轮要求
+
+4. 越界修改检查
+- 明确写：
+  - “未发现越界修改”
+  - 或 “发现越界修改”，并列出具体文件和内容
+
+5. 评分域拆分检查
+- 明确写：
+  - 子包结构是否正确
+  - 4 个评分域是否全部迁出
+  - `build_result()` 是否已成为组装器
+  - `assessment_service.py` 是否已无 `_score_` 方法
+
+6. 快照与回归结果
+- 报告 pytest 的核查结论
+- 若无法实际运行，明确说明
+
+7. 最终判定
+- 用一句话给出：
+  - “第 19 轮可视为完成，可进入 Phase 2-3”
+  - 或
+  - “第 19 轮暂不能视为完成”
+
+核查原则：
+- 你是审查，不是开发
+- 不要顺手修代码
+- 不要给大段发散建议
+- 只围绕“这一轮是否按要求完成”给出结论
+- 优先找：
+  - 是否误动评分逻辑本体
+  - 是否真的删光 `_score_*`
+  - 是否快照完全未变
+  - 是否 `assessment_service.py` 真实降到 <= 500 行
+  - 是否仍有乱码文案残留
+```
+
+# 维护与重构清单 v2
