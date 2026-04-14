@@ -1,23 +1,23 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 from domain.assessment import AssessmentPenalty, AssessmentScoreItem
-from services.scoring._common import make_score_item
+from services.scoring._common import first_step_index, make_score_item
+from services.scoring.context import ScoringContext
 
 
-def score_discipline(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
+def score_discipline(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
     items: List[AssessmentScoreItem] = []
     penalties: List[AssessmentPenalty] = []
-    first_step_index = ctx["first_step_index"]
-    blocked_events = ctx["blocked_events"]
-    finalize_rejected = ctx["finalize_rejected"]
-    gate_block_events = ctx["gate_block_events"]
+    blocked_events = ctx.blocked_events
+    finalize_rejected = ctx.finalize_rejected
+    gate_block_events = ctx.gate_block_events
 
-    idx1 = first_step_index(1)
-    idx2 = first_step_index(2)
-    idx3 = first_step_index(3)
-    idx4 = first_step_index(4)
+    idx1 = first_step_index(ctx.step_enter_events, 1)
+    idx2 = first_step_index(ctx.step_enter_events, 2)
+    idx3 = first_step_index(ctx.step_enter_events, 3)
+    idx4 = first_step_index(ctx.step_enter_events, 4)
 
     a1_score = 2 if idx1 is not None and idx2 is not None and idx1 < idx2 else 0
     item, penalty = make_score_item(

@@ -258,7 +258,7 @@ def score_discipline(ctx: ScoringContext) -> Tuple[...]:
 
 # 维护与重构清单 v2
 
-最后更新：`2026-04-13`
+最后更新：`2026-04-14`
 
 用途：
 - 给人看：明确当前项目的维护边界、阶段目标、已完成进度。
@@ -361,7 +361,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 | `ui/test_panel.py` | 2417 | 必须拆分 | 9 个 Mixin 中最大的，111 处 ctrl 引用 |
 | `app/main.py` | 502 | 需要审查 | Controller 已完成 Phase 1 收尾，保留编排与少量 UI 胶水 |
 | `ui/styles.py` | 1007 | 纯数据，暂缓 | 纯静态样式声明，无逻辑耦合，优先级低 |
-| `services/assessment_service.py` | 429 | 健康 | 评分域已分离，剩 `ScoringContext` 待 dataclass 化 |
+| `services/assessment_service.py` | 399 | 健康 | 评分系统已完成模块化 + 类型化，Phase 2 核心目标完成 |
 | `ui/main_window.py` | 528 | 需要审查 | 9-Mixin 继承入口，待迁移为组合式 |
 | `domain/fault_scenarios.py` | 520 | 纯数据，暂缓 | 纯场景定义字典，不含逻辑 |
 | `services/pt_exam_service.py` | 385 | 健康，观察 | 48 处 `self._ctrl` 引用需逐步收口 |
@@ -396,10 +396,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 2 — 评分系统模块化（Phase 2-2 已完成，准备进入 ScoringContext dataclass 化） |
+| 当前阶段 | Phase 2 — 评分系统模块化（Phase 2-3 已完成，Phase 2 核心目标完成） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/test_panel.py`(2417)、`ui/styles.py`(1007) |
-| 下一轮默认起点 | Phase 2-3 — ScoringContext dataclass 化 |
+| 下一轮默认起点 | Phase 2-4（可选）— 评分域独立快照测试 |
 
 ---
 
@@ -499,6 +499,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
   - `services/scoring/fault_diagnosis.py` — F 类：故障定位评分
   - `services/scoring/blackbox_efficiency.py` — G/H 类：黑盒与效率评分
   - 每个模块暴露纯函数：`score_xxx(context) -> List[AssessmentScoreItem]`
+- [x] **`score_context` 改为 `ScoringContext` dataclass**
+  - `services/scoring/context.py` 已落地 `@dataclass(frozen=True)` 的 `ScoringContext`
+  - 4 个评分域模块已从 `ctx["xxx"]` 切换为 `ctx.xxx`
+  - 评分阶段所需的 4 个原闭包已迁入 `services/scoring/_common.py`，改为独立纯函数
 - [x] **`assessment_service.py` 主文件降到 <= 500 行**
   - 主文件只做组装：调用各评分域函数，合并结果
 - [ ] **为每个评分域补充独立快照测试**
@@ -723,8 +727,33 @@ class PowerSyncUI(QMainWindow):
 - `H5`：死母线倒计时已改为使用真实 `frame_dt`，不再写死 `0.033`。
 
 ### 当前未完成但已明确方向
-- `services/assessment_service.py` 仍需继续按评分域拆成多文件。
+- `services/scoring/` 各评分域仍缺独立快照测试。
 - `ui/test_panel.py` 仍是当前最大风险文件。
+
+### 第 20 轮 (2026-04-14)：Phase 2-3（`score_context` 改为 `ScoringContext` dataclass）
+- 本轮唯一主攻目标：将 dict 型 `score_context` 升级为 `@dataclass(frozen=True) ScoringContext`，并把 4 个闭包抽成共享纯函数。
+- 实际完成：
+  - 在 `services/scoring/context.py` 新增 `ScoringContext`，显式收口评分阶段使用的 33 个数据字段，并补入 `step_enter_events` 这一处原先被闭包隐式捕获的隐藏依赖。
+  - 在 `services/scoring/_common.py` 新增 `count_present`、`trio_completion_score`、`nine_group_completion_score`、`first_step_index` 4 个纯函数，与原闭包行为保持一致。
+  - 4 个评分域模块已统一改签为 `score_xxx(ctx: ScoringContext)`，所有 `ctx["xxx"]` 访问已切换为 `ctx.xxx`。
+  - `services/assessment_service.py` 中 `score_context = {...}` 已改为构造 `ScoringContext(...)`，并删除主文件内 4 个闭包定义。
+- 删除了哪些旧代码：
+  - 删除 `services/assessment_service.py` 中 `first_step_index`、`trio_completion_score`、`nine_group_completion_score`、`count_present` 四处本地定义。
+  - 删除 dict 版 `score_context` 组装结构及其对闭包的隐式注入。
+- 接口变化：
+  - 评分域模块签名从 `score_xxx(ctx: dict)` 改为 `score_xxx(ctx: ScoringContext)`。
+  - `ScoringContext` 只承载数据字段，不包含方法与 `Callable` 字段；闭包能力全部改由 `_common.py` 中的纯函数显式提供。
+- 耦合度变化：
+  - `services/assessment_service.py` 行数 `429 -> 399`
+  - `services/scoring/_common.py` 行数 `46 -> 79`
+  - 新增 `services/scoring/context.py` `43` 行
+  - `services/scoring/discipline.py` `107` 行
+  - `services/scoring/step_quality.py` `296` 行
+  - `services/scoring/fault_diagnosis.py` `106` 行
+  - `services/scoring/blackbox_efficiency.py` `186` 行
+- 快照测试：PASS（`python -m pytest tests/ -q -p no:cacheprovider`，5/5 通过）
+- 回归清单：PASS（`services/scoring/*.py` 中 `ctx["` 搜索结果为 0；`services/assessment_service.py` 中 4 个原闭包定义搜索结果为 0；`tests/snapshots/` 无改动）
+- 下一轮起点：Phase 2-4（可选）— 评分域独立快照测试；或转入 Phase 3 — UI 组件化（由 Round 21 决策）
 
 ### 第 18 轮 (2026-04-13)：Phase 2-1（评分事件常量化 + AssessmentContext 建立）
 - 本轮唯一主攻目标：为 `AssessmentService` 建立事件常量与 `AssessmentContext` 输入边界，切断 `build_result()` 对 ctrl 的入口依赖。
@@ -989,9 +1018,9 @@ class PowerSyncUI(QMainWindow):
 
 如果后续没有新的明确指令，默认按以下顺序继续：
 
-**Phase 2（当前最优先）：**
-1. Phase 2-3 — ScoringContext dataclass 化
-2. 继续收口评分上下文与遗留耦合
+**Phase 2 / Phase 3（下一步待决策）：**
+1. Phase 2-4（可选）— 评分域独立快照测试
+2. Phase 3 — UI 组件化（告别 Mixin）
 
 ---
 

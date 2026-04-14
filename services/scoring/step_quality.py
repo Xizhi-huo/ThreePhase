@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 from domain.assessment import AssessmentPenalty, AssessmentScoreItem
-from services.scoring._common import make_score_item
+from services.scoring._common import count_present, make_score_item, nine_group_completion_score, trio_completion_score
+from services.scoring.context import ScoringContext
 
 
-def _score_loop_test(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
+def _score_loop_test(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
     items: List[AssessmentScoreItem] = []
     penalties: List[AssessmentPenalty] = []
-    loop_records = ctx["loop_records"]
-    loop_complete = ctx["loop_complete"]
-    count_present = ctx["count_present"]
+    loop_records = ctx.loop_records
+    loop_complete = ctx.loop_complete
 
     for code, phase, step_score in (("B1", "A", 2), ("B2", "B", 2), ("B3", "C", 2)):
         recorded = loop_records.get(phase) is not None
@@ -47,16 +47,15 @@ def _score_loop_test(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreItem],
     return items, penalties
 
 
-def _score_pt_voltage_check(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
+def _score_pt_voltage_check(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
     items: List[AssessmentScoreItem] = []
     penalties: List[AssessmentPenalty] = []
-    trio_completion_score = ctx["trio_completion_score"]
-    pt1_voltage_count = ctx["pt1_voltage_count"]
-    pt2_voltage_count = ctx["pt2_voltage_count"]
-    pt3_voltage_count = ctx["pt3_voltage_count"]
-    session = ctx["session"]
-    detection_step = ctx["detection_step"]
-    fault_detected_event = ctx["fault_detected_event"]
+    pt1_voltage_count = ctx.pt1_voltage_count
+    pt2_voltage_count = ctx.pt2_voltage_count
+    pt3_voltage_count = ctx.pt3_voltage_count
+    session = ctx.session
+    detection_step = ctx.detection_step
+    fault_detected_event = ctx.fault_detected_event
 
     c1_score = trio_completion_score(pt1_voltage_count)
     item, penalty = make_score_item(
@@ -126,16 +125,15 @@ def _score_pt_voltage_check(ctx: Dict[str, object]) -> Tuple[List[AssessmentScor
     return items, penalties
 
 
-def _score_pt_phase_check(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
+def _score_pt_phase_check(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
     items: List[AssessmentScoreItem] = []
     penalties: List[AssessmentPenalty] = []
-    trio_completion_score = ctx["trio_completion_score"]
-    pt1_phase_count = ctx["pt1_phase_count"]
-    pt3_phase_count = ctx["pt3_phase_count"]
-    invalid_by_step = ctx["invalid_by_step"]
-    session = ctx["session"]
-    detection_step = ctx["detection_step"]
-    fault_detected_event = ctx["fault_detected_event"]
+    pt1_phase_count = ctx.pt1_phase_count
+    pt3_phase_count = ctx.pt3_phase_count
+    invalid_by_step = ctx.invalid_by_step
+    session = ctx.session
+    detection_step = ctx.detection_step
+    fault_detected_event = ctx.fault_detected_event
 
     d1_score = trio_completion_score(pt1_phase_count)
     item, penalty = make_score_item(
@@ -205,18 +203,17 @@ def _score_pt_phase_check(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreI
     return items, penalties
 
 
-def _score_pt_exam(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
+def _score_pt_exam(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
     items: List[AssessmentScoreItem] = []
     penalties: List[AssessmentPenalty] = []
-    nine_group_completion_score = ctx["nine_group_completion_score"]
-    gen1_exam_count = ctx["gen1_exam_count"]
-    gen2_exam_count = ctx["gen2_exam_count"]
-    invalid_by_step = ctx["invalid_by_step"]
-    finalize_rejected_by_step = ctx["finalize_rejected_by_step"]
-    session = ctx["session"]
-    hidden_fault = ctx["hidden_fault"]
-    blackbox_open_before_gate = ctx["blackbox_open_before_gate"]
-    fault_detected_event = ctx["fault_detected_event"]
+    gen1_exam_count = ctx.gen1_exam_count
+    gen2_exam_count = ctx.gen2_exam_count
+    invalid_by_step = ctx.invalid_by_step
+    finalize_rejected_by_step = ctx.finalize_rejected_by_step
+    session = ctx.session
+    hidden_fault = ctx.hidden_fault
+    blackbox_open_before_gate = ctx.blackbox_open_before_gate
+    fault_detected_event = ctx.fault_detected_event
 
     e1_score = nine_group_completion_score(gen1_exam_count)
     item, penalty = make_score_item(
@@ -289,7 +286,7 @@ def _score_pt_exam(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreItem], L
     return items, penalties
 
 
-def score_step_quality(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
+def score_step_quality(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
     items: List[AssessmentScoreItem] = []
     penalties: List[AssessmentPenalty] = []
     for scorer in (_score_loop_test, _score_pt_voltage_check, _score_pt_phase_check, _score_pt_exam):

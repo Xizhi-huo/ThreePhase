@@ -10,7 +10,9 @@ from domain.assessment import (
     AssessmentSession,
 )
 from domain.fault_scenarios import SCENARIOS
+from services.scoring._common import count_present
 from services.scoring.blackbox_efficiency import score_blackbox_efficiency
+from services.scoring.context import ScoringContext
 from services.scoring.discipline import score_discipline
 from services.scoring.fault_diagnosis import score_fault_diagnosis
 from services.scoring.step_quality import score_step_quality
@@ -55,35 +57,6 @@ class AssessmentService:
             if rhs is None:
                 return True
             return lhs.timestamp <= rhs.timestamp
-
-        def first_step_index(step: int):
-            for idx, event in enumerate(step_enter_events):
-                if event.step == step:
-                    return idx
-            return None
-
-        def trio_completion_score(count_value: int) -> int:
-            if count_value >= 3:
-                return 3
-            if count_value == 2:
-                return 2
-            if count_value == 1:
-                return 1
-            return 0
-
-        def nine_group_completion_score(count_value: int) -> int:
-            if count_value >= 9:
-                return 4
-            if count_value >= 7:
-                return 3
-            if count_value >= 5:
-                return 2
-            if count_value >= 3:
-                return 1
-            return 0
-
-        def count_present(records: Dict[str, object]) -> int:
-            return sum(1 for value in records.values() if value is not None)
 
         blocked_events = all_events(AssessmentEventType.ADVANCE_BLOCKED)
         finalize_rejected = [
@@ -170,44 +143,41 @@ class AssessmentService:
         gen1_exam_count = count_present(pt_exam_records_1)
         gen2_exam_count = count_present(pt_exam_records_2)
 
-        score_context = {
-            "session": session,
-            "first_step_index": first_step_index,
-            "blocked_events": blocked_events,
-            "blocked_by_step": blocked_by_step,
-            "finalize_rejected": finalize_rejected,
-            "gate_block_events": gate_block_events,
-            "loop_records": loop_records,
-            "loop_complete": loop_complete,
-            "count_present": count_present,
-            "trio_completion_score": trio_completion_score,
-            "nine_group_completion_score": nine_group_completion_score,
-            "pt1_voltage_count": pt1_voltage_count,
-            "pt2_voltage_count": pt2_voltage_count,
-            "pt3_voltage_count": pt3_voltage_count,
-            "detection_step": detection_step,
-            "fault_detected_event": fault_detected_event,
-            "pt1_phase_count": pt1_phase_count,
-            "pt3_phase_count": pt3_phase_count,
-            "invalid_by_step": invalid_by_step,
-            "gen1_exam_count": gen1_exam_count,
-            "gen2_exam_count": gen2_exam_count,
-            "finalize_rejected_by_step": finalize_rejected_by_step,
-            "hidden_fault": hidden_fault,
-            "blackbox_open_before_gate": blackbox_open_before_gate,
-            "detected_before_gate": detected_before_gate,
-            "expected_targets": expected_targets,
-            "expected_target_set": expected_target_set,
-            "expected_device_set": expected_device_set,
-            "opened_target_set": opened_target_set,
-            "touched_layers": touched_layers,
-            "repair_required": repair_required,
-            "repaired": repaired,
-            "blackbox_failed_confirms": blackbox_failed_confirms,
-            "blackbox_swap_count": blackbox_swap_count,
-            "elapsed_seconds": elapsed_seconds,
-            "invalid_events": invalid_events,
-        }
+        score_context = ScoringContext(
+            session=session,
+            blocked_events=blocked_events,
+            blocked_by_step=blocked_by_step,
+            finalize_rejected=finalize_rejected,
+            finalize_rejected_by_step=finalize_rejected_by_step,
+            gate_block_events=gate_block_events,
+            invalid_events=invalid_events,
+            invalid_by_step=invalid_by_step,
+            step_enter_events=step_enter_events,
+            fault_detected_event=fault_detected_event,
+            loop_records=loop_records,
+            loop_complete=loop_complete,
+            pt1_voltage_count=pt1_voltage_count,
+            pt2_voltage_count=pt2_voltage_count,
+            pt3_voltage_count=pt3_voltage_count,
+            pt1_phase_count=pt1_phase_count,
+            pt3_phase_count=pt3_phase_count,
+            gen1_exam_count=gen1_exam_count,
+            gen2_exam_count=gen2_exam_count,
+            detection_step=detection_step,
+            hidden_fault=hidden_fault,
+            blackbox_open_before_gate=blackbox_open_before_gate,
+            detected_before_gate=detected_before_gate,
+            expected_targets=expected_targets,
+            expected_target_set=expected_target_set,
+            expected_device_set=expected_device_set,
+            opened_target_set=opened_target_set,
+            touched_layers=touched_layers,
+            repair_required=repair_required,
+            repaired=repaired,
+            blackbox_failed_confirms=blackbox_failed_confirms,
+            blackbox_swap_count=blackbox_swap_count,
+            elapsed_seconds=elapsed_seconds,
+        )
         for scorer in (
             score_discipline,
             score_step_quality,

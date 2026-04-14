@@ -1,23 +1,24 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 from domain.assessment import AssessmentPenalty, AssessmentScoreItem
 from services.scoring._common import make_score_item
+from services.scoring.context import ScoringContext
 
 
-def score_fault_diagnosis(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
+def score_fault_diagnosis(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
     items: List[AssessmentScoreItem] = []
     penalties: List[AssessmentPenalty] = []
-    session = ctx["session"]
-    hidden_fault = ctx["hidden_fault"]
-    blackbox_open_before_gate = ctx["blackbox_open_before_gate"]
-    detected_before_gate = ctx["detected_before_gate"]
-    expected_targets = ctx["expected_targets"]
-    expected_target_set = ctx["expected_target_set"]
-    expected_device_set = ctx["expected_device_set"]
-    opened_target_set = ctx["opened_target_set"]
-    touched_layers = ctx["touched_layers"]
+    session = ctx.session
+    hidden_fault = ctx.hidden_fault
+    blackbox_open_before_gate = ctx.blackbox_open_before_gate
+    detected_before_gate = ctx.detected_before_gate
+    expected_targets = ctx.expected_targets
+    expected_target_set = ctx.expected_target_set
+    expected_device_set = ctx.expected_device_set
+    opened_target_set = ctx.opened_target_set
+    touched_layers = ctx.touched_layers
 
     if not session.scene_id:
         f1_score = 4

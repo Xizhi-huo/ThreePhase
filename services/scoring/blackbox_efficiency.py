@@ -1,23 +1,24 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 from domain.assessment import AssessmentPenalty, AssessmentScoreItem
 from services.scoring._common import make_score_item
+from services.scoring.context import ScoringContext
 
 
-def _score_blackbox_repair(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
+def _score_blackbox_repair(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
     items: List[AssessmentScoreItem] = []
     penalties: List[AssessmentPenalty] = []
-    expected_targets = ctx["expected_targets"]
-    expected_target_set = ctx["expected_target_set"]
-    expected_device_set = ctx["expected_device_set"]
-    opened_target_set = ctx["opened_target_set"]
-    touched_layers = ctx["touched_layers"]
-    repair_required = ctx["repair_required"]
-    repaired = ctx["repaired"]
-    blackbox_failed_confirms = ctx["blackbox_failed_confirms"]
-    blackbox_swap_count = ctx["blackbox_swap_count"]
+    expected_targets = ctx.expected_targets
+    expected_target_set = ctx.expected_target_set
+    expected_device_set = ctx.expected_device_set
+    opened_target_set = ctx.opened_target_set
+    touched_layers = ctx.touched_layers
+    repair_required = ctx.repair_required
+    repaired = ctx.repaired
+    blackbox_failed_confirms = ctx.blackbox_failed_confirms
+    blackbox_swap_count = ctx.blackbox_swap_count
 
     if not expected_targets:
         g1_score = 3
@@ -105,13 +106,13 @@ def _score_blackbox_repair(ctx: Dict[str, object]) -> Tuple[List[AssessmentScore
     return items, penalties
 
 
-def _score_efficiency(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
+def _score_efficiency(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
     items: List[AssessmentScoreItem] = []
     penalties: List[AssessmentPenalty] = []
-    elapsed_seconds = ctx["elapsed_seconds"]
-    blocked_events = ctx["blocked_events"]
-    finalize_rejected = ctx["finalize_rejected"]
-    invalid_events = ctx["invalid_events"]
+    elapsed_seconds = ctx.elapsed_seconds
+    blocked_events = ctx.blocked_events
+    finalize_rejected = ctx.finalize_rejected
+    invalid_events = ctx.invalid_events
 
     if elapsed_seconds <= 300:
         h1_score = 4
@@ -175,7 +176,7 @@ def _score_efficiency(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreItem]
     return items, penalties
 
 
-def score_blackbox_efficiency(ctx: Dict[str, object]) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
+def score_blackbox_efficiency(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
     items: List[AssessmentScoreItem] = []
     penalties: List[AssessmentPenalty] = []
     for scorer in (_score_blackbox_repair, _score_efficiency):

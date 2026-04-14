@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from domain.assessment import AssessmentPenalty, AssessmentScoreItem
+from domain.assessment import AssessmentEvent, AssessmentPenalty, AssessmentScoreItem
 
 
 def make_score_item(
@@ -44,3 +44,36 @@ def make_score_item(
         )
         return item, penalty
     return item, None
+
+
+def count_present(records: Dict[str, object]) -> int:
+    return sum(1 for value in records.values() if value is not None)
+
+
+def trio_completion_score(count_value: int) -> int:
+    if count_value >= 3:
+        return 3
+    if count_value == 2:
+        return 2
+    if count_value == 1:
+        return 1
+    return 0
+
+
+def nine_group_completion_score(count_value: int) -> int:
+    if count_value >= 9:
+        return 4
+    if count_value >= 7:
+        return 3
+    if count_value >= 5:
+        return 2
+    if count_value >= 3:
+        return 1
+    return 0
+
+
+def first_step_index(step_enter_events: List[AssessmentEvent], step: int) -> Optional[int]:
+    for idx, event in enumerate(step_enter_events):
+        if event.step == step:
+            return idx
+    return None
