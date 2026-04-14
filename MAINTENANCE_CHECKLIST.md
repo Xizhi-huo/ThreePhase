@@ -1,3 +1,261 @@
+# 第 20 轮任务提示词：Phase 2-3 — `score_context` → `@dataclass ScoringContext`（做法 B）
+
+## 背景（必读）
+- `MAINTENANCE_CHECKLIST.md` 是唯一事实来源，开工前请先完整读 §1 / §2 / §3 / §4 / §9 / §10。
+- 当前起点：`main` 分支最新提交（Round 19 `Phase 2-2(19): 按评分域拆分为纯函数模块`）。
+- Round 19 的成果前置条件:
+  - `services/scoring/` 子包已建立，4 个评分域模块 + `_common.py` 均就位
+  - `services/assessment_service.py` = 429 行，`build_result()` 已退化为组装器
+  - 当前 `score_context` 是 **dict，含 36 个键**，其中 **4 个是闭包**（`first_step_index` / `trio_completion_score` / `nine_group_completion_score` / `count_present`），**32 个是纯数据**
+- 快照测试基线：5/5 PASS（`python -m pytest tests/ -q -p no:cacheprovider`）
+
+## 本轮唯一主攻目标
+**把 dict 型 `score_context` 升级为 `@dataclass(frozen=True) ScoringContext`，让评分域模块用字段属性而非 dict 键访问**：
+1. 把 4 个闭包（`first_step_index` / `trio_completion_score` / `nine_group_completion_score` / `count_present`）抽到 `services/scoring/_common.py` 变成纯函数
+2. 在 `services/scoring/` 新增 `context.py`，定义 `ScoringContext` dataclass（仅数据字段，约 32 个）
+3. `build_result()` 把原 dict 组装改为构造 `ScoringContext(...)`
+4. 4 个评分域模块签名从 `score_xxx(ctx: dict)` 改为 `score_xxx(ctx: ScoringContext)`，访问方式从 `ctx["xxx"]` 改为 `ctx.xxx`
+5. 闭包引用改为 `from services.scoring._common import xxx`
+6. **评分逻辑本体零改动**，快照结果字节级一致
+
+## 做法 B 的关键设计（已确认）
+- `ScoringContext` 只装 **数据字段**（dataclass，无方法）
+- 4 个原闭包变成 **独立纯函数**，在 `_common.py` 中
+- 评分域模块需要 `trio_completion_score(n)` 等时，直接 import 使用，不再从 ctx 取
+
+## 具体工作拆解
+
+### 第一步：把 4 个闭包抽到 `services/scoring/_common.py`
+在现有 `_common.py`（当前只有 `make_score_item`）中新增 4 个纯函数：
+
+```python
+def count_present(records: Dict[str, object]) -> int:
+    return sum(1 for value in records.values() if value is not None)
+
+def trio_completion_score(count_value: int) -> int:
+    if count_value >= 3:
+        return 3
+    if count_value == 2:
+        return 2
+    if count_value == 1:
+        return 1
+    return 0
+
+def nine_group_completion_score(count_value: int) -> int:
+    if count_value >= 9:
+        return 4
+    if count_value >= 7:
+        return 3
+    if count_value >= 5:
+        return 2
+    if count_value >= 3:
+        return 1
+    return 0
+
+def first_step_index(step_enter_events: List[AssessmentEvent], step: int) -> Optional[int]:
+    for idx, event in enumerate(step_enter_events):
+        if event.step == step:
+            return idx
+    return None
+```
+
+**硬要求**：与 `build_result` 当前内部闭包行为字节级一致，包括边界（0/1/2/3/5/7/9）、返回值类型。
+
+**注意** `first_step_index` 签名变化：原闭包捕获 `step_enter_events` 局部变量；抽成自由函数后 `step_enter_events` 必须作参数显式传入。评分域使用时调用方式为：
+```python
+first_step_index(ctx.step_enter_events, 1)
+```
+因此 `ScoringContext` 需要有 `step_enter_events` 字段（当前 dict 里没显式塞这个键——闭包偷偷捕获了——本轮必须显式化）。
+
+### 第二步：新建 `services/scoring/context.py`
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, FrozenSet, List, Optional, Set
+
+from domain.assessment import AssessmentEvent, AssessmentSession
+
+
+@dataclass(frozen=True)
+class ScoringContext:
+    session: AssessmentSession
+    # 事件分类列表
+    blocked_events: List[AssessmentEvent]
+    blocked_by_step: Dict[int, int]
+    finalize_rejected: List[AssessmentEvent]
+    finalize_rejected_by_step: Dict[int, int]
+    gate_block_events: List[AssessmentEvent]
+    invalid_events: List[AssessmentEvent]
+    invalid_by_step: Dict[int, int]
+    step_enter_events: List[AssessmentEvent]    # 新增：供 first_step_index 使用
+    # 关键首事件
+    fault_detected_event: Optional[AssessmentEvent]
+    # 各记录本体
+    loop_records: Dict[str, Any]
+    loop_complete: bool
+    # 三相计数
+    pt1_voltage_count: int
+    pt2_voltage_count: int
+    pt3_voltage_count: int
+    pt1_phase_count: int
+    pt3_phase_count: int
+    gen1_exam_count: int
+    gen2_exam_count: int
+    # 故障场景
+    detection_step: Optional[int]
+    hidden_fault: bool
+    blackbox_open_before_gate: bool
+    detected_before_gate: bool
+    # 黑盒目标
+    expected_targets: List[str]
+    expected_target_set: Set[str]
+    expected_device_set: Set[str]
+    opened_target_set: Set[str]
+    touched_layers: Set[str]
+    repair_required: bool
+    repaired: bool
+    blackbox_failed_confirms: int
+    blackbox_swap_count: int
+    # 效率
+    elapsed_seconds: int
+```
+
+**硬要求**：
+- 字段顺序与上面映射严格一致（方便 review）
+- 不得加入 4 个闭包作为 `Callable` 字段（做法 B 的核心）
+- 不得加入除上述字段外的其它键（除 `step_enter_events` 是必须补充的显式化字段）
+- `@dataclass(frozen=True)`（与 `AssessmentContext` 一致）
+
+### 第三步：改写 `build_result()` 组装段
+把 `services/assessment_service.py` 第 173-210 行（`score_context = { ... }`）替换为 `ScoringContext(...)` 构造：
+
+```python
+score_context = ScoringContext(
+    session=session,
+    blocked_events=blocked_events,
+    blocked_by_step=blocked_by_step,
+    finalize_rejected=finalize_rejected,
+    finalize_rejected_by_step=finalize_rejected_by_step,
+    gate_block_events=gate_block_events,
+    invalid_events=invalid_events,
+    invalid_by_step=invalid_by_step,
+    step_enter_events=step_enter_events,
+    fault_detected_event=fault_detected_event,
+    loop_records=loop_records,
+    loop_complete=loop_complete,
+    pt1_voltage_count=pt1_voltage_count,
+    pt2_voltage_count=pt2_voltage_count,
+    pt3_voltage_count=pt3_voltage_count,
+    pt1_phase_count=pt1_phase_count,
+    pt3_phase_count=pt3_phase_count,
+    gen1_exam_count=gen1_exam_count,
+    gen2_exam_count=gen2_exam_count,
+    detection_step=detection_step,
+    hidden_fault=hidden_fault,
+    blackbox_open_before_gate=blackbox_open_before_gate,
+    detected_before_gate=detected_before_gate,
+    expected_targets=expected_targets,
+    expected_target_set=expected_target_set,
+    expected_device_set=expected_device_set,
+    opened_target_set=opened_target_set,
+    touched_layers=touched_layers,
+    repair_required=repair_required,
+    repaired=repaired,
+    blackbox_failed_confirms=blackbox_failed_confirms,
+    blackbox_swap_count=blackbox_swap_count,
+    elapsed_seconds=elapsed_seconds,
+)
+```
+
+**同时删除** `services/assessment_service.py` 中的 4 个闭包定义（59-86 行）——它们已迁到 `_common.py`。
+
+`count_present` 的本地调用点（170-171 行 `gen1_exam_count = count_present(pt_exam_records_1)`）改为 `from services.scoring._common import count_present` 并继续使用。
+
+### 第四步：改写 4 个评分域模块
+每个模块的签名与 ctx 访问全部改造：
+
+**签名变化**：
+```python
+# 原
+def score_discipline(ctx: Dict[str, object]) -> Tuple[...]:
+    first_step_index = ctx["first_step_index"]
+    idx1 = first_step_index(1)
+
+# 新
+from services.scoring.context import ScoringContext
+from services.scoring._common import first_step_index
+
+def score_discipline(ctx: ScoringContext) -> Tuple[...]:
+    idx1 = first_step_index(ctx.step_enter_events, 1)
+```
+
+**访问方式变化**：`ctx["key"]` → `ctx.key`；批量替换必须逐文件核对，不得漏掉任一处。
+
+**4 个模块的 import 调整**：
+- `discipline.py`：`from services.scoring._common import make_score_item, first_step_index`
+- `step_quality.py`：`from services.scoring._common import make_score_item, count_present, trio_completion_score, nine_group_completion_score`
+- `fault_diagnosis.py`：`from services.scoring._common import make_score_item`（若无闭包依赖）
+- `blackbox_efficiency.py`：`from services.scoring._common import make_score_item`（若无闭包依赖）
+
+打开 `fault_diagnosis.py` 与 `blackbox_efficiency.py` 实际确认是否用到闭包，按需调整 import——不要未使用还 import。
+
+### 第五步：清理与验证
+- `services/assessment_service.py` 中 `grep "def first_step_index\|def trio_completion_score\|def nine_group_completion_score\|def count_present"` 应为 0
+- `services/scoring/*.py` 中 `grep 'ctx\["'` 应为 0（全部改为属性访问）
+- `grep "Dict\[str, object\]" services/scoring/*.py` 应为 0（签名全部改为 `ScoringContext`）
+
+## 硬约束
+1. **评分逻辑本体零改动**：分值、阈值、penalty 条件、通过/部分扣分/未通过判定、扣分消息、评分文案全部保留
+2. **score_items 与 penalties 顺序不变**：评分域调用顺序与域内部构建顺序不得变动
+3. **快照字节级一致**：开工前后两次 `python -m pytest tests/ -q -p no:cacheprovider` 必须 5/5 PASS，且 `git diff tests/snapshots/` 为空
+4. `ScoringContext` 必须 `@dataclass(frozen=True)`——后续 Phase 3 拒绝在评分期间修改 ctx
+5. `ScoringContext` 只装数据，**不允许加 `Callable` 字段或方法**（做法 B 硬性边界）
+6. 4 个原闭包全部迁到 `_common.py`，主文件内 `def first_step_index/trio_completion_score/nine_group_completion_score/count_present` 四处定义必须删除
+7. 不新增除 `ScoringContext` 外的任何 dataclass
+8. 不触碰 `domain/assessment.py`
+9. 不触碰 `ui/` 目录；不触碰 `tests/snapshots/` 基线文件内容
+10. 不触碰汇总层方法（`_build_step_score_summaries` / `_apply_extra_deductions` / `_resolve_veto_reason` / `_build_metrics` / `_build_summary` / `_expected_blackbox_targets`）
+11. 若搬迁过程中发现原评分逻辑有 bug 或不合理之处，**不得在本轮修复**，记录到轮次记录末尾留作 Phase 3 议题
+12. 行数预期：`services/assessment_service.py` 429 → 约 400-410 行（删 4 闭包约 -30 行，dict→dataclass 略微变长约 +0）；`services/scoring/_common.py` 46 → 约 95 行；新增 `services/scoring/context.py` 约 50 行
+
+## 交付物
+1. 代码变更：
+   - 新增 `services/scoring/context.py`
+   - 修改 `services/scoring/_common.py`（增 4 个函数）
+   - 修改 `services/scoring/__init__.py`（可选择性 re-export `ScoringContext` 与 4 个函数）
+   - 修改 `services/scoring/discipline.py` / `step_quality.py` / `fault_diagnosis.py` / `blackbox_efficiency.py`（签名 + 访问方式 + import）
+   - 修改 `services/assessment_service.py`（删 4 闭包、`score_context` 改为构造 `ScoringContext`、import 调整）
+2. `MAINTENANCE_CHECKLIST.md` 同步更新：
+   - §2：`services/assessment_service.py` 行数更新为实际值；风险描述改为"评分系统已完成模块化 + 类型化，Phase 2 核心目标完成"（如适用）
+   - §3：当前阶段改为 `Phase 2 — 评分系统模块化（Phase 2-3 已完成，Phase 2 核心目标完成）`；下一轮默认起点改为 `Phase 2-4（可选）— 评分域独立快照测试` 或 `Phase 3 — UI 组件化（告别 Mixin）`，视 Round 21 决策而定
+   - §4 Phase 2 清单：如存在 "ScoringContext 字段类型化" 类似条目则打勾 `[x]`
+   - §9 新增第 20 轮记录：主攻目标、实际完成清单（按五步逐项）、行数变化、各文件行数、快照测试结果、下一轮起点
+   - §10：下一轮起点同步更新
+3. 提交信息：`Phase 2-3(20): score_context 改为 ScoringContext dataclass`
+
+## 开工顺序建议
+1. `git log -1 --stat` 确认起点是 Round 19（`Phase 2-2(19)`）
+2. `python -m pytest tests/ -q -p no:cacheprovider` 取基线（5/5）
+3. 第一步：在 `_common.py` 追加 4 个函数（还不删原闭包，不接入），跑测试仍 5/5
+4. 第二步：新建 `context.py` 定义 `ScoringContext`（不接入），跑测试仍 5/5
+5. 第三步：改写 `build_result()` 组装段 → 构造 `ScoringContext`；4 个评分域签名与访问方式同步切换——**一次性全部切换**，否则类型不一致会炸
+6. 同时删除主文件 4 闭包 + 改用 `_common.count_present` → 跑测试应仍 5/5
+7. 跑 `grep 'ctx\["'` 应为 0、`grep "def first_step_index\|def trio_completion_score\|def nine_group_completion_score\|def count_present" services/assessment_service.py` 应为 0
+8. `wc -l services/assessment_service.py services/scoring/*.py` 汇报最终行数
+9. 确认 `git diff tests/snapshots/` 为空
+10. 更新 §2/§3/§4/§9/§10 → 提交
+
+## 复盘问题（必答）
+1. `ScoringContext` 最终字段数是多少？`step_enter_events` 是否已显式加入（它是 Round 19 dict 时代被闭包偷偷捕获的"隐藏依赖"）？
+2. 4 个评分域的 `ctx["xxx"]` 访问点是否全部改为 `ctx.xxx`？有没有漏网之鱼（例如 `step_quality.py` 里同名局部变量遮蔽的场景）？
+3. `_common.py` 的 4 个新函数与原闭包行为是否完全等价？尤其是 `first_step_index` 的入参签名从 `(step)` 变成 `(step_enter_events, step)`，所有调用点是否都补上了第一个参数？
+4. `services/scoring/__init__.py` 是否需要 re-export `ScoringContext` 给外部调用者使用？（若 `AssessmentService` 直接 `from services.scoring.context import ScoringContext`，则 `__init__.py` 不必 re-export）
+5. 本轮是否让 `ScoringContext` 字段全部成了必填？有没有哪个字段适合加默认值？（本轮倾向全部必填，便于下一步发现调用方遗漏）
+6. 搬迁过程中是否发现 4 个闭包与评分域之间有任何"非预期共享状态"？如有，列出但本轮不修复。
+
+---
+
 # 维护与重构清单 v2
 
 最后更新：`2026-04-13`
