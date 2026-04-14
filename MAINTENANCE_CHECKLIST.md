@@ -1,176 +1,99 @@
-# 第 19 轮任务提示词：Phase 2-2 — 按评分域拆分为纯函数模块（`services/scoring/` 子包）
+'''
 
-## 背景（必读）
-- `MAINTENANCE_CHECKLIST.md` 是唯一事实来源，开工前请先完整读 §1 / §2 / §3 / §4 / §9 / §10。
-- 当前起点：`main` 分支最新提交（Round 17 再清理 + Round 18 Phase 2-1 已入库）。
-- Round 18 的成果前置条件：
-  - `AssessmentEventType` 已常量化（读侧完全、写侧主要生产路径完全）
-  - `AssessmentContext` dataclass 已建立，`build_result(session, context)` 已切断对 `self._ctrl` 的入口兜底读
-  - `services/assessment_service.py` = 784 行，`self._ctrl` 引用数 = 0
-- 快照测试基线：5/5 PASS（`python -m pytest tests/ -q -p no:cacheprovider`）
+任务：核查第 19 轮（Phase 2-2）— 按评分域拆分为纯函数模块（services/scoring/ 子包）是否正确完成
 
-## 本轮唯一主攻目标
-**把 `AssessmentService` 从单体评分器转为"组装器 + 4 个评分域纯函数模块"**：
-1. 新建 `services/scoring/` 子包，内含 4 个评分域模块 + 1 个共享工具模块
-2. 把 `build_result` 内部 8 个 `_score_xxx` 方法按评分域搬到对应模块
-3. 删除 `add_score_item` / `add_penalty` 闭包传递，改为各评分域本地收集 → 主文件合并
-4. `services/assessment_service.py` 降到 ≤ 500 行
-5. **评分逻辑本体零改动**，快照结果字节级一致
+你的角色：
+你是一位资深 Python 架构审查员。你当前不是来继续开发，而是严格核查这一轮重构是否符合任务要求、是否存在越界修改、是否保持评分结果字节级一致。
 
-## 共享状态解耦策略（做法 A，已确认）
-每个评分域模块对外签名：
+项目背景：
+这是一个 PyQt5 三相电并网仿真教学系统。
+Phase 1 已正式闭环。
+Round 18 已完成：
+- `AssessmentEventType` 常量化
+- `AssessmentContext` 建立
+- `build_result(session, context)` 已切断 ctrl 入口依赖
+- `services/assessment_service.py` 中 `self._ctrl` 已为 0
+
+本轮唯一目标：
+把 `AssessmentService` 从单体评分器改成“组装器 + 4 个评分域纯函数模块”。
+
+本轮完成后应满足：
+1. 新建 `services/scoring/` 子包
+2. 建立 `_common.py` 中的 `make_score_item(...)`
+3. 将原 `AssessmentService` 中 8 个 `_score_xxx` 方法迁到 4 个评分域模块
+4. `build_result()` 变成评分组装器
+5. 删除 `add_score_item` / `add_penalty` 闭包
+6. 删除 `score_context` 中这两个闭包键
+7. `services/assessment_service.py` 行数降到 `<= 500`
+8. 快照测试 `5/5 PASS`
+9. `tests/snapshots/` 无差异
+
+第一步：先读这些文件
+请按顺序阅读并建立核查上下文：
+
+1. `MAINTENANCE_CHECKLIST.md`
+重点看：
+- §1 工程边界
+- §2 高风险文件基线
+- §3 当前总体进度
+- §4 Phase 2 路线图
+- §9 第 19 轮记录
+- §10 下一轮默认起点
+
+2. `services/assessment_service.py`
+重点核查：
+- 是否已变成组装器
+- 是否还保留评分域 `_score_xxx` 方法
+- 是否还保留 `add_score_item` / `add_penalty` 闭包
+- 是否还在 `score_context` 中塞 `"add_score_item"` / `"add_penalty"`
+- 行数是否已降到 `429`
+- `self._ctrl` 是否仍为 `0`
+
+3. `services/scoring/__init__.py`
+4. `services/scoring/_common.py`
+5. `services/scoring/discipline.py`
+6. `services/scoring/step_quality.py`
+7. `services/scoring/fault_diagnosis.py`
+8. `services/scoring/blackbox_efficiency.py`
+
+9. `domain/assessment.py`
+只读，用于确认本轮没有越界改动它
+
+10. `tests/test_assessment_snapshot.py`
+11. `tests/test_physics_snapshot.py`
+12. `tests/snapshots/assessment_normal.json`
+13. `tests/snapshots/assessment_fault_random.json`
+
+第二步：严格按以下核查清单执行
+
+A. 子包结构核查
+请确认：
+
+1. 是否新增了目录：
+- `services/scoring/`
+
+2. 是否包含以下文件：
+- `__init__.py`
+- `_common.py`
+- `discipline.py`
+- `step_quality.py`
+- `fault_diagnosis.py`
+- `blackbox_efficiency.py`
+
+3. 各文件职责是否符合要求：
+- `discipline.py`：A 类
+- `step_quality.py`：B/C/D/E 类
+- `fault_diagnosis.py`：F 类
+- `blackbox_efficiency.py`：G/H 类
+- `_common.py`：共享 score item 构造逻辑
+
+B. `make_score_item(...)` 核查
+请确认 `_common.py` 中是否存在：
+
 ```python
-def score_xxx(ctx: dict) -> Tuple[List[AssessmentScoreItem], List[AssessmentPenalty]]:
-    ...
-```
-- `score_context` 保持 dict（`ScoringContext` dataclass 化留到 Round 20）
-- 移除 `score_context` 中 `add_score_item` / `add_penalty` 键（它们原本是闭包）
-- 每个评分域本地收集 `items` 与 `penalties`，返回二元组
-- `build_result` 按序调用 4 个评分域，合并结果
+make_score_item(...)
 
-## 具体工作拆解
-
-### 第一步：新建 `services/scoring/` 子包
-```
-services/scoring/
-├── __init__.py           # 空文件，或仅 re-export 4 个评分函数
-├── _common.py            # make_score_item 工具函数
-├── discipline.py         # A 类
-├── step_quality.py       # B/C/D/E 类
-├── fault_diagnosis.py    # F 类
-└── blackbox_efficiency.py  # G/H 类
-```
-
-### 第二步：建立 `services/scoring/_common.py`
-把 `build_result` 内的 `add_score_item` / `add_penalty` 闭包抽成一个纯函数：
-```python
-def make_score_item(
-    code: str,
-    title: str,
-    category: str,
-    max_score: int,
-    earned_score: int,
-    step: int = 0,
-    detail: str = "",
-    penalty_message: str = "",
-) -> Tuple[AssessmentScoreItem, Optional[AssessmentPenalty]]:
-    """返回 (score_item, optional_penalty)。保持原 add_score_item 的语义：
-    - earned_score 先 clamp 到 [0, max_score]
-    - status = 通过 / 部分扣分 / 未通过
-    - 若 lost_score > 0 且 penalty_message 非空，同时返回 penalty，否则 penalty=None
-    """
-```
-**硬要求**：status 判定、clamp 边界、penalty 生成条件与原闭包字节级一致。
-
-### 第三步：按评分域搬迁
-
-**映射表**（请对照原文件精确搬迁）：
-
-| 目标模块 | 对外函数 | 搬自 |
-|---|---|---|
-| `discipline.py` | `score_discipline(ctx)` | `_score_flow_discipline` |
-| `step_quality.py` | `score_step_quality(ctx)` | `_score_loop_test` + `_score_pt_voltage_check` + `_score_pt_phase_check` + `_score_pt_exam` |
-| `fault_diagnosis.py` | `score_fault_diagnosis(ctx)` | `_score_fault_localization` |
-| `blackbox_efficiency.py` | `score_blackbox_efficiency(ctx)` | `_score_blackbox_repair` + `_score_efficiency` |
-
-**搬迁规则**：
-- 每个原 `_score_xxx` 方法内的 `add_score_item = ctx["add_score_item"]` 改为本地 `items: List[AssessmentScoreItem] = []; penalties: List[AssessmentPenalty] = []`
-- 原 `add_score_item(...)` 调用改为：
-  ```python
-  item, penalty = make_score_item(...)
-  items.append(item)
-  if penalty is not None:
-      penalties.append(penalty)
-  ```
-- 函数末尾 `return items, penalties`
-- `step_quality.py` / `blackbox_efficiency.py` 把 2-4 个原 `_score_xxx` 合并为单一对外函数时，内部可保留子私有函数 `_score_loop_test(ctx) -> (items, penalties)` 以维持可读性，对外只暴露 `score_step_quality(ctx)` 做汇总
-- 不跨模块调用：`discipline.py` 不能 import `step_quality.py`
-- `services/scoring/_common.py` 可被所有评分域模块 import，但不能反向依赖评分域
-
-### 第四步：改写 `build_result` 为组装器
-原 `build_result` 主流程保留：事件提取、`score_context` 组装、`_expected_blackbox_targets`、`_build_step_score_summaries`、`_apply_extra_deductions`、`_resolve_veto_reason`、`_build_metrics`、`_build_summary` 全部留在 `services/assessment_service.py`。
-
-评分调用段改为：
-```python
-from services.scoring.discipline import score_discipline
-from services.scoring.step_quality import score_step_quality
-from services.scoring.fault_diagnosis import score_fault_diagnosis
-from services.scoring.blackbox_efficiency import score_blackbox_efficiency
-
-# ... ctx 组装（去掉 add_score_item / add_penalty 两个键）...
-
-score_items: List[AssessmentScoreItem] = []
-penalties: List[AssessmentPenalty] = []
-for scorer in (score_discipline, score_step_quality, score_fault_diagnosis, score_blackbox_efficiency):
-    items, pens = scorer(score_context)
-    score_items.extend(items)
-    penalties.extend(pens)
-```
-顺序必须与原 `build_result` 内部调用顺序严格一致（否则 score_items 列表顺序变 → snapshot diff）。
-
-### 第五步：清理主文件
-- 删除 `AssessmentService` 类中被搬走的 8 个 `_score_xxx` 方法
-- 删除 `add_score_item` / `add_penalty` 两个闭包
-- 删除 `score_context` 中 `"add_score_item"` / `"add_penalty"` 两个键
-- 保留：`build_result`、`_expected_blackbox_targets`、`_build_step_score_summaries`、`_apply_extra_deductions`、`_resolve_veto_reason`、`_build_metrics`、`_build_summary`
-
-## 硬约束
-1. **评分逻辑本体零改动**：分值、阈值、penalty 条件、通过/部分/未通过判定、扣分规则完全保留
-2. **score_items 顺序不变**：原 `build_result` 中评分方法的调用顺序决定了 snapshot 列表顺序，不得重排
-3. **快照字节级一致**：开工前后两次 `python -m pytest tests/ -q -p no:cacheprovider` 必须 5/5 PASS，且 `git diff tests/snapshots/` 为空
-4. `services/assessment_service.py` 行数目标：784 → ≤ 500 行（硬性指标，超标需说明）
-5. `services/scoring/*.py` 每个文件原则上 ≤ 300 行；如 `step_quality.py` 合并 4 个评分方法后可能在 300-450 行，可接受
-6. 不引入新 dataclass（`ScoringContext` 留到 Round 20）
-7. 不拆 `_build_metrics` / `_build_summary` / `_apply_extra_deductions` / `_resolve_veto_reason` 等汇总层方法——它们不是评分域，本轮不动
-8. 不触碰 `domain/assessment.py`（Round 18 的成果已稳，本轮无需改动）
-9. 不触碰 `ui/` 目录；不触碰 `tests/snapshots/` 基线文件内容
-10. 不允许"顺手"给评分模块写新的 `TODO` / `FIXME` / 增强注释——有未决事项写进轮次记录
-11. 若搬迁过程中发现原评分逻辑有 bug 或不合理之处，**不得在本轮修复**，记录到轮次记录末尾，留作 Phase 3 议题
-
-## 交付物
-1. 代码变更：
-   - 新增 `services/scoring/__init__.py` / `_common.py` / `discipline.py` / `step_quality.py` / `fault_diagnosis.py` / `blackbox_efficiency.py`
-   - 修改 `services/assessment_service.py`（删评分方法 + 改 build_result 组装段）
-2. `MAINTENANCE_CHECKLIST.md` 同步更新：
-   - §2：`services/assessment_service.py` 行数更新为实际值（784 → N，N ≤ 500）；如 N ≤ 500 同时补充"已完成评分域拆分"字样，风险描述改为"评分域已分离，剩 ScoringContext 待 dataclass 化"
-   - §3：当前阶段改为 `Phase 2 — 评分系统模块化（Phase 2-2 已完成，准备进入 ScoringContext dataclass 化）`；下一轮默认起点改为 `Phase 2-3 — ScoringContext dataclass 化`
-   - §4 Phase 2 清单：`按评分域拆分为纯函数模块` 打勾 `[x]`，`assessment_service.py 主文件降到 ≤ 500 行` 打勾 `[x]`
-   - §9 新增第 19 轮记录：主攻目标、实际完成清单（按五步逐项）、`services/assessment_service.py` 行数变化（784 → N）、`services/scoring/` 子包各模块行数、快照测试结果、下一轮起点
-   - §10：下一轮起点改为 `Phase 2-3 — ScoringContext dataclass 化`（若已列 Phase 2-2 相关表述需同步清理）
-3. 提交信息：`Phase 2-2(19): 按评分域拆分为纯函数模块`
-
-## 开工顺序建议
-1. `git log -1 --stat` 确认起点是 Round 17 再清理（或其后的 Round 18 Phase 2-1）
-2. `python -m pytest tests/ -q -p no:cacheprovider` 取基线（5/5）
-3. 第一步：建 `services/scoring/` 目录 + 空 `__init__.py`，不接入，跑测试仍 5/5
-4. 第二步：建 `_common.py` + `make_score_item`，不接入，跑测试仍 5/5
-5. 第三步：先搬 `discipline.py`（最简单），主文件同步删除 `_score_flow_discipline` + 组装段调用 `score_discipline`，跑测试仍 5/5
-6. 第三步续：逐模块搬迁 `fault_diagnosis.py` → `blackbox_efficiency.py` → `step_quality.py`（最复杂最后），每搬一个跑一次测试
-7. 第四步：删 `add_score_item` / `add_penalty` 闭包 + 清理 score_context 键，跑测试仍 5/5
-8. `grep -c "def _score_" services/assessment_service.py` 应为 0
-9. `wc -l services/assessment_service.py services/scoring/*.py` 汇报最终行数
-10. 确认 `git diff tests/snapshots/` 为空
-11. 更新 §2/§3/§4/§9/§10 → 提交
-
-## 复盘问题（必答）
-1. `services/assessment_service.py` 最终行数是多少？如未达到 ≤ 500 行，剩余内容是哪些、为什么不能迁走？
-2. `services/scoring/` 子包每个文件行数是多少？`step_quality.py` 是否明显偏大（> 450 行）？
-3. `make_score_item` 是否完全等价原 `add_score_item` 闭包？是否有边界行为（如 `earned_score = max_score - 0.5` 这类浮点数）未覆盖？
-4. 4 个评分域之间是否真正无相互依赖？有没有哪个模块读取了另一个模块产生的中间结果？（应当全部通过 `ctx` 传递）
-5. `score_context` 字典在拆分后还剩哪些键？哪些是 Round 20 dataclass 化时的必填字段，哪些可以降级为可选或计算属性？（供 Round 20 参考）
-6. 搬迁过程中是否发现任何疑似 bug 或逻辑不一致？如有，列出但本轮不修复。
-
----
-
-# 维护与重构清单 v2
-
-最后更新：`2026-04-13`
-
-用途：
-- 给人看：明确当前项目的维护边界、阶段目标、已完成进度。
-- 给 AI 看：后续新对话先读本文件，再决定下一轮该做什么，不再重复讨论方向。
-
----
+'''
 
 ## 1. 维护边界总原则
 
