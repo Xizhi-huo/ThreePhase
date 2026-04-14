@@ -7,6 +7,7 @@ ui/test_panel.py
 """
 
 from PyQt5 import QtWidgets, QtCore, QtGui
+from domain.assessment import AssessmentEventType
 from domain.enums import BreakerPosition
 from domain.fault_scenarios import SCENARIOS
 
@@ -1260,16 +1261,16 @@ class TestPanelMixin:
             self.ctrl.finalize_sync_test()
         after_complete = self._is_step_complete(step)
         self.ctrl.assessment_coord.append_assessment_event(
-            'step_finalize_attempted',
+            AssessmentEventType.STEP_FINALIZE_ATTEMPTED,
             step=step,
             allowed=after_complete,
             mode=self.ctrl.test_flow_mode,
         )
         if after_complete and not before_complete:
-            self.ctrl.assessment_coord.append_assessment_event('step_completed', step=step)
+            self.ctrl.assessment_coord.append_assessment_event(AssessmentEventType.STEP_COMPLETED, step=step)
         elif not after_complete:
             self.ctrl.assessment_coord.append_assessment_event(
-                'advance_blocked',
+                AssessmentEventType.ADVANCE_BLOCKED,
                 step=step,
                 from_step=step,
                 to_step=min(step + 1, 5),
@@ -1940,7 +1941,7 @@ class TestPanelMixin:
         if hasattr(self, '_tp_s4_quick_btn'):
             self._tp_s4_quick_btn.setVisible(self.ctrl.flow_mgr.can_use_pt_exam_quick_record())
         if self._assessment_last_logged_step != step:
-            self.ctrl.assessment_coord.append_assessment_event('step_entered', step=step)
+            self.ctrl.assessment_coord.append_assessment_event(AssessmentEventType.STEP_ENTERED, step=step)
             self._assessment_last_logged_step = step
         if not self.ctrl.flow_mgr.allow_admin_shortcuts():
             self._tp_admin_mode = False
@@ -1994,7 +1995,7 @@ class TestPanelMixin:
             self._pre_step5_repair_triggered = True
             if progress.should_emit_assessment_gate_event:
                 self.ctrl.assessment_coord.append_assessment_event(
-                    'assessment_gate_blocked',
+                    AssessmentEventType.ASSESSMENT_GATE_BLOCKED,
                     step=4,
                     scene_id=fc.scenario_id,
                     reason='unrepaired_wiring_before_step5',
@@ -2214,7 +2215,9 @@ class TestPanelMixin:
         G1/G2/PT1/PT3 支持点击互换接线后确认修复。"""
         if not self.ctrl.flow_mgr.can_inspect_blackbox():
             return
-        self.ctrl.assessment_coord.append_assessment_event('blackbox_opened', step=self._current_test_step(), target=target)
+        self.ctrl.assessment_coord.append_assessment_event(
+            AssessmentEventType.BLACKBOX_OPENED, step=self._current_test_step(), target=target
+        )
         sim = self.ctrl.sim_state
         fc  = sim.fault_config
         allow_repair = self.ctrl.flow_mgr.can_repair_in_blackbox()

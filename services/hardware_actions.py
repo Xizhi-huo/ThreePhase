@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+from domain.assessment import AssessmentEventType
 from domain.constants import GRID_FREQ, GRID_AMP
 from domain.enums import BreakerPosition
 
@@ -120,15 +121,15 @@ class HardwareActions:
                 and fc.active and not fc.repaired
                 and self._ctrl.is_sync_test_active()):
             if fc.scenario_id == 'E01':
-                self._ctrl.assessment_coord.append_assessment_event('hazard_action', step=5, action='close_gen2_breaker', reason='E01 accident')
+                self._ctrl.assessment_coord.append_assessment_event(AssessmentEventType.HAZARD_ACTION, step=5, action='close_gen2_breaker', reason='E01 accident')
                 self._ctrl.ui.show_e01_accident_dialog()
                 return
             elif fc.scenario_id == 'E02':
-                self._ctrl.assessment_coord.append_assessment_event('hazard_action', step=5, action='close_gen2_breaker', reason='E02 accident')
+                self._ctrl.assessment_coord.append_assessment_event(AssessmentEventType.HAZARD_ACTION, step=5, action='close_gen2_breaker', reason='E02 accident')
                 self._ctrl.ui.show_e02_accident_dialog()
                 return
             elif fc.scenario_id == 'E03':
-                self._ctrl.assessment_coord.append_assessment_event('hazard_action', step=5, action='close_gen2_breaker', reason='E03 accident')
+                self._ctrl.assessment_coord.append_assessment_event(AssessmentEventType.HAZARD_ACTION, step=5, action='close_gen2_breaker', reason='E03 accident')
                 self._ctrl.ui.show_e03_accident_dialog()
                 return
         # ── 拦截：工作位合闸前置流程检查 ───────────────────────────────────

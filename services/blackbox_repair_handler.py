@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from domain.assessment import AssessmentEventType
+
 
 @dataclass(frozen=True)
 class BlackboxRepairOutcome:
@@ -83,7 +85,7 @@ class BlackboxRepairHandler:
         if target == 'G1':
             if initial_order is not None and list(new_order) != list(initial_order):
                 self._ctrl.assessment_coord.append_assessment_event(
-                    'blackbox_swap',
+                    AssessmentEventType.BLACKBOX_SWAP,
                     step=step,
                     target='G1',
                     layer='terminal',
@@ -97,7 +99,7 @@ class BlackboxRepairHandler:
         elif target == 'G2':
             if initial_order is not None and list(new_order) != list(initial_order):
                 self._ctrl.assessment_coord.append_assessment_event(
-                    'blackbox_swap',
+                    AssessmentEventType.BLACKBOX_SWAP,
                     step=step,
                     target='G2',
                     layer='terminal',
@@ -111,7 +113,7 @@ class BlackboxRepairHandler:
         elif target == 'PT1':
             if initial_pri_order is not None and list(new_pri_order) != list(initial_pri_order):
                 self._ctrl.assessment_coord.append_assessment_event(
-                    'blackbox_swap',
+                    AssessmentEventType.BLACKBOX_SWAP,
                     step=step,
                     target='PT1',
                     layer='primary',
@@ -121,7 +123,7 @@ class BlackboxRepairHandler:
                 touched_layers.append('primary')
             if initial_sec_order is not None and list(new_sec_order) != list(initial_sec_order):
                 self._ctrl.assessment_coord.append_assessment_event(
-                    'blackbox_swap',
+                    AssessmentEventType.BLACKBOX_SWAP,
                     step=step,
                     target='PT1',
                     layer='secondary',
@@ -139,7 +141,7 @@ class BlackboxRepairHandler:
         elif target == 'PT3':
             if initial_sec_order is not None and list(new_sec_order) != list(initial_sec_order):
                 self._ctrl.assessment_coord.append_assessment_event(
-                    'blackbox_swap',
+                    AssessmentEventType.BLACKBOX_SWAP,
                     step=step,
                     target='PT3',
                     layer='secondary',
@@ -153,7 +155,7 @@ class BlackboxRepairHandler:
             raise ValueError(f"Unsupported blackbox repair target: {target}")
 
         self._ctrl.assessment_coord.append_assessment_event(
-            'blackbox_confirm_attempted',
+            AssessmentEventType.BLACKBOX_CONFIRM_ATTEMPTED,
             step=step,
             target=target,
             layers=touched_layers,

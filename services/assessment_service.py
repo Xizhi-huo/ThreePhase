@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Dict, List, Set
 
 from domain.assessment import (
+    AssessmentContext,
+    AssessmentEventType,
     AssessmentPenalty,
     AssessmentResult,
     AssessmentScoreItem,
@@ -13,10 +15,10 @@ from domain.fault_scenarios import SCENARIOS
 class AssessmentService:
     """Build a 30-item assessment result from the recorded event stream."""
 
-    def __init__(self, ctrl):
-        self._ctrl = ctrl
+    def __init__(self):
+        pass
 
-    def build_result(self, session: AssessmentSession) -> AssessmentResult:
+    def build_result(self, session: AssessmentSession, context: AssessmentContext) -> AssessmentResult:
         now = datetime.now()
         finished_at = now.isoformat(timespec="seconds")
         started_at_dt = datetime.fromisoformat(session.started_at)
@@ -30,8 +32,6 @@ class AssessmentService:
         expected_targets = self._expected_blackbox_targets(scene_info)
         expected_target_set = set(expected_targets)
         expected_device_set = {target.split('.', 1)[0] for target in expected_targets}
-        snapshot = session.state_snapshot or {}
-
         def add_penalty(code: str, message: str, score_delta: int, step: int = 0, timestamp: str = ""):
             if score_delta == 0:
                 return
@@ -126,13 +126,13 @@ class AssessmentService:
         def count_present(records: Dict[str, object]) -> int:
             return sum(1 for value in records.values() if value is not None)
 
-        blocked_events = all_events("advance_blocked")
+        blocked_events = all_events(AssessmentEventType.ADVANCE_BLOCKED)
         finalize_rejected = [
-            event for event in all_events("step_finalize_attempted")
+            event for event in all_events(AssessmentEventType.STEP_FINALIZE_ATTEMPTED)
             if not bool(event.payload.get("allowed", False))
         ]
-        gate_block_events = all_events("assessment_gate_blocked")
-        invalid_events = all_events("measurement_invalid")
+        gate_block_events = all_events(AssessmentEventType.ASSESSMENT_GATE_BLOCKED)
+        invalid_events = all_events(AssessmentEventType.MEASUREMENT_INVALID)
         invalid_by_step = {
             1: sum(1 for event in invalid_events if event.step == 1),
             2: sum(1 for event in invalid_events if event.step == 2),
@@ -140,12 +140,12 @@ class AssessmentService:
             4: sum(1 for event in invalid_events if event.step == 4),
         }
         blackbox_failed_confirms = sum(
-            1 for event in all_events("blackbox_confirm_attempted")
+            1 for event in all_events(AssessmentEventType.BLACKBOX_CONFIRM_ATTEMPTED)
             if not bool(event.payload.get("success", False))
         )
-        blackbox_swap_count = count("blackbox_swap")
-        serious_misoperations = count("hazard_action")
-        blackbox_open_events = all_events("blackbox_opened")
+        blackbox_swap_count = count(AssessmentEventType.BLACKBOX_SWAP)
+        serious_misoperations = count(AssessmentEventType.HAZARD_ACTION)
+        blackbox_open_events = all_events(AssessmentEventType.BLACKBOX_OPENED)
         opened_targets = []
         for event in blackbox_open_events:
             target = event.payload.get("target")
@@ -157,17 +157,17 @@ class AssessmentService:
         ]
         opened_target_set: Set[str] = set(opened_targets)
         touched_layers = set()
-        for event in all_events("blackbox_swap"):
+        for event in all_events(AssessmentEventType.BLACKBOX_SWAP):
             target = event.payload.get("target")
             layer = event.payload.get("layer")
             if target and layer:
                 touched_layers.add(f"{target}.{layer}")
-        for event in all_events("blackbox_confirm_attempted"):
+        for event in all_events(AssessmentEventType.BLACKBOX_CONFIRM_ATTEMPTED):
             target = event.payload.get("target")
             for layer in event.payload.get("layers", []):
                 touched_layers.add(f"{target}.{layer}")
 
-        step_enter_events = all_events("step_entered")
+        step_enter_events = all_events(AssessmentEventType.STEP_ENTERED)
         blocked_by_step = {
             1: sum(1 for event in blocked_events if event.payload.get("from_step") == 1 or event.step == 1),
             2: sum(1 for event in blocked_events if event.payload.get("from_step") == 2 or event.step == 2),
@@ -181,34 +181,27 @@ class AssessmentService:
             4: sum(1 for event in finalize_rejected if event.step == 4),
         }
 
-        fault_detected_event = first("fault_detected")
-        fault_repaired_event = first("fault_repaired")
-        first_gate_block = first("assessment_gate_blocked")
-        first_blackbox_open = first("blackbox_opened")
+        fault_detected_event = first(AssessmentEventType.FAULT_DETECTED)
+        fault_repaired_event = first(AssessmentEventType.FAULT_REPAIRED)
+        first_gate_block = first(AssessmentEventType.ASSESSMENT_GATE_BLOCKED)
+        first_blackbox_open = first(AssessmentEventType.BLACKBOX_OPENED)
 
         detected_before_gate = happened_before(fault_detected_event, first_gate_block)
         blackbox_open_before_gate = happened_before(first_blackbox_open, first_gate_block)
         hidden_fault = bool(session.scene_id) and detection_step is None and bool(expected_targets)
 
-        loop_records = snapshot.get('loop_records', self._ctrl.loop_test_state.records)
-        voltage_records = snapshot.get('voltage_records', self._ctrl.pt_voltage_check_state.records)
-        phase_records = snapshot.get('phase_records', self._ctrl.pt_phase_check_state.records)
-        pt_exam_records = snapshot.get('pt_exam_records', {})
-        pt_exam_records_1 = pt_exam_records.get(1, self._ctrl.pt_exam_states[1].records)
-        pt_exam_records_2 = pt_exam_records.get(2, self._ctrl.pt_exam_states[2].records)
-
-        completed = snapshot.get('completed', {})
-        loop_complete = bool(completed.get('loop', self._ctrl.loop_svc.is_loop_test_complete()))
-        voltage_complete = bool(completed.get('voltage', self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete()))
-        phase_complete = bool(completed.get('phase', self._ctrl.pt_phase_svc.is_pt_phase_check_complete()))
-        pt_exam_complete = (
-            bool(completed.get('pt_exam_1', self._ctrl.pt_exam_states[1].completed))
-            and bool(completed.get('pt_exam_2', self._ctrl.pt_exam_states[2].completed))
-        )
-        closure_complete = bool(completed.get('closure', self._ctrl.assessment_coord.is_assessment_closed_loop_ready()))
+        loop_records = context.loop_records
+        voltage_records = context.voltage_records
+        phase_records = context.phase_records
+        pt_exam_records_1 = context.pt_exam_records_1
+        pt_exam_records_2 = context.pt_exam_records_2
+        loop_complete = context.loop_complete
+        voltage_complete = context.voltage_complete
+        phase_complete = context.phase_complete
+        pt_exam_complete = context.pt_exam_complete
+        closure_complete = context.closure_complete
         repair_required = bool(expected_targets)
-        fault_snapshot = snapshot.get('fault', {})
-        repaired = bool(fault_snapshot.get('repaired', self._ctrl.sim_state.fault_config.repaired))
+        repaired = context.fault_repaired
 
         pt1_voltage_count = sum(1 for key in ("PT1_AB", "PT1_BC", "PT1_CA") if voltage_records.get(key) is not None)
         pt2_voltage_count = sum(1 for key in ("PT2_AB", "PT2_BC", "PT2_CA") if voltage_records.get(key) is not None)
@@ -301,8 +294,8 @@ class AssessmentService:
             fault_detected_event=fault_detected_event,
             fault_repaired_event=fault_repaired_event,
             serious_misoperations=serious_misoperations,
-            measurement_count=count("measurement_recorded"),
-            finalize_attempt_count=count("step_finalize_attempted"),
+            measurement_count=count(AssessmentEventType.MEASUREMENT_RECORDED),
+            finalize_attempt_count=count(AssessmentEventType.STEP_FINALIZE_ATTEMPTED),
         )
         summary = self._build_summary(total_score, veto_reason, extra_deduction_total)
 

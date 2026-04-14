@@ -2,6 +2,25 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
+class AssessmentEventType:
+    ASSESSMENT_STARTED = "assessment_started"
+    ASSESSMENT_FINISHED = "assessment_finished"
+    STEP_ENTERED = "step_entered"
+    STEP_COMPLETED = "step_completed"
+    STEP_FINALIZE_ATTEMPTED = "step_finalize_attempted"
+    ADVANCE_BLOCKED = "advance_blocked"
+    ASSESSMENT_GATE_BLOCKED = "assessment_gate_blocked"
+    MEASUREMENT_INVALID = "measurement_invalid"
+    MEASUREMENT_RECORDED = "measurement_recorded"
+    FAULT_DETECTED = "fault_detected"
+    FAULT_REPAIRED = "fault_repaired"
+    FAULT_GUESS_SUBMITTED = "fault_guess_submitted"
+    BLACKBOX_OPENED = "blackbox_opened"
+    BLACKBOX_SWAP = "blackbox_swap"
+    BLACKBOX_CONFIRM_ATTEMPTED = "blackbox_confirm_attempted"
+    HAZARD_ACTION = "hazard_action"
+
+
 @dataclass
 class AssessmentEvent:
     event_type: str
@@ -66,3 +85,43 @@ class AssessmentSession:
     finished_at: Optional[str] = None
     result: Optional[AssessmentResult] = None
     result_shown: bool = False
+
+
+@dataclass(frozen=True)
+class AssessmentContext:
+    loop_records: Dict[str, Any]
+    voltage_records: Dict[str, Any]
+    phase_records: Dict[str, Any]
+    pt_exam_records_1: Dict[str, Any]
+    pt_exam_records_2: Dict[str, Any]
+    loop_complete: bool
+    voltage_complete: bool
+    phase_complete: bool
+    pt_exam_complete: bool
+    closure_complete: bool
+    fault_repaired: bool
+
+    @classmethod
+    def from_snapshot_and_ctrl(cls, snapshot: Dict[str, Any], ctrl) -> "AssessmentContext":
+        snapshot = snapshot or {}
+        pt_exam_records = snapshot.get("pt_exam_records", {})
+        completed = snapshot.get("completed", {})
+        fault_snapshot = snapshot.get("fault", {})
+        return cls(
+            loop_records=snapshot.get("loop_records", ctrl.loop_test_state.records),
+            voltage_records=snapshot.get("voltage_records", ctrl.pt_voltage_check_state.records),
+            phase_records=snapshot.get("phase_records", ctrl.pt_phase_check_state.records),
+            pt_exam_records_1=pt_exam_records.get(1, ctrl.pt_exam_states[1].records),
+            pt_exam_records_2=pt_exam_records.get(2, ctrl.pt_exam_states[2].records),
+            loop_complete=bool(completed.get("loop", ctrl.loop_svc.is_loop_test_complete())),
+            voltage_complete=bool(completed.get("voltage", ctrl.pt_voltage_svc.is_pt_voltage_check_complete())),
+            phase_complete=bool(completed.get("phase", ctrl.pt_phase_svc.is_pt_phase_check_complete())),
+            pt_exam_complete=(
+                bool(completed.get("pt_exam_1", ctrl.pt_exam_states[1].completed))
+                and bool(completed.get("pt_exam_2", ctrl.pt_exam_states[2].completed))
+            ),
+            closure_complete=bool(
+                completed.get("closure", ctrl.assessment_coord.is_assessment_closed_loop_ready())
+            ),
+            fault_repaired=bool(fault_snapshot.get("repaired", ctrl.sim_state.fault_config.repaired)),
+        )

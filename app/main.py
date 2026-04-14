@@ -96,7 +96,7 @@ class PowerSyncController:
         self._last_tick_perf = time.perf_counter()
 
         # ── 业务服务（各服务通过 self._ctrl 回写状态 dataclass）─────────
-        self.assessment_svc       = AssessmentService(self)
+        self.assessment_svc       = AssessmentService()
         self.assessment_coord     = AssessmentCoordinator(self)
         self.blackbox_handler     = BlackboxRepairHandler(self)
         self.phase_resolver       = PhaseOrderResolver(self)

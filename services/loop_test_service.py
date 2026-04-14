@@ -4,6 +4,7 @@ services/loop_test_service.py
 """
 
 from domain.enums import BreakerPosition
+from domain.assessment import AssessmentEventType
 from domain.test_states import LoopTestState
 
 
@@ -70,7 +71,7 @@ class LoopTestService:
         phase = phase.upper()
         def _record_invalid(reason):
             self._ctrl.assessment_coord.append_assessment_event(
-                'measurement_invalid',
+                AssessmentEventType.MEASUREMENT_INVALID,
                 step=1,
                 target='loop',
                 point=phase,
@@ -128,7 +129,7 @@ class LoopTestService:
             self._ctrl.physics.meter_reading,
         )
         self._ctrl.assessment_coord.append_assessment_event(
-            'measurement_recorded',
+            AssessmentEventType.MEASUREMENT_RECORDED,
             step=1,
             target='loop',
             point=phase,

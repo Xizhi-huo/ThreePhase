@@ -9,6 +9,7 @@ PT 单体线电压检查服务（第二步）
 """
 
 from domain.enums import BreakerPosition
+from domain.assessment import AssessmentEventType
 from domain.test_states import PtVoltageCheckState, _PHASE_PAIR_LABEL
 
 _ALL_KEYS = (
@@ -90,7 +91,7 @@ class PtVoltageCheckService:
         state = self._ctrl.pt_voltage_check_state
         def _record_invalid(reason):
             self._ctrl.assessment_coord.append_assessment_event(
-                'measurement_invalid',
+                AssessmentEventType.MEASUREMENT_INVALID,
                 step=2,
                 target=pt_name,
                 point=phase_pair,
@@ -175,7 +176,7 @@ class PtVoltageCheckService:
         }
 
         self._ctrl.assessment_coord.append_assessment_event(
-            'measurement_recorded',
+            AssessmentEventType.MEASUREMENT_RECORDED,
             step=2,
             target=pt_name,
             point=phase_pair,

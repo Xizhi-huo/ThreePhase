@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from domain.assessment import AssessmentEvent, AssessmentSession
+from domain.assessment import AssessmentContext, AssessmentEvent, AssessmentEventType, AssessmentSession
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ class AssessmentCoordinator:
             fault_selection_mode=fault_selection_mode,
         )
         self.append_assessment_event(
-            'assessment_started',
+            AssessmentEventType.ASSESSMENT_STARTED,
             scene_id=scene_id,
             mode=self._ctrl.test_flow_mode,
             fault_selection_mode=fault_selection_mode,
@@ -80,12 +80,12 @@ class AssessmentCoordinator:
 
         existing = None
         for event in session.events:
-            if event.event_type == 'fault_detected':
+            if event.event_type == AssessmentEventType.FAULT_DETECTED:
                 existing = event
                 break
 
         if existing is None:
-            self.append_assessment_event('fault_detected', step=step, **payload)
+            self.append_assessment_event(AssessmentEventType.FAULT_DETECTED, step=step, **payload)
             return True
 
         if step > 0 and (existing.step <= 0 or existing.step > step):
@@ -134,8 +134,9 @@ class AssessmentCoordinator:
             return session.result
         if not session.state_snapshot:
             session.state_snapshot = self.capture_assessment_state_snapshot()
-        self.append_assessment_event('assessment_finished')
-        result = self._ctrl.assessment_svc.build_result(session)
+        self.append_assessment_event(AssessmentEventType.ASSESSMENT_FINISHED)
+        context = AssessmentContext.from_snapshot_and_ctrl(session.state_snapshot or {}, self._ctrl)
+        result = self._ctrl.assessment_svc.build_result(session, context)
         session.finished_at = result.finished_at
         session.result = result
         return result
@@ -168,7 +169,7 @@ class AssessmentCoordinator:
         session.fault_guess_submitted = bool(guessed_scene_id)
         session.fault_guess_correct = correct
         self.append_assessment_event(
-            'fault_guess_submitted',
+            AssessmentEventType.FAULT_GUESS_SUBMITTED,
             step=4,
             guessed_scene_id=guessed_scene_id,
             actual_scene_id=session.scene_id,

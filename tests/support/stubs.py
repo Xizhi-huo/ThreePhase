@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable
 
 import numpy as np
 
-from domain.assessment import AssessmentEvent, AssessmentSession
+from domain.assessment import AssessmentEvent, AssessmentEventType, AssessmentSession
 from domain.enums import BreakerPosition, SystemMode
 from domain.models import FaultConfig, GeneratorState, SimulationState
 from services.flow_mode_manager import FlowModeManager
@@ -253,12 +253,12 @@ def build_normal_assessment_session() -> AssessmentSession:
     )
     session.events.extend(
         [
-            AssessmentEvent("assessment_started", "2026-04-09T11:55:00"),
-            AssessmentEvent("step_entered", "2026-04-09T11:55:10", step=1),
-            AssessmentEvent("step_entered", "2026-04-09T11:56:00", step=2),
-            AssessmentEvent("step_entered", "2026-04-09T11:57:00", step=3),
-            AssessmentEvent("step_entered", "2026-04-09T11:58:00", step=4),
-            AssessmentEvent("step_finalize_attempted", "2026-04-09T11:58:30", step=4, payload={"allowed": True}),
+            AssessmentEvent(AssessmentEventType.ASSESSMENT_STARTED, "2026-04-09T11:55:00"),
+            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:55:10", step=1),
+            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:56:00", step=2),
+            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:57:00", step=3),
+            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:58:00", step=4),
+            AssessmentEvent(AssessmentEventType.STEP_FINALIZE_ATTEMPTED, "2026-04-09T11:58:30", step=4, payload={"allowed": True}),
         ]
     )
     session.state_snapshot = build_full_records()
@@ -279,22 +279,22 @@ def build_random_fault_assessment_session() -> AssessmentSession:
     )
     session.events.extend(
         [
-            AssessmentEvent("assessment_started", "2026-04-09T11:50:00", payload={"fault_selection_mode": "random"}),
-            AssessmentEvent("step_entered", "2026-04-09T11:50:10", step=1),
-            AssessmentEvent("fault_detected", "2026-04-09T11:50:20", step=1, payload={"scene_id": "E02"}),
-            AssessmentEvent("step_entered", "2026-04-09T11:51:00", step=2),
-            AssessmentEvent("step_entered", "2026-04-09T11:52:00", step=3),
-            AssessmentEvent("step_entered", "2026-04-09T11:53:00", step=4),
-            AssessmentEvent("blackbox_opened", "2026-04-09T11:53:20", step=4, payload={"target": "G2"}),
-            AssessmentEvent("blackbox_swap", "2026-04-09T11:53:40", step=4, payload={"target": "G2", "layer": "terminal"}),
+            AssessmentEvent(AssessmentEventType.ASSESSMENT_STARTED, "2026-04-09T11:50:00", payload={"fault_selection_mode": "random"}),
+            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:50:10", step=1),
+            AssessmentEvent(AssessmentEventType.FAULT_DETECTED, "2026-04-09T11:50:20", step=1, payload={"scene_id": "E02"}),
+            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:51:00", step=2),
+            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:52:00", step=3),
+            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:53:00", step=4),
+            AssessmentEvent(AssessmentEventType.BLACKBOX_OPENED, "2026-04-09T11:53:20", step=4, payload={"target": "G2"}),
+            AssessmentEvent(AssessmentEventType.BLACKBOX_SWAP, "2026-04-09T11:53:40", step=4, payload={"target": "G2", "layer": "terminal"}),
             AssessmentEvent(
-                "blackbox_confirm_attempted",
+                AssessmentEventType.BLACKBOX_CONFIRM_ATTEMPTED,
                 "2026-04-09T11:54:00",
                 step=4,
                 payload={"target": "G2", "layers": ["terminal"], "success": True},
             ),
-            AssessmentEvent("fault_repaired", "2026-04-09T11:54:20", step=4, payload={"scene_id": "E02"}),
-            AssessmentEvent("step_finalize_attempted", "2026-04-09T11:54:30", step=4, payload={"allowed": True}),
+            AssessmentEvent(AssessmentEventType.FAULT_REPAIRED, "2026-04-09T11:54:20", step=4, payload={"scene_id": "E02"}),
+            AssessmentEvent(AssessmentEventType.STEP_FINALIZE_ATTEMPTED, "2026-04-09T11:54:30", step=4, payload={"allowed": True}),
         ]
     )
     session.state_snapshot = build_full_records()

@@ -5,6 +5,7 @@ PT 二次端子压差考核服务
 
 import numpy as np
 
+from domain.assessment import AssessmentEventType
 from domain.enums import BreakerPosition
 from domain.test_states import PtExamState
 
@@ -79,7 +80,7 @@ class PtExamService:
         gen1, gen2 = self._ctrl.sim_state.gen1, self._ctrl.sim_state.gen2
         def _record_invalid(reason):
             self._ctrl.assessment_coord.append_assessment_event(
-                'measurement_invalid',
+                AssessmentEventType.MEASUREMENT_INVALID,
                 step=4,
                 target=f'Gen{gen_id}',
                 point=key,
@@ -173,7 +174,7 @@ class PtExamService:
             'reading': self._ctrl.physics.meter_reading,
         }
         self._ctrl.assessment_coord.append_assessment_event(
-            'measurement_recorded',
+            AssessmentEventType.MEASUREMENT_RECORDED,
             step=4,
             target=f'Gen{gen_id}',
             point=key,
@@ -360,7 +361,7 @@ class PtExamService:
                         'reading': f"快捷记录 {pt_name}_{gen_term}↔PT2_{bus_phase}: {meter_v:.2f} V",
                     }
                     self._ctrl.assessment_coord.append_assessment_event(
-                        'measurement_recorded',
+                        AssessmentEventType.MEASUREMENT_RECORDED,
                         step=4,
                         target=f'Gen{gen_id}',
                         point=key,

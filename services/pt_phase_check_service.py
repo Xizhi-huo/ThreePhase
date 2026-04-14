@@ -13,6 +13,7 @@ PT 相序检查服务（第三步）
 """
 
 from domain.enums import BreakerPosition
+from domain.assessment import AssessmentEventType
 from domain.test_states import PtPhaseCheckState
 
 _ALL_KEYS = ('PT1_A', 'PT1_B', 'PT1_C', 'PT3_A', 'PT3_B', 'PT3_C')
@@ -82,7 +83,7 @@ class PtPhaseCheckService:
         state = self._ctrl.pt_phase_check_state
         def _record_invalid(reason):
             self._ctrl.assessment_coord.append_assessment_event(
-                'measurement_invalid',
+                AssessmentEventType.MEASUREMENT_INVALID,
                 step=3,
                 target=pt_name,
                 point=phase,
@@ -154,7 +155,7 @@ class PtPhaseCheckService:
             self._ctrl.physics.meter_reading,
         )
         self._ctrl.assessment_coord.append_assessment_event(
-            'measurement_recorded',
+            AssessmentEventType.MEASUREMENT_RECORDED,
             step=3,
             target=pt_name,
             point=phase,
@@ -201,7 +202,7 @@ class PtPhaseCheckService:
 
         def _record_invalid(reason: str):
             self._ctrl.assessment_coord.append_assessment_event(
-                'measurement_invalid',
+                AssessmentEventType.MEASUREMENT_INVALID,
                 step=3,
                 target=pt_name,
                 point='sequence',
@@ -267,7 +268,7 @@ class PtPhaseCheckService:
             )
 
         self._ctrl.assessment_coord.append_assessment_event(
-            'measurement_recorded',
+            AssessmentEventType.MEASUREMENT_RECORDED,
             step=3,
             target=pt_name,
             point='sequence',

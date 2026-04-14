@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import services.assessment_service as assessment_service_module
+from domain.assessment import AssessmentContext
 from services.assessment_service import AssessmentService
 from tests.support.snapshots import assert_json_snapshot
 from tests.support.stubs import (
@@ -52,9 +53,10 @@ def _freeze_assessment_time(monkeypatch):
 
 def test_assessment_snapshot_normal():
     ctrl = ControllerStub(assessment_closed_loop_ready=True)
-    service = AssessmentService(ctrl)
+    service = AssessmentService()
     session = build_normal_assessment_session()
-    result = service.build_result(session)
+    context = AssessmentContext.from_snapshot_and_ctrl(session.state_snapshot or {}, ctrl)
+    result = service.build_result(session, context)
     assert_json_snapshot(
         SNAPSHOT_DIR / "assessment_normal.json",
         _result_payload(result),
@@ -63,9 +65,10 @@ def test_assessment_snapshot_normal():
 
 def test_assessment_snapshot_fault_random():
     ctrl = ControllerStub(assessment_closed_loop_ready=True)
-    service = AssessmentService(ctrl)
+    service = AssessmentService()
     session = build_random_fault_assessment_session()
-    result = service.build_result(session)
+    context = AssessmentContext.from_snapshot_and_ctrl(session.state_snapshot or {}, ctrl)
+    result = service.build_result(session, context)
     assert_json_snapshot(
         SNAPSHOT_DIR / "assessment_fault_random.json",
         _result_payload(result),
