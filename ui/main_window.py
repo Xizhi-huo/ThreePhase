@@ -15,8 +15,8 @@ PowerSyncUI 通过多重继承组合各个 Mixin：
   CircuitTabMixin     (ui/tabs/circuit_tab.py)
     - Tab1（母排拓扑）的 matplotlib Figure 初始化 + 渲染
 
-  LoopTestTabMixin      (ui/tabs/loop_test_tab.py)
-    - Tab2（回路测试）的 QWidget 构建 + 渲染
+  LoopTestTab          (ui/tabs/loop_test_tab.py)
+    - Tab2（回路测试）的独立 QWidget 组件
 
   PtVoltageCheckTabMixin (ui/tabs/pt_voltage_check_tab.py)
     - Tab3（PT 线电压检查）的 QWidget 构建 + 渲染
@@ -43,7 +43,7 @@ from ui.styles import apply_app_theme
 from ui.panels.control_panel import WidgetBuilderMixin
 from ui.tabs.waveform_tab import WaveformTabMixin
 from ui.tabs.circuit_tab import CircuitTabMixin
-from ui.tabs.loop_test_tab import LoopTestTabMixin
+from ui.tabs.loop_test_tab import LoopTestTab
 from ui.tabs.pt_voltage_check_tab import PtVoltageCheckTabMixin
 from ui.tabs.pt_phase_check_tab import PtPhaseCheckTabMixin
 from ui.tabs.pt_exam_tab import PtExamTabMixin
@@ -55,7 +55,6 @@ class PowerSyncUI(
     WidgetBuilderMixin,
     WaveformTabMixin,
     CircuitTabMixin,
-    LoopTestTabMixin,
     PtVoltageCheckTabMixin,
     PtPhaseCheckTabMixin,
     PtExamTabMixin,
@@ -118,7 +117,14 @@ class PowerSyncUI(
         self._build_control_panel()           # <- WidgetBuilderMixin
         self._setup_tab_waveforms()           # <- WaveformTabMixin          Tab 0
         self._setup_tab_circuit()             # <- CircuitTabMixin           Tab 1
-        self._setup_tab_loop_test()           # <- LoopTestTabMixin          Tab 2
+        self._loop_test_tab = LoopTestTab(
+            self.ctrl,
+            on_open_circuit_tab=lambda: self.tab_widget.setCurrentIndex(1),
+            on_toggle_multimeter=lambda: self.multimeter_cb.setChecked(
+                not self.multimeter_cb.isChecked()
+            ),
+        )
+        self.tab_widget.addTab(self._loop_test_tab, " 🔌 第一步：回路连通性测试 ")
         self._setup_tab_pt_voltage_check()    # <- PtVoltageCheckTabMixin    Tab 3
         self._setup_tab_pt_phase_check()      # <- PtPhaseCheckTabMixin      Tab 4
         self._setup_tab_pt_exam()             # <- PtExamTabMixin            Tab 5
@@ -189,7 +195,7 @@ class PowerSyncUI(
         self._render_grounding_and_pt(p)
         self._render_multimeter(p)
         # _render_circuit_quick_record 已移除（记录功能集中在右侧测试条）
-        self._render_loop_test(p)
+        self._loop_test_tab.render(p)
         self._render_pt_voltage_check(p)
         self._render_pt_record_tables(p)
         self._render_pt_phase_check(p)

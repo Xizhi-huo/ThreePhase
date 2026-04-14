@@ -229,6 +229,15 @@ class PowerSyncController:
         """进入第一步回路检查模式：跳过失压联锁，允许不起机合闸。"""
         self.sim_state.loop_test_mode = True
 
+    def get_loop_test_steps(self):
+        return self.loop_svc.get_loop_test_steps()
+
+    def get_current_loop_phase_match(self):
+        return self.loop_svc._get_current_loop_phase_match()
+
+    def is_loop_test_complete(self):
+        return self.loop_svc.is_loop_test_complete()
+
     def exit_loop_test_mode(self):
         """退出第一步回路检查模式：恢复失压联锁保护，未起机或未建压的断路器自动断开。"""
         self.sim_state.loop_test_mode = False

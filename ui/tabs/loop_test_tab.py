@@ -1,12 +1,15 @@
 """
 ui/tabs/loop_test_tab.py
-回路连通性测试 Tab (Tab 2)
+回路连通性测试 Tab（独立 QWidget 组件）
 """
+
+from __future__ import annotations
+
+from typing import Callable, List, Optional, Protocol, Tuple
 
 from PyQt5 import QtWidgets
 
 from domain.enums import BreakerPosition
-from ui.tabs.circuit_tab import _qs
 from ui.tabs._step_style import (
     apply_button_tone,
     apply_step_shell,
@@ -14,34 +17,64 @@ from ui.tabs._step_style import (
     set_props,
     set_record_value,
     set_step_item,
+    tone_from_color,
 )
 
-_BTN  = "font-size:14px; padding:4px 8px;"
-_BTN_BOLD = "font-size:14px; font-weight:bold; padding:4px 8px;"
+
+class LoopTestTabAPI(Protocol):
+    @property
+    def loop_test_state(self) -> object: ...
+
+    @property
+    def sim_state(self) -> object: ...
+
+    def reset_loop_test(self) -> None: ...
+
+    def finalize_loop_test(self) -> None: ...
+
+    def record_loop_measurement(self, phase: str) -> None: ...
+
+    def enter_loop_test_mode(self) -> None: ...
+
+    def exit_loop_test_mode(self) -> None: ...
+
+    def get_loop_test_steps(self) -> List[Tuple[str, bool]]: ...
+
+    def get_current_loop_phase_match(self) -> Optional[str]: ...
+
+    def is_loop_test_complete(self) -> bool: ...
 
 
-class LoopTestTabMixin:
-    """
-    混入类，提供回路连通性测试 Tab 的构建和渲染方法。
-    """
+class LoopTestTab(QtWidgets.QWidget):
+    def __init__(
+        self,
+        api: LoopTestTabAPI,
+        *,
+        on_open_circuit_tab: Callable[[], None],
+        on_toggle_multimeter: Callable[[], None],
+        parent: Optional[QtWidgets.QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._api = api
+        self._on_open_circuit_tab = on_open_circuit_tab
+        self._on_toggle_multimeter = on_toggle_multimeter
+        self._build()
 
-    # ── Tab2：回路连通性测试 ─────────────────────────────────────────────────
-    def _setup_tab_loop_test(self):
-        tab_outer = QtWidgets.QWidget()
-        self.tab_widget.addTab(tab_outer, " 🔌 第一步：回路连通性测试 ")
-        _tlay = QtWidgets.QVBoxLayout(tab_outer)
-        _tlay.setContentsMargins(0, 0, 0, 0)
-        _scroll = QtWidgets.QScrollArea()
+    def _build(self) -> None:
+        outer_layout = QtWidgets.QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QtWidgets.QScrollArea()
         tab = QtWidgets.QWidget()
-        _scroll.setWidget(tab)
-        _tlay.addWidget(_scroll)
+        scroll.setWidget(tab)
+        outer_layout.addWidget(scroll)
 
         outer = QtWidgets.QVBoxLayout(tab)
         outer.setContentsMargins(18, 14, 18, 14)
         outer.setSpacing(8)
 
-        hdr = QtWidgets.QLabel("隔离母排合闸前 - 第一步：回路连通性测试")
-        outer.addWidget(hdr)
+        header = QtWidgets.QLabel("隔离母排合闸前 - 第一步：回路连通性测试")
+        outer.addWidget(header)
 
         desc = QtWidgets.QLabel(
             "合闸前首先验证三相回路连通性：断开中性点小电阻，将两台发电机切至手动模式，"
@@ -51,207 +84,197 @@ class LoopTestTabMixin:
         desc.setWordWrap(True)
         outer.addWidget(desc)
 
-        # ── 回路检查模式横幅 ──────────────────────────────────────────────
-        self.loop_test_mode_banner = QtWidgets.QLabel(
+        self._loop_test_mode_banner = QtWidgets.QLabel(
             "⚡ 回路检查模式已激活 — 开关机械合闸，发电机未起机，母排无电压（高压侧悬空）"
         )
-        self.loop_test_mode_banner.setWordWrap(True)
-        self.loop_test_mode_banner.setVisible(False)
-        outer.addWidget(self.loop_test_mode_banner)
+        self._loop_test_mode_banner.setWordWrap(True)
+        self._loop_test_mode_banner.setVisible(False)
+        outer.addWidget(self._loop_test_mode_banner)
         apply_step_shell(
-            tab_outer,
-            _scroll,
+            self,
+            scroll,
             tab,
-            hdr,
+            header,
             desc,
-            self.loop_test_mode_banner,
+            self._loop_test_mode_banner,
             banner_tone="warning",
         )
 
-        # ── 操作按钮 ──────────────────────────────────────────────────────
-        act_row = QtWidgets.QWidget()
-        ar = QtWidgets.QHBoxLayout(act_row)
-        ar.setContentsMargins(0, 0, 0, 0)
-        set_props(act_row, actionRow=True)
+        action_row = QtWidgets.QWidget()
+        row_layout = QtWidgets.QHBoxLayout(action_row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        set_props(action_row, actionRow=True)
 
-        self.btn_loop_mode = QtWidgets.QPushButton("进入回路检查模式")
-        self.btn_loop_mode.clicked.connect(self._on_toggle_loop_test_mode)
-        apply_button_tone(self, self.btn_loop_mode, "warning", hero=True)
+        self._btn_loop_mode = QtWidgets.QPushButton("进入回路检查模式")
+        self._btn_loop_mode.clicked.connect(self._on_toggle_loop_mode)
+        apply_button_tone(self, self._btn_loop_mode, "warning", hero=True)
 
         btn_topo = QtWidgets.QPushButton("打开母排拓扑页")
-        btn_topo.clicked.connect(lambda: self.tab_widget.setCurrentIndex(1))
+        btn_topo.clicked.connect(self._on_open_circuit_tab)
         apply_button_tone(self, btn_topo, "primary", secondary=True)
 
         btn_mm = QtWidgets.QPushButton("开启/关闭万用表")
-        btn_mm.clicked.connect(
-            lambda: self.multimeter_cb.setChecked(not self.multimeter_cb.isChecked()))
+        btn_mm.clicked.connect(self._on_toggle_multimeter)
         apply_button_tone(self, btn_mm, "warning")
 
         btn_reset = QtWidgets.QPushButton("重置回路测试")
-        btn_reset.clicked.connect(lambda: self.ctrl.reset_loop_test())
+        btn_reset.clicked.connect(self._api.reset_loop_test)
         apply_button_tone(self, btn_reset, "danger")
 
         btn_done = QtWidgets.QPushButton("完成第一步测试")
-        btn_done.clicked.connect(lambda: self.ctrl.finalize_loop_test())
+        btn_done.clicked.connect(self._api.finalize_loop_test)
         apply_button_tone(self, btn_done, "success", hero=True)
 
-        ar.addWidget(self.btn_loop_mode)
-        ar.addWidget(btn_topo)
-        ar.addWidget(btn_mm)
-        ar.addWidget(btn_reset)
-        ar.addWidget(btn_done)
-        outer.addWidget(act_row)
+        row_layout.addWidget(self._btn_loop_mode)
+        row_layout.addWidget(btn_topo)
+        row_layout.addWidget(btn_mm)
+        row_layout.addWidget(btn_reset)
+        row_layout.addWidget(btn_done)
+        outer.addWidget(action_row)
 
-        # ── 实时状态 ──────────────────────────────────────────────────────
         status_grp = QtWidgets.QGroupBox("实时状态")
-        sg_lay = QtWidgets.QVBoxLayout(status_grp)
+        status_layout = QtWidgets.QVBoxLayout(status_grp)
 
-        self.loop_test_summary_lbl = QtWidgets.QLabel("")
-        set_live_text(self.loop_test_summary_lbl, "info")
-        self.loop_test_summary_lbl.setWordWrap(True)
+        self._summary_lbl = QtWidgets.QLabel("")
+        set_live_text(self._summary_lbl, "info")
+        self._summary_lbl.setWordWrap(True)
 
-        self.loop_test_meter_lbl = QtWidgets.QLabel("")
-        set_live_text(self.loop_test_meter_lbl, "neutral")
-        self.loop_test_meter_lbl.setWordWrap(True)
+        self._meter_lbl = QtWidgets.QLabel("")
+        set_live_text(self._meter_lbl, "neutral")
+        self._meter_lbl.setWordWrap(True)
 
-        self.loop_test_feedback_lbl = QtWidgets.QLabel("")
-        set_live_text(self.loop_test_feedback_lbl, "neutral")
-        self.loop_test_feedback_lbl.setWordWrap(True)
+        self._feedback_lbl = QtWidgets.QLabel("")
+        set_live_text(self._feedback_lbl, "neutral")
+        self._feedback_lbl.setWordWrap(True)
 
-        sg_lay.addWidget(self.loop_test_summary_lbl)
-        sg_lay.addWidget(self.loop_test_meter_lbl)
-        sg_lay.addWidget(self.loop_test_feedback_lbl)
+        status_layout.addWidget(self._summary_lbl)
+        status_layout.addWidget(self._meter_lbl)
+        status_layout.addWidget(self._feedback_lbl)
         outer.addWidget(status_grp)
 
-        # ── 步骤列表 ──────────────────────────────────────────────────────
         steps_grp = QtWidgets.QGroupBox("测试步骤")
-        sl_lay = QtWidgets.QVBoxLayout(steps_grp)
-        self.loop_test_step_labels = []
+        steps_layout = QtWidgets.QVBoxLayout(steps_grp)
+        self._step_labels: List[QtWidgets.QLabel] = []
         for _ in range(7):
-            lbl = QtWidgets.QLabel("")
-            set_props(lbl, stepListItem=True)
-            sl_lay.addWidget(lbl)
-            self.loop_test_step_labels.append(lbl)
+            label = QtWidgets.QLabel("")
+            set_props(label, stepListItem=True)
+            steps_layout.addWidget(label)
+            self._step_labels.append(label)
         outer.addWidget(steps_grp)
 
-        # ── 三相记录 ──────────────────────────────────────────────────────
         rec_grp = QtWidgets.QGroupBox("三相回路测量记录")
-        rec_lay = QtWidgets.QVBoxLayout(rec_grp)
-        self.loop_test_record_labels = {}
-        for phase in ('A', 'B', 'C'):
-            row_w = QtWidgets.QWidget()
-            set_props(row_w, recordRow=True)
-            row = QtWidgets.QHBoxLayout(row_w)
+        rec_layout = QtWidgets.QVBoxLayout(rec_grp)
+        self._record_labels: dict[str, QtWidgets.QLabel] = {}
+        for phase in ("A", "B", "C"):
+            row_widget = QtWidgets.QWidget()
+            set_props(row_widget, recordRow=True)
+            row = QtWidgets.QHBoxLayout(row_widget)
             row.setContentsMargins(10, 6, 10, 6)
 
-            ph_lbl = QtWidgets.QLabel(f"{phase} 相")
-            ph_lbl.setFixedWidth(60)
-            set_live_text(ph_lbl, "info")
+            phase_label = QtWidgets.QLabel(f"{phase} 相")
+            phase_label.setFixedWidth(60)
+            set_live_text(phase_label, "info")
 
-            val_lbl = QtWidgets.QLabel("未记录")
-            val_lbl.setFixedWidth(280)
-            set_record_value(val_lbl, "neutral")
+            value_label = QtWidgets.QLabel("未记录")
+            value_label.setFixedWidth(280)
+            set_record_value(value_label, "neutral")
 
-            rec_btn = QtWidgets.QPushButton(f"记录 {phase} 相")
-            rec_btn.clicked.connect(
-                lambda _, ph=phase: self.ctrl.record_loop_measurement(ph))
-            apply_button_tone(self, rec_btn, "primary")
+            record_btn = QtWidgets.QPushButton(f"记录 {phase} 相")
+            record_btn.clicked.connect(
+                lambda _, ph=phase: self._api.record_loop_measurement(ph)
+            )
+            apply_button_tone(self, record_btn, "primary")
 
-            row.addWidget(ph_lbl)
-            row.addWidget(val_lbl)
-            row.addWidget(rec_btn)
-            rec_lay.addWidget(row_w)
-            self.loop_test_record_labels[phase] = val_lbl
+            row.addWidget(phase_label)
+            row.addWidget(value_label)
+            row.addWidget(record_btn)
+            rec_layout.addWidget(row_widget)
+            self._record_labels[phase] = value_label
 
         outer.addWidget(rec_grp)
         outer.addStretch()
 
-    def _on_toggle_loop_test_mode(self):
-        if self.ctrl.sim_state.loop_test_mode:
-            self.ctrl.exit_loop_test_mode()
+    def _on_toggle_loop_mode(self) -> None:
+        if self._api.sim_state.loop_test_mode:
+            self._api.exit_loop_test_mode()
         else:
-            self.ctrl.enter_loop_test_mode()
+            self._api.enter_loop_test_mode()
 
-    def _render_loop_test(self, p):
-        state    = self.ctrl.loop_test_state
-        records  = state.records
-        in_mode  = self.ctrl.sim_state.loop_test_mode
+    def render(self, p) -> None:
+        state = self._api.loop_test_state
+        records = state.records
+        sim = self._api.sim_state
+        in_mode = sim.loop_test_mode
 
-        # ── 已完成锁定：所有 UI 完全冻结 ─────────────────────────────────
         if state.completed:
-            self.loop_test_mode_banner.setVisible(False)
-            self.btn_loop_mode.setText("进入回路检查模式")
-            apply_button_tone(self, self.btn_loop_mode, "warning", hero=True)
-            self.loop_test_summary_lbl.setText(
-                "✅ 第一步已确认完成：三相回路连通性测试通过，数据已锁定。")
-            set_live_text(self.loop_test_summary_lbl, "success")
-            self.loop_test_meter_lbl.setText("")
-            self.loop_test_feedback_lbl.setText("操作提示：第一步测试已完成，请继续进行第二步 PT 单体线电压检查。")
-            set_live_text(self.loop_test_feedback_lbl, "success")
-            for lbl, (text, _) in zip(self.loop_test_step_labels,
-                                      self.ctrl.loop_svc.get_loop_test_steps()):
-                set_step_item(lbl, text, True, True)
-            for phase, lbl in self.loop_test_record_labels.items():
-                lbl.setText("导通 [≈0Ω] ✓")
-                set_record_value(lbl, "success")
+            self._loop_test_mode_banner.setVisible(False)
+            self._btn_loop_mode.setText("进入回路检查模式")
+            apply_button_tone(self, self._btn_loop_mode, "warning", hero=True)
+            self._summary_lbl.setText("✅ 第一步已确认完成：三相回路连通性测试通过，数据已锁定。")
+            set_live_text(self._summary_lbl, "success")
+            self._meter_lbl.setText("")
+            self._feedback_lbl.setText("操作提示：第一步测试已完成，请继续进行第二步 PT 单体线电压检查。")
+            set_live_text(self._feedback_lbl, "success")
+            for label, (text, _) in zip(self._step_labels, self._api.get_loop_test_steps()):
+                set_step_item(label, text, True, True)
+            for _, label in self._record_labels.items():
+                label.setText("导通 [≈0Ω] ✓")
+                set_record_value(label, "success")
             return
 
-        # ── 更新模式横幅和按钮文字 ────────────────────────────────────────
-        self.loop_test_mode_banner.setVisible(in_mode)
+        self._loop_test_mode_banner.setVisible(in_mode)
         if in_mode:
-            self.btn_loop_mode.setText("退出回路检查模式")
-            apply_button_tone(self, self.btn_loop_mode, "danger", hero=True)
+            self._btn_loop_mode.setText("退出回路检查模式")
+            apply_button_tone(self, self._btn_loop_mode, "danger", hero=True)
         else:
-            self.btn_loop_mode.setText("进入回路检查模式")
-            apply_button_tone(self, self.btn_loop_mode, "warning", hero=True)
+            self._btn_loop_mode.setText("进入回路检查模式")
+            apply_button_tone(self, self._btn_loop_mode, "warning", hero=True)
 
-        # ── 动态显示 ──────────────────────────────────────────────────────
         feedback = state.feedback
-        fb_color = state.feedback_color
-        current_phase = self.ctrl.loop_svc._get_current_loop_phase_match()
-        sim = self.ctrl.sim_state
-
-        if self.ctrl.loop_svc.is_loop_test_complete():
-            summary = "第一步已确认完成：三相回路连通性测试通过，后续操作不再影响本步骤。"
-            sc = '#006400'
-        elif (sim.gen1.breaker_closed
-              and sim.gen1.breaker_position == BreakerPosition.WORKING
-              and sim.gen2.breaker_closed
-              and sim.gen2.breaker_position == BreakerPosition.WORKING):
+        current_phase = self._api.get_current_loop_phase_match()
+        if (
+            sim.gen1.breaker_closed
+            and sim.gen1.breaker_position == BreakerPosition.WORKING
+            and sim.gen2.breaker_closed
+            and sim.gen2.breaker_position == BreakerPosition.WORKING
+        ):
             summary = "两台发电机均已切至工作位置并合闸，可在母排拓扑页开始通断测试（可观察电流流向动画）。"
-            sc = '#cc6600'
+            summary_tone = "warning"
         else:
             summary = "请按步骤操作：断开小电阻 → 手动模式 → 合闸（不起机）→ 母排拓扑页通断测试。"
-            sc = '#264653'
-        self.loop_test_summary_lbl.setText(summary)
-        set_live_text(self.loop_test_summary_lbl, "success" if sc == '#006400' else ("warning" if sc == '#cc6600' else "info"))
+            summary_tone = "info"
+        if self._api.is_loop_test_complete():
+            summary = "第一步已确认完成：三相回路连通性测试通过，后续操作不再影响本步骤。"
+            summary_tone = "success"
+
+        self._summary_lbl.setText(summary)
+        set_live_text(self._summary_lbl, summary_tone)
 
         meter_text = p.meter_reading
         if current_phase:
             meter_text = f"当前表笔对准 {current_phase} 相回路。{meter_text}"
-        self.loop_test_meter_lbl.setText(f"实时测量：{meter_text}")
-        set_live_text(self.loop_test_meter_lbl, self._tone_from_color(getattr(p, 'meter_color', 'black')))
-        self.loop_test_feedback_lbl.setText(f"操作提示：{feedback}")
-        set_live_text(self.loop_test_feedback_lbl, self._tone_from_color(fb_color))
+        self._meter_lbl.setText(f"实时测量：{meter_text}")
+        set_live_text(self._meter_lbl, tone_from_color(getattr(p, "meter_color", "black")))
 
-        # 未进入回路检查模式前，子步骤全部保持灰色，不响应实时状态
+        self._feedback_lbl.setText(f"操作提示：{feedback}")
+        set_live_text(self._feedback_lbl, tone_from_color(state.feedback_color))
+
+        steps = self._api.get_loop_test_steps()
         if not in_mode:
-            for lbl, (text, _) in zip(self.loop_test_step_labels,
-                                      self.ctrl.loop_svc.get_loop_test_steps()):
-                set_step_item(lbl, text, False, False)
+            for label, (text, _) in zip(self._step_labels, steps):
+                set_step_item(label, text, False, False)
         else:
-            for lbl, (text, done) in zip(self.loop_test_step_labels,
-                                         self.ctrl.loop_svc.get_loop_test_steps()):
-                set_step_item(lbl, text, done, True)
+            for label, (text, done) in zip(self._step_labels, steps):
+                set_step_item(label, text, done, True)
 
-        for phase, lbl in self.loop_test_record_labels.items():
+        for phase, label in self._record_labels.items():
             record = records[phase]
             if record is None:
-                lbl.setText("未记录")
-                set_record_value(lbl, "neutral")
-            elif record.get('status') == 'ok':
-                lbl.setText("导通 [≈0Ω] ✓")
-                set_record_value(lbl, "success")
+                label.setText("未记录")
+                set_record_value(label, "neutral")
+            elif record.get("status") == "ok":
+                label.setText("导通 [≈0Ω] ✓")
+                set_record_value(label, "success")
             else:
-                lbl.setText("断路 [∞Ω] ⚠")
-                set_record_value(lbl, "warning")
+                label.setText("断路 [∞Ω] ⚠")
+                set_record_value(label, "warning")
