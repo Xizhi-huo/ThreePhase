@@ -1,421 +1,120 @@
 '''
 
-任务：核查第 20 轮（Phase 2-3）— `score_context` → `@dataclass ScoringContext` 是否正确完成
-
-你的角色：
-你是一位资深 Python 架构审查员。你当前不是来继续开发，而是严格核查这一轮重构是否符合任务要求、是否存在越界修改、是否保持评分结果字节级一致。
-
-项目背景：
-这是一个 PyQt5 三相电并网仿真教学系统。
-Phase 1 已正式闭环。
-Round 19 已完成：
-- `services/scoring/` 子包已建立
-- `services/assessment_service.py` 已收口为评分组装器
-- 当前 `score_context` 仍是 dict
-- `services/assessment_service.py` 行数为 `429`
-- 快照测试基线为 `5/5 PASS`
-
-本轮唯一目标：
-1. 把 dict 型 `score_context` 升级为 `@dataclass(frozen=True) ScoringContext`
-2. 把 4 个闭包：
-   - `first_step_index`
-   - `trio_completion_score`
-   - `nine_group_completion_score`
-   - `count_present`
-   从 `assessment_service.py` 抽到 `services/scoring/_common.py`
-3. 4 个评分域模块从 `ctx["xxx"]` 改为 `ctx.xxx`
-4. 评分域签名从 `score_xxx(ctx: dict)` 改为 `score_xxx(ctx: ScoringContext)`
-5. 评分逻辑本体零改动
-6. 快照测试结果字节级一致
-
-本轮完成后应满足：
-- `services/scoring/context.py` 存在
-- `ScoringContext` 是 `@dataclass(frozen=True)`
-- `ScoringContext` 只装数据，不含方法和 Callable 字段
-- `services/assessment_service.py` 中不再定义 4 个原闭包
-- `services/scoring/*.py` 中不再存在 `ctx["xxx"]`
-- `services/assessment_service.py` 行数应约为 `399`
-- `python -m pytest tests/ -q -p no:cacheprovider` 结果为 `5 passed`
-- `tests/snapshots/` 无变化
-
-第一步：先读这些文件
-请按顺序阅读并建立核查上下文：
-
-1. `MAINTENANCE_CHECKLIST.md`
-重点看：
-- §1 工程边界
-- §2 高风险文件基线
-- §3 当前总体进度
-- §4 Phase 2 路线图
-- §9 第 20 轮记录
-- §10 下一轮默认起点
-
-2. `services/assessment_service.py`
-重点核查：
-- 是否已经删除 4 个原闭包定义
-- `build_result()` 是否已改为构造 `ScoringContext(...)`
-- 是否仍保留原有评分域调用顺序
-- 是否没有误改汇总层方法
-- 行数是否为 `399`
-
-3. `services/scoring/_common.py`
-重点核查：
-- 是否保留 `make_score_item(...)`
-- 是否新增：
-  - `count_present`
-  - `trio_completion_score`
-  - `nine_group_completion_score`
-  - `first_step_index`
-- 这 4 个函数是否与原闭包语义等价
-
-4. `services/scoring/context.py`
-重点核查：
-- 是否为新文件
-- 是否定义了 `@dataclass(frozen=True) ScoringContext`
-- 字段是否只包含数据字段
-- 是否显式包含 `step_enter_events`
-
-5. `services/scoring/discipline.py`
-6. `services/scoring/step_quality.py`
-7. `services/scoring/fault_diagnosis.py`
-8. `services/scoring/blackbox_efficiency.py`
-重点核查：
-- 签名是否改为 `ctx: ScoringContext`
-- 是否全部改成属性访问
-- 是否没有残留 `ctx["xxx"]`
-- 是否按需 import `_common.py` 中的纯函数，而不是继续依赖闭包
-
-9. `services/scoring/__init__.py`
-用于核查是否有不必要或错误的 re-export
-
-10. `domain/assessment.py`
-只读，用于确认本轮没有越界改动它
-
-11. `tests/test_assessment_snapshot.py`
-12. `tests/test_physics_snapshot.py`
-13. `tests/snapshots/assessment_normal.json`
-14. `tests/snapshots/assessment_fault_random.json`
-
-第二步：严格按以下核查清单执行
-
-A. ScoringContext 结构核查
-请确认：
-
-1. 是否新增了：
-- `services/scoring/context.py`
-
-2. 是否定义：
-- `@dataclass(frozen=True)`
-- `class ScoringContext`
-
-3. `ScoringContext` 是否只包含数据字段，不包含：
-- 方法
-- `Callable` 字段
-- 默认工厂逻辑
-- 任何“顺手加”的业务辅助逻辑
-
-4. 字段是否与本轮要求严格对应
-至少确认包含：
-- `session`
-- `blocked_events`
-- `blocked_by_step`
-- `finalize_rejected`
-- `finalize_rejected_by_step`
-- `gate_block_events`
-- `invalid_events`
-- `invalid_by_step`
-- `step_enter_events`
-- `fault_detected_event`
-- `loop_records`
-- `loop_complete`
-- `pt1_voltage_count`
-- `pt2_voltage_count`
-- `pt3_voltage_count`
-- `pt1_phase_count`
-- `pt3_phase_count`
-- `gen1_exam_count`
-- `gen2_exam_count`
-- `detection_step`
-- `hidden_fault`
-- `blackbox_open_before_gate`
-- `detected_before_gate`
-- `expected_targets`
-- `expected_target_set`
-- `expected_device_set`
-- `opened_target_set`
-- `touched_layers`
-- `repair_required`
-- `repaired`
-- `blackbox_failed_confirms`
-- `blackbox_swap_count`
-- `elapsed_seconds`
-
-5. `step_enter_events` 是否已经显式加入
-说明：
-- 这是本轮要求显式化的“隐藏依赖”
-- 如果缺失，应直接判定未通过
-
-6. 最终字段数是否为 `33`
-如不是，请列出差异
-
-B. `_common.py` 闭包抽离核查
-请确认：
-
-1. `services/scoring/_common.py` 中是否存在：
-- `make_score_item`
-- `count_present`
-- `trio_completion_score`
-- `nine_group_completion_score`
-- `first_step_index`
-
-2. 这 4 个新函数是否与原闭包逻辑完全等价：
-- `count_present(records)`：
-  - 是否仅统计 value is not None
-- `trio_completion_score(count_value)`：
-  - 边界 `>=3 / ==2 / ==1 / else 0`
-- `nine_group_completion_score(count_value)`：
-  - 边界 `>=9 / >=7 / >=5 / >=3 / else 0`
-- `first_step_index(step_enter_events, step)`：
-  - 是否按顺序扫描
-  - 找到首个 `event.step == step` 就返回 index
-  - 找不到返回 `None`
-
-3. `first_step_index` 的调用点是否都已经补上第一个参数
-说明：
-- 原闭包签名是 `(step)`
-- 新纯函数签名是 `(step_enter_events, step)`
-- 如果有任何旧调用没改，会直接是本轮问题
-
-C. `assessment_service.py` 核查
-请确认：
-
-1. `services/assessment_service.py` 中是否已删除：
-- `def first_step_index`
-- `def trio_completion_score`
-- `def nine_group_completion_score`
-- `def count_present`
-
-2. `build_result()` 是否已改为构造：
-- `ScoringContext(...)`
-
-3. `count_present` 是否改为从 `_common.py` import 后使用
-
-4. `build_result()` 中评分域调用顺序是否仍保持：
-- `score_discipline`
-- `score_step_quality`
-- `score_fault_diagnosis`
-- `score_blackbox_efficiency`
-
-5. 是否没有改动这些汇总层方法的语义：
-- `_expected_blackbox_targets`
-- `_build_step_score_summaries`
-- `_apply_extra_deductions`
-- `_resolve_veto_reason`
-- `_build_metrics`
-- `_build_summary`
-
-6. `services/assessment_service.py` 行数是否为 `399`
-7. 是否没有残留闭包定义或旧 dict context 构造
-
-建议核查方式：
-- `rg -n 'def first_step_index|def trio_completion_score|def nine_group_completion_score|def count_present' services/assessment_service.py`
-- `rg -n 'score_context = \\{' services/assessment_service.py`
-
-D. 评分域模块改造核查
-请确认以下 4 个模块是否全部完成了签名和访问方式切换：
-
-1. `services/scoring/discipline.py`
-- `score_discipline(ctx: ScoringContext)`
-- 使用 `first_step_index(ctx.step_enter_events, step)`
-- 无 `ctx["..."]`
-
-2. `services/scoring/step_quality.py`
-- `score_step_quality(ctx: ScoringContext)`
-- 若保留私有子函数，也应接收 `ScoringContext`
-- 使用：
-  - `count_present`
-  - `trio_completion_score`
-  - `nine_group_completion_score`
-- 无 `ctx["..."]`
-
-3. `services/scoring/fault_diagnosis.py`
-- `score_fault_diagnosis(ctx: ScoringContext)`
-- 无 `ctx["..."]`
-
-4. `services/scoring/blackbox_efficiency.py`
-- `score_blackbox_efficiency(ctx: ScoringContext)`
-- 无 `ctx["..."]`
-
-同时确认：
-- `services/scoring/*.py` 中 `ctx["` 搜索结果应为 `0`
-- `Dict[str, object]` 这类旧签名是否已清零
-- 4 个评分域之间没有相互 import
-
-E. 行为不变核查
-这是本轮最重要的部分。请确认：
-
-1. 评分逻辑本体没有变化
-也就是：
-- 分值
-- 阈值
-- penalty 条件
-- 通过/部分扣分/未通过判定
-- 扣分消息
-- 文案内容
-- 评分项生成顺序
-- penalty 列表顺序
-
-2. `make_score_item` 与原逻辑仍保持一致
-3. 4 个闭包抽离后没有改变任何边界行为
-4. `score_items` 和 `penalties` 顺序未变
-5. 中文字符串未出现新的乱码污染
-
-F. 越界修改核查
-请重点检查以下内容是否被误改。若被改，视为越界：
-
-1. `domain/assessment.py`
-- 本轮不应改它
-
-2. `ui/` 目录
-- 本轮不应改 UI
-
-3. `tests/snapshots/`
-- 本轮不应修改快照基线内容
-
-4. 新 dataclass
-- 本轮只允许新增 `ScoringContext`
-- 不应新增其它 dataclass
-
-5. 不应处理：
-- `AssessmentContext`
-- 评分展示 UI
-- `ScoringContext` 之外的新架构层
-- README / context 等无关文档
-
-说明：
-- 更新 `MAINTENANCE_CHECKLIST.md` 属于本轮范围
-- 若 `services/scoring/__init__.py` 做最小 re-export，不算越界，但要判断是否必要
-
-G. 测试与快照核查
-请确认：
-
-1. 是否执行了：
-- `python -m pytest tests/ -q -p no:cacheprovider`
-
-2. 结果是否为：
-- `5 passed`
-- `0 failed`
-
-3. 是否可确认：
-- `tests/snapshots/assessment_normal.json` 无变化
-- `tests/snapshots/assessment_fault_random.json` 无变化
-- 整体 `tests/snapshots/` 无 diff
-
-如果你无法实际运行测试，必须明确说明：
-- “只完成静态核查，未完成运行验证”
-
-H. 维护清单核查
-请核查 `MAINTENANCE_CHECKLIST.md` 是否同步更新了以下内容：
-
-1. §2
-- `services/assessment_service.py` 是否更新为 `399`
-- 风险描述是否改为：
-  - “评分系统已完成模块化 + 类型化，Phase 2 核心目标完成”
-
-2. §3
-- 当前阶段是否改为：
-  - `Phase 2 — 评分系统模块化（Phase 2-3 已完成，Phase 2 核心目标完成）`
-- 下一轮默认起点是否改为：
-  - `Phase 2-4（可选）— 评分域独立快照测试`
-  - 或明确转向 `Phase 3 — UI 组件化（告别 Mixin）`
-
-3. §4
-- 是否新增并勾选：
-  - ``score_context` 改为 `ScoringContext` dataclass`
-
-4. §9
-- 是否新增第 20 轮记录
-- 是否写明：
-  - `assessment_service.py` 行数 `429 -> 399`
-  - `_common.py` 行数 `46 -> 79`
-  - `context.py` 行数 `43`
-  - 各评分域模块行数
-  - 快照测试 `5/5 PASS`
-  - 下一轮起点
-
-5. §10
-- 是否已改成：
-  - `Phase 2-4（可选）— 评分域独立快照测试`
-  - `Phase 3 — UI 组件化（告别 Mixin）`
-至少要与 §3 / §9 叙述一致
-
-I. 复盘问题核查
-请结合源码给出结论：
-
-1. `ScoringContext` 最终字段数是多少
-2. `step_enter_events` 是否已显式加入
-3. 4 个评分域是否已完全改成属性访问
-4. 是否存在漏网的 `ctx["xxx"]`
-5. `_common.py` 的 4 个函数是否完全等价原闭包
-6. `services/scoring/__init__.py` 是否真的需要 re-export `ScoringContext`
-7. 当前 `ScoringContext` 字段是否全部为必填
-8. 是否发现任何“非预期共享状态”
-如有，也只能记录，不能视为本轮必须修复项
-
-第三步：输出格式要求
-请严格按下面格式输出你的核查结果：
+任务：第 21 轮（Phase 2-4）— 评分域独立快照测试
 
+## 背景
+第 19 轮把 `build_result` 拆成四个评分域纯函数，第 20 轮把共享状态凝结为 `ScoringContext` 不可变值对象。目前四域只在「整链路快照」(`tests/test_assessment_snapshot.py`) 中被间接覆盖——一旦某域内部改动破坏了该域的评分但被其他域补偿掩盖，或者与非评分代码耦合出现回归，现有测试无法精确定位。
+
+本轮目标：为四个评分域各自建立**输入/输出级别的独立快照测试**，把每个域的行为固定成一份 JSON 基线。以后只要改动评分规则或 `ScoringContext` 字段，就能从单域快照直接看到差异。
+
+## 范围边界
+
+### 允许修改/新增
+- `tests/test_scoring_discipline.py`（新增）
+- `tests/test_scoring_step_quality.py`（新增）
+- `tests/test_scoring_fault_diagnosis.py`（新增）
+- `tests/test_scoring_blackbox_efficiency.py`（新增）
+- `tests/snapshots/scoring_discipline_*.json`（新增）
+- `tests/snapshots/scoring_step_quality_*.json`（新增）
+- `tests/snapshots/scoring_fault_diagnosis_*.json`（新增）
+- `tests/snapshots/scoring_blackbox_efficiency_*.json`（新增）
+- `tests/support/scoring_fixtures.py`（新增，构造 `ScoringContext` 夹具的工厂）
+- `MAINTENANCE_CHECKLIST.md`（§2/§3/§9/§10 更新，顶部提示词清理）
+
+### 禁止修改
+- `services/scoring/**`（包括 `context.py` / `_common.py` / 四域实现）——评分逻辑本轮只读
+- `services/assessment_service.py`——整链路装配本轮只读
+- `domain/**`——值对象本轮只读
+- `tests/snapshots/assessment_normal.json` / `assessment_fault_random.json`——整链路基线字节级不变
+- `tests/test_assessment_snapshot.py`——已有测试保持原样
+- `ui/**` / `adapters/**` / `controllers/**`
+
+## 具体步骤
+
+### Step 1：建立 ScoringContext 夹具工厂
+在 `tests/support/scoring_fixtures.py` 新增：
+- `build_normal_scoring_context() -> ScoringContext`
+- `build_fault_scoring_context() -> ScoringContext`
+
+实现方式：**直接手动填充 `ScoringContext(...)` 的 33 个字段**，场景一"常规通过"、场景二"随机故障"。字段取值可由 `assessment_normal.json` / `assessment_fault_random.json` 反推，或先运行一次 `build_result` 的中间态打印导出再固化进夹具。
+
+这样做的目的是让夹具与 `AssessmentService` 解耦：以后评分域内部或 `build_result` 构造逻辑改动时，不会牵动夹具；夹具只随 `ScoringContext` 字段签名变化。
+
+夹具同时导出模块级常量，供 4 个测试文件 import：
+- `NORMAL_CONTEXT: ScoringContext`
+- `FAULT_CONTEXT: ScoringContext`
+
+### Step 2：四个域各建 2 条快照测试
+每个 `tests/test_scoring_<domain>.py` 文件结构如下：
+
+```python
+from tests.support.scoring_fixtures import NORMAL_CONTEXT, FAULT_CONTEXT
+from tests.support.snapshots import assert_json_snapshot
+from services.scoring.<domain> import score_<domain>
+from pathlib import Path
+
+SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
+
+
+def _payload(items, penalties):
+    return {
+        "items": [item.__dict__ for item in items],
+        "penalties": [p.__dict__ for p in penalties],
+    }
+
+
+def test_<domain>_normal():
+    items, penalties = score_<domain>(NORMAL_CONTEXT)
+    assert_json_snapshot(SNAPSHOT_DIR / "scoring_<domain>_normal.json", _payload(items, penalties))
+
+
+def test_<domain>_fault():
+    items, penalties = score_<domain>(FAULT_CONTEXT)
+    assert_json_snapshot(SNAPSHOT_DIR / "scoring_<domain>_fault.json", _payload(items, penalties))
+```
+
+（如果 `AssessmentScoreItem` / `AssessmentPenalty` 是 dataclass，可用 `dataclasses.asdict` 替代 `__dict__`——自行判断。）
+
+### Step 3：生成基线
+首次运行时 `assert_json_snapshot` 会自动写入 JSON 基线文件。跑一次 `pytest tests/ -q` 后：
+- `tests/snapshots/scoring_*_normal.json`（4 份）
+- `tests/snapshots/scoring_*_fault.json`（4 份）
+
+共新增 8 份快照文件。
+
+### Step 4：回归验证
+- `pytest tests/ -q` → 原 5 条 + 新 8 条 = **13 passed**
+- `tests/snapshots/assessment_normal.json` / `assessment_fault_random.json` **字节不变**（`git diff` 确认）
+
+### Step 5：更新 MAINTENANCE_CHECKLIST.md
+- 清理顶部 Round 21 提示词（如仍存在）
+- §9 新增 Round 21 条目：评分域独立快照，新增 8 份基线
+- §2/§3/§10 更新当前状态
+- 不需要在顶部留 Round 21 提示词
+
+## 验收标准（Hard gates）
+
+1. `services/scoring/**`、`services/assessment_service.py`、`domain/**`、既有两份 assessment 快照 JSON **零修改**（`git diff` 验证）
+2. `pytest tests/ -q` 输出 `13 passed`
+3. 新增 8 份快照文件全部存在且非空
+4. `tests/support/scoring_fixtures.py` 为手动填充 `ScoringContext`，不走 `AssessmentService`
+5. 4 个新测试文件互不 import 对方，也不 import `assessment_service`
+6. `MAINTENANCE_CHECKLIST.md` §9 有 Round 21 条目
+
+## 提交
+完成后执行一次 commit，消息格式：`为四个评分域新增独立快照测试（Phase 2-4）`
+
+## 审计输出格式
+完成后按以下七段输出：
 1. 总结结论
-- 直接给出：
-  - “通过”
-  - 或 “未通过”
-
-2. 已完成项
-- 用列表写清楚本轮已满足的要求
-
+2. 已完成项（含文件行数、快照条数）
 3. 不符合项
-- 如果有，逐条列出
-- 每条必须包含：
-  - 文件路径
-  - 问题描述
-  - 为什么不符合本轮要求
-
-4. 越界修改检查
-- 明确写：
-  - “未发现越界修改”
-  - 或 “发现越界修改”，并列出具体文件和内容
-
-5. ScoringContext 改造检查
-- 明确写：
-  - `ScoringContext` 是否结构正确
-  - 4 个闭包是否已完全外移
-  - 4 个评分域是否已全部切到属性访问
-  - `assessment_service.py` 是否已删掉本地闭包与 dict context
-
-6. 快照与回归结果
-- 报告 pytest 的核查结论
-- 若无法实际运行，明确说明
-
-7. 最终判定
-- 用一句话给出：
-  - “第 20 轮可视为完成，可进入 Phase 2-4 或 Phase 3”
-  - 或
-  - “第 20 轮暂不能视为完成”
-
-核查原则：
-- 你是审查，不是开发
-- 不要顺手修代码
-- 不要给大段发散建议
-- 只围绕“这一轮是否按要求完成”给出结论
-- 优先找：
-  - 是否误动评分逻辑本体
-  - 是否真的删掉 4 个本地闭包
-  - 是否 `ctx["xxx"]` 已清零
-  - 是否快照完全未变
-  - 是否 `assessment_service.py` 真实降到 399 行
+4. 越界修改检查（列出 services/scoring、assessment_service、domain、旧快照的 diff 状态）
+5. 夹具与测试结构检查（验证手动填充、互不依赖）
+6. 快照与回归结果（13 passed，旧快照字节不变）
+7. 最终判定（"第 21 轮可视为完成" 或 "暂不能视为完成"）
 
 '''
-
 
 
 
