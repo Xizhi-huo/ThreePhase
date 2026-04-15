@@ -27,8 +27,8 @@ PowerSyncUI 通过“Mixin + 独立 QWidget 组件”装配各区域：
   PtExamTabMixin      (ui/tabs/pt_exam_tab.py)
     - Tab5（PT 考核）的 QWidget 构建 + 渲染
 
-  SyncTestTabMixin    (ui/tabs/sync_test_tab.py)
-    - Tab6（同步测试）的 QWidget 构建 + 渲染
+  SyncTestTab        (ui/tabs/sync_test_tab.py)
+    - Tab6（同步测试）的独立 QWidget 组件
 
 本文件只负责：
   - 窗口框架（QMainWindow）
@@ -47,7 +47,7 @@ from ui.tabs.loop_test_tab import LoopTestTab
 from ui.tabs.pt_voltage_check_tab import PtVoltageCheckTab
 from ui.tabs.pt_phase_check_tab import PtPhaseCheckTab
 from ui.tabs.pt_exam_tab import PtExamTabMixin
-from ui.tabs.sync_test_tab import SyncTestTabMixin
+from ui.tabs.sync_test_tab import SyncTestTab
 from ui.test_panel import TestPanelMixin
 
 
@@ -56,7 +56,6 @@ class PowerSyncUI(
     WaveformTabMixin,
     CircuitTabMixin,
     PtExamTabMixin,
-    SyncTestTabMixin,
     TestPanelMixin,
     QtWidgets.QMainWindow,
 ):
@@ -140,7 +139,11 @@ class PowerSyncUI(
         )
         self.tab_widget.addTab(self._pt_phase_check_tab, " 🔀 第三步：PT相序检查 ")
         self._setup_tab_pt_exam()             # <- PtExamTabMixin            Tab 5
-        self._setup_tab_sync_test()           # <- SyncTestTabMixin          Tab 6
+        self._sync_test_tab = SyncTestTab(
+            self.ctrl,
+            on_open_waveform_tab=lambda: self.tab_widget.setCurrentIndex(0),
+        )
+        self.tab_widget.addTab(self._sync_test_tab, " ⚡ 第五步：同步功能测试")
         self._init_lines()                    # <- WaveformTabMixin
 
         # -- 全局主题 + Tab 整理 -----------------------------------------------
@@ -211,7 +214,7 @@ class PowerSyncUI(
         self._pt_voltage_check_tab.render(p)
         self._render_pt_record_tables(p)
         self._pt_phase_check_tab.render(p)
-        self._render_sync_test(p)
+        self._sync_test_tab.render(p)
         self._render_pt_exam(p)
         self._update_generator_buttons()
         self._render_test_panel(p)

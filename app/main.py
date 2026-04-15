@@ -340,6 +340,15 @@ class PowerSyncController:
     def stop_sync_test(self):
         self.sync_svc.stop_sync_test()
 
+    def get_sync_test_steps(self):
+        return self.sync_svc.get_sync_test_steps()
+
+    def is_sync_test_complete(self):
+        return self.sync_svc.is_sync_test_complete()
+
+    def is_gen_synced(self, gen_a, gen_b):
+        return self.sync_svc._is_gen_synced(gen_a, gen_b)
+
     def queue_accident_dialog(self, scene_id: str):
         if self._pending_accident_scene_id is None:
             self._pending_accident_scene_id = scene_id
