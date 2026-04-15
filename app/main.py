@@ -318,6 +318,15 @@ class PowerSyncController:
     def stop_pt_exam(self, gen_id):
         self.pt_exam_svc.stop_pt_exam(gen_id)
 
+    def get_pt_exam_steps(self, gen_id):
+        return self.pt_exam_svc.get_pt_exam_steps(gen_id)
+
+    def get_generator_state(self, gen_id):
+        return self._get_generator_state(gen_id)
+
+    def get_current_pt_exam_phase_match(self, gen_id):
+        return self.pt_exam_svc._get_current_pt_phase_match(gen_id)
+
     # ════════════════════════════════════════════════════════════════════════
     # 第五步：同步功能测试 — 委托给 SyncTestService
     # ════════════════════════════════════════════════════════════════════════

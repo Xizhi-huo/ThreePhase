@@ -138,10 +138,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 3 — UI 组件化（进行中：LoopTestTab / PtVoltageCheckTab / PtPhaseCheckTab / SyncTestTab 已完成） |
+| 当前阶段 | Phase 3 — UI 组件化（进行中：LoopTestTab / PtVoltageCheckTab / PtPhaseCheckTab / SyncTestTab / PtExamTab 已完成） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/test_panel.py`(2417)、`ui/styles.py`(1007) |
-| 下一轮默认起点 | Phase 3 — Round 27：PtExamTab 组件化 |
+| 下一轮默认起点 | Phase 3 — Round 28：WaveformTab / CircuitTab 组件化 |
 
 ---
 
@@ -277,7 +277,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 - [x] **`PtVoltageCheckTab`（10 处 ctrl 引用）**
 - [x] **`PtPhaseCheckTab`（10 处 ctrl 引用）**
 - [x] **`SyncTestTab`（16 处 ctrl 引用）**
-- [ ] **`PtExamTab`（20 处 ctrl 引用）**
+- [x] **`PtExamTab`（20 处 ctrl 引用）**
 - [ ] **`WaveformTab`（5 处 ctrl 引用，注意 matplotlib canvas 生命周期）**
 - [ ] **`CircuitTab`（10 处 ctrl 引用）**
 - [ ] **`ControlPanel`（12 处 ctrl 引用）**
@@ -484,6 +484,26 @@ class PowerSyncUI(QMainWindow):
 
 ### 当前未完成但已明确方向
 - `ui/test_panel.py` 仍是当前最大风险文件。
+
+### 第 27 轮 (2026-04-15)：Phase 3-5（PtExamTab 组件化）
+- 本轮唯一主攻目标：将 `PtExamTabMixin` 改造为独立 `QWidget` 组件，延续 Phase 3 的组件化迁移范式。
+- 实际完成：
+  - `ui/tabs/pt_exam_tab.py` 已彻底改写：删除 `PtExamTabMixin`，新增 `PtExamTabAPI(Protocol)` 与 `PtExamTab(QWidget)`。
+  - `PtExamTab` 已通过最小接口 `self._api` 与 controller 交互；同层 UI 协调通过 `on_open_circuit_tab` / `on_toggle_multimeter` 两个回调注入。
+  - `app/main.py` 为第四步流程补了 3 个薄转发方法：`get_pt_exam_steps()`、`get_generator_state()`、`get_current_pt_exam_phase_match()`。
+  - `ui/main_window.py` 已从基类列表中删除 `PtExamTabMixin`，改为组合装配 `self._pt_exam_tab = PtExamTab(...)`，并将渲染路径切换为 `self._pt_exam_tab.render(p)`。
+  - 第四步状态文本、步骤列表和 9 组记录标签已统一切到 `ui.tabs._step_style` 的共享 helper，不再保留本地内联 `setStyleSheet(...)` 与 `_BTN` 常量。
+- 删除了哪些旧代码：
+  - 删除 `ui/tabs/pt_exam_tab.py` 中整套 Mixin 实现与宿主命名空间属性写入方式。
+- 接口变化：
+  - PtExamTab 不再隐式依赖 `PowerSyncUI` 宿主状态；改为显式依赖 `PtExamTabAPI + 2 个 UI 回调`。
+  - `PowerSyncUI` 的 Mixin 继承链从 5 个 UI Mixin 减至 4 个。
+- 耦合度变化：
+  - `PtExamTab` 内部 `self.ctrl` / `self.pt_exam_svc` / `_get_generator_state` / `_get_current_pt_phase_match` 引用已收敛为 0。
+  - Phase 3 的组件化范式已连续在前五个步骤 Tab 上复用成功。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PARTIAL（自动化回归通过；完整人工点击第四步流程仍需在可交互 GUI 环境补做）
+- 下一轮起点：Phase 3 — Round 28：`WaveformTab / CircuitTab` 组件化
 
 ### 第 26 轮 (2026-04-15)：Phase 3（`test_panel.py` 宿主残留调用热修复）
 - 本轮唯一主攻目标：修复 `ui/test_panel.py` 对第一步旧宿主私有方法的残留调用，并补上后续组件化轮的审计门禁。
@@ -888,8 +908,8 @@ class PowerSyncUI(QMainWindow):
 如果后续没有新的明确指令，默认按以下顺序继续：
 
 **Phase 3：**
-1. `PtExamTab` 组件化
-2. `WaveformTab` / `CircuitTab` 顺序迁移
+1. `WaveformTab` / `CircuitTab` 组件化
+2. `ControlPanel` 组件化
 3. 最后处理 `ui/test_panel.py`
 
 ---

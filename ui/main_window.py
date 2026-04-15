@@ -24,8 +24,8 @@ PowerSyncUI 通过“Mixin + 独立 QWidget 组件”装配各区域：
   PtPhaseCheckTab    (ui/tabs/pt_phase_check_tab.py)
     - Tab4（PT 相序检查）的独立 QWidget 组件
 
-  PtExamTabMixin      (ui/tabs/pt_exam_tab.py)
-    - Tab5（PT 考核）的 QWidget 构建 + 渲染
+  PtExamTab         (ui/tabs/pt_exam_tab.py)
+    - Tab5（PT 考核）的独立 QWidget 组件
 
   SyncTestTab        (ui/tabs/sync_test_tab.py)
     - Tab6（同步测试）的独立 QWidget 组件
@@ -46,7 +46,7 @@ from ui.tabs.circuit_tab import CircuitTabMixin
 from ui.tabs.loop_test_tab import LoopTestTab
 from ui.tabs.pt_voltage_check_tab import PtVoltageCheckTab
 from ui.tabs.pt_phase_check_tab import PtPhaseCheckTab
-from ui.tabs.pt_exam_tab import PtExamTabMixin
+from ui.tabs.pt_exam_tab import PtExamTab
 from ui.tabs.sync_test_tab import SyncTestTab
 from ui.test_panel import TestPanelMixin
 
@@ -55,7 +55,6 @@ class PowerSyncUI(
     WidgetBuilderMixin,
     WaveformTabMixin,
     CircuitTabMixin,
-    PtExamTabMixin,
     TestPanelMixin,
     QtWidgets.QMainWindow,
 ):
@@ -138,7 +137,14 @@ class PowerSyncUI(
             ),
         )
         self.tab_widget.addTab(self._pt_phase_check_tab, " 🔀 第三步：PT相序检查 ")
-        self._setup_tab_pt_exam()             # <- PtExamTabMixin            Tab 5
+        self._pt_exam_tab = PtExamTab(
+            self.ctrl,
+            on_open_circuit_tab=lambda: self.tab_widget.setCurrentIndex(1),
+            on_toggle_multimeter=lambda: self.multimeter_cb.setChecked(
+                not self.multimeter_cb.isChecked()
+            ),
+        )
+        self.tab_widget.addTab(self._pt_exam_tab, " 🧪 第四步：PT二次端子压差测试")
         self._sync_test_tab = SyncTestTab(
             self.ctrl,
             on_open_waveform_tab=lambda: self.tab_widget.setCurrentIndex(0),
@@ -215,7 +221,7 @@ class PowerSyncUI(
         self._render_pt_record_tables(p)
         self._pt_phase_check_tab.render(p)
         self._sync_test_tab.render(p)
-        self._render_pt_exam(p)
+        self._pt_exam_tab.render(p)
         self._update_generator_buttons()
         self._render_test_panel(p)
         self._check_fault_detection()
