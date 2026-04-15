@@ -9,11 +9,11 @@ PowerSyncUI 通过“Mixin + 独立 QWidget 组件”装配各区域：
   WidgetBuilderMixin  (ui/panels/control_panel.py)
     - 右侧控制面板的所有 QWidget 构建 + 槽函数
 
-  WaveformTabMixin    (ui/tabs/waveform_tab.py)
-    - Tab0（波形/相量）的 matplotlib Figure 初始化 + 渲染
+  WaveformTab        (ui/tabs/waveform_tab.py)
+    - Tab0（波形/相量）的独立 QWidget 组件
 
-  CircuitTabMixin     (ui/tabs/circuit_tab.py)
-    - Tab1（母排拓扑）的 matplotlib Figure 初始化 + 渲染
+  CircuitTab         (ui/tabs/circuit_tab.py)
+    - Tab1（母排拓扑）的独立 QWidget 组件
 
   LoopTestTab          (ui/tabs/loop_test_tab.py)
     - Tab2（回路测试）的独立 QWidget 组件
@@ -33,7 +33,7 @@ PowerSyncUI 通过“Mixin + 独立 QWidget 组件”装配各区域：
 本文件只负责：
   - 窗口框架（QMainWindow）
   - 中央布局（Tab 区 + 控制面板滚动区）
-  - 调用各 Mixin 的构建入口 / 装配独立 Tab 组件
+  - 装配独立 Tab 组件
   - show_warning 等少量顶层接口
 """
 
@@ -41,8 +41,8 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 
 from ui.styles import apply_app_theme
 from ui.panels.control_panel import WidgetBuilderMixin
-from ui.tabs.waveform_tab import WaveformTabMixin
-from ui.tabs.circuit_tab import CircuitTabMixin
+from ui.tabs.waveform_tab import WaveformTab
+from ui.tabs.circuit_tab import CircuitTab
 from ui.tabs.loop_test_tab import LoopTestTab
 from ui.tabs.pt_voltage_check_tab import PtVoltageCheckTab
 from ui.tabs.pt_phase_check_tab import PtPhaseCheckTab
@@ -53,13 +53,11 @@ from ui.test_panel import TestPanelMixin
 
 class PowerSyncUI(
     WidgetBuilderMixin,
-    WaveformTabMixin,
-    CircuitTabMixin,
     TestPanelMixin,
     QtWidgets.QMainWindow,
 ):
     """
-    主窗口，装配剩余 Mixin 与已独立化的步骤 Tab 组件。
+    主窗口，装配右侧控制面板与已独立化的 Tab 组件。
     实例化后调用 showMaximized() 即可运行。
     """
 
@@ -111,8 +109,25 @@ class PowerSyncUI(
 
         # -- 构建各区域 --------------------------------------------------------
         self._build_control_panel()           # <- WidgetBuilderMixin
-        self._setup_tab_waveforms()           # <- WaveformTabMixin          Tab 0
-        self._setup_tab_circuit()             # <- CircuitTabMixin           Tab 1
+        self._waveform_tab = WaveformTab(self.ctrl, parent=self)
+        self.tab_widget.addTab(self._waveform_tab, " 📊 实时波形与同期表 ")
+        self._circuit_tab = CircuitTab(
+            self.ctrl,
+            sidebar_badges={
+                "bus_status_lbl": self.bus_status_lbl,
+                "bus_reference_lbl": self.bus_reference_lbl,
+                "arbitrator_lbl": self.arbitrator_lbl,
+                "relay_lbl": self.relay_lbl,
+                "status1_lbl": self.status1_lbl,
+                "status2_lbl": self.status2_lbl,
+            },
+            apply_badge_tone=self._apply_badge_tone,
+            on_circuit_click=self._on_circuit_click,
+            is_test_mode_active=lambda: getattr(self, "_test_mode_active", False),
+            get_current_test_step=self._current_test_step,
+            parent=self,
+        )
+        self.tab_widget.addTab(self._circuit_tab, " ⚡ 母排拓扑与环流监测 ")
         self._loop_test_tab = LoopTestTab(
             self.ctrl,
             on_open_circuit_tab=lambda: self.tab_widget.setCurrentIndex(1),
@@ -150,7 +165,6 @@ class PowerSyncUI(
             on_open_waveform_tab=lambda: self.tab_widget.setCurrentIndex(0),
         )
         self.tab_widget.addTab(self._sync_test_tab, " ⚡ 第五步：同步功能测试")
-        self._init_lines()                    # <- WaveformTabMixin
 
         # -- 全局主题 + Tab 整理 -----------------------------------------------
         apply_app_theme(QtWidgets.QApplication.instance())
@@ -174,6 +188,30 @@ class PowerSyncUI(
 
     def _on_resize_done(self):
         self._is_resizing = False
+
+    @property
+    def ax_circuit(self):
+        return self._circuit_tab.ax_circuit
+
+    @property
+    def canvas2(self):
+        return self._circuit_tab.canvas2
+
+    @property
+    def phase_seq_meter(self):
+        return self._circuit_tab.phase_seq_meter
+
+    def _draw_waveform_canvases(self):
+        self._waveform_tab.redraw_canvases()
+
+    def rebuild_circuit_diagram(self):
+        self._circuit_tab.rebuild_circuit_diagram()
+
+    def connect_phase_seq_meter(self, pt_name: str):
+        self._circuit_tab.connect_phase_seq_meter(pt_name)
+
+    def disconnect_phase_seq_meter(self):
+        self._circuit_tab.disconnect_phase_seq_meter()
 
     def _consume_controller_ui_requests(self):
         tab_index = self.ctrl.consume_requested_ui_tab()
@@ -201,24 +239,13 @@ class PowerSyncUI(
     # -- 渲染主入口（每帧由 QTimer 驱动） -------------------------------------
     def render_visuals(self, rs):
         self._consume_controller_ui_requests()
-        p   = rs
-        deg = rs.fixed_deg
-        d   = rs.plot_data
-        bus_a_display = rs.bus_amp if rs.bus_live else 0.0
+        p = rs
 
-        self._render_waveforms(d, deg, bus_a_display)
-        self._render_phasors(d, bus_a_display)
-        self._render_waveform_dashboard(rs)
-        self._render_ct_readings(p)
-        self._render_bus_status(p)
-        self._render_breakers(p)
-        self._render_gen_wire_visibility()
-        self._render_grounding_and_pt(p)
-        self._render_multimeter(p)
+        self._waveform_tab.render(rs)
+        self._circuit_tab.render(p)
         # _render_circuit_quick_record 已移除（记录功能集中在右侧测试条）
         self._loop_test_tab.render(p)
         self._pt_voltage_check_tab.render(p)
-        self._render_pt_record_tables(p)
         self._pt_phase_check_tab.render(p)
         self._sync_test_tab.render(p)
         self._pt_exam_tab.render(p)
@@ -234,7 +261,7 @@ class PowerSyncUI(
         if idx == 0:
             self._draw_waveform_canvases()
         elif idx == 1:
-            self.canvas2.draw_idle()
+            self._circuit_tab.redraw_canvas()
 
     # -- 故障检测轮询（每帧 render_visuals 末尾调用） --------------------------
     def _check_fault_detection(self):

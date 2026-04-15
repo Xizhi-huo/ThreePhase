@@ -6,8 +6,6 @@
 - 给人看：明确当前项目的维护边界、阶段目标、已完成进度。
 - 给 AI 看：后续新对话先读本文件，再决定下一轮该做什么，不再重复讨论方向。
 
----
-
 ## 1. 维护边界总原则
 
 ### 1.1 总目标
@@ -138,10 +136,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 3 — UI 组件化（进行中：LoopTestTab / PtVoltageCheckTab / PtPhaseCheckTab / SyncTestTab / PtExamTab 已完成） |
+| 当前阶段 | Phase 3 — UI 组件化（进行中：LoopTestTab / PtVoltageCheckTab / PtPhaseCheckTab / SyncTestTab / PtExamTab / WaveformTab / CircuitTab 已完成） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/test_panel.py`(2417)、`ui/styles.py`(1007) |
-| 下一轮默认起点 | Phase 3 — Round 28：WaveformTab / CircuitTab 组件化 |
+| 下一轮默认起点 | Phase 3 — Round 29：WidgetBuilderMixin / TestPanelMixin 组件化评估（最终两轮收尾） |
 
 ---
 
@@ -278,8 +276,8 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 - [x] **`PtPhaseCheckTab`（10 处 ctrl 引用）**
 - [x] **`SyncTestTab`（16 处 ctrl 引用）**
 - [x] **`PtExamTab`（20 处 ctrl 引用）**
-- [ ] **`WaveformTab`（5 处 ctrl 引用，注意 matplotlib canvas 生命周期）**
-- [ ] **`CircuitTab`（10 处 ctrl 引用）**
+- [x] **`WaveformTab`（5 处 ctrl 引用，注意 matplotlib canvas 生命周期）**
+- [x] **`CircuitTab`（10 处 ctrl 引用）**
 - [ ] **`ControlPanel`（12 处 ctrl 引用）**
 - [ ] **`TestPanel`（111 处 ctrl 引用）— 最后做，最复杂**
   - 先按步骤拆成 5 个独立 StepWidget
@@ -484,6 +482,30 @@ class PowerSyncUI(QMainWindow):
 
 ### 当前未完成但已明确方向
 - `ui/test_panel.py` 仍是当前最大风险文件。
+
+### 第 28 轮 (2026-04-15)：Phase 3-6（WaveformTab / CircuitTab 组件化）
+- 本轮唯一主攻目标：将 `WaveformTabMixin` 与 `CircuitTabMixin` 同步迁移为独立 `QWidget` 组件，收敛 `PowerSyncUI` 继承链，并保住 matplotlib 画布生命周期与外部调用兼容面。
+- 实际完成：
+  - `ui/tabs/waveform_tab.py` 已彻底改写：删除 `WaveformTabMixin`，新增 `WaveformTabAPI(Protocol)` 与 `WaveformTab(QWidget)`，`Figure / FigureCanvas / ax_* / line_* / phasor_*` 全部收回组件实例持有。
+  - `ui/tabs/circuit_tab.py` 已彻底改写：删除 `CircuitTabMixin`，保留模块级 `_qs(...)` 供 `pt_phase_check_tab.py` 继续导入，同时新增 `CircuitTabAPI(Protocol)` 与 `CircuitTab(QWidget)`。
+  - `app/main.py` 已补齐 3 个薄转发：`get_pt_blackbox_mode()`、`get_pt_phase_sequence()`、`is_assessment_mode()`；原有 `is_loop_test_complete()` 直接复用。
+  - `ui/main_window.py` 已从基类列表中删除 `WaveformTabMixin` 与 `CircuitTabMixin`，当前只保留 `WidgetBuilderMixin + TestPanelMixin + QMainWindow`。
+  - `render_visuals()` 中原先分散的 10 个波形/拓扑私有渲染入口已合并为 `self._waveform_tab.render(rs)` 与 `self._circuit_tab.render(p)` 两次转发。
+  - 主窗口已保留 `rebuild_circuit_diagram()`、`connect_phase_seq_meter()`、`disconnect_phase_seq_meter()` 等价转发，并补了 `ax_circuit` / `canvas2` / `phase_seq_meter` 兼容属性，确保 `app/main.py`、`ui/test_panel.py`、`WidgetBuilderMixin._on_circuit_click()` 调用方式不变。
+- 删除了哪些旧代码：
+  - 删除 `ui/tabs/waveform_tab.py` 中整套 Mixin 实现。
+  - 删除 `ui/tabs/circuit_tab.py` 中整套 Mixin 实现。
+  - 删除 `ui/main_window.py` 中对 `_setup_tab_waveforms()`、`_setup_tab_circuit()`、`_init_lines()` 以及 10 个波形/拓扑私有渲染入口的直接依赖。
+- 接口变化：
+  - `WaveformTab` 通过 `WaveformTabAPI` 读取 `sim_state + physics`，本轮保留 `physics` property 是为了原样保留 `fixed_deg / bus_freq / bus_phase` 三处读取点，避免再人为拆出一层非必要包装后改变渲染边界。
+  - `CircuitTab` 通过 `CircuitTabAPI` 读取 `sim_state`、各步骤状态切片与 4 个只读查询接口，不再暴露 `flow_mgr` / `loop_svc` / `phase_resolver` 等 service 对象。
+  - `PowerSyncUI` 的 UI Mixin 继承链从 4 个减至 2 个，Phase 3 只剩 `WidgetBuilderMixin` 与 `TestPanelMixin` 待收口。
+- 耦合度变化：
+  - `WaveformTab` / `CircuitTab` 内部 `self.ctrl` 穿透访问已收敛为 0。
+  - `PowerSyncUI` 不再直接持有 Waveform/Circuit 的 matplotlib 初始化与渲染细节，主窗口职责进一步缩回到装配与少量兼容转发。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PARTIAL（自动化回归与 `py_compile` 通过；完整 GUI 手动冒烟仍需在可交互环境补做，重点关注 Tab 0 / Tab 1 首屏与 resize 重绘）
+- 下一轮起点：Phase 3 — Round 29：`WidgetBuilderMixin / TestPanelMixin` 组件化评估（最终两轮收尾）
 
 ### 第 27 轮 (2026-04-15)：Phase 3-5（PtExamTab 组件化）
 - 本轮唯一主攻目标：将 `PtExamTabMixin` 改造为独立 `QWidget` 组件，延续 Phase 3 的组件化迁移范式。
@@ -908,9 +930,9 @@ class PowerSyncUI(QMainWindow):
 如果后续没有新的明确指令，默认按以下顺序继续：
 
 **Phase 3：**
-1. `WaveformTab` / `CircuitTab` 组件化
-2. `ControlPanel` 组件化
-3. 最后处理 `ui/test_panel.py`
+1. `WidgetBuilderMixin` / `TestPanelMixin` 组件化评估（最终两轮收尾）
+2. 判断 `WidgetBuilderMixin` 是否保留为主窗口初始化辅助，还是继续拆成独立面板组件
+3. 最后收口 `ui/test_panel.py` 与主窗口壳层
 
 ---
 

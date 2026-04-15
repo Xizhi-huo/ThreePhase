@@ -159,6 +159,15 @@ class PowerSyncController:
             raise ValueError(f"Unsupported PT ratio attribute: {ratio_attr}")
         setattr(self.sim_state, ratio_attr, ratio)
 
+    def get_pt_blackbox_mode(self):
+        return self.pt_blackbox_mode_val
+
+    def get_pt_phase_sequence(self, pt_name):
+        return self.phase_resolver.get_pt_phase_sequence(pt_name)
+
+    def is_assessment_mode(self):
+        return self.flow_mgr.is_assessment_mode()
+
     def request_ui_tab(self, tab_index: int):
         self._pending_ui_tab_index = tab_index
 

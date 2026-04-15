@@ -1,10 +1,14 @@
 """
 ui/tabs/waveform_tab.py
-实时波形与同期表 Tab（Tab 0）
+实时波形与同期表 Tab（独立 QWidget 组件）
 """
 
+from __future__ import annotations
+
+from typing import Protocol
+
 import numpy as np
-from PyQt5 import QtWidgets, QtCore
+from PyQt5 import QtCore, QtWidgets
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.ticker import MultipleLocator
@@ -13,8 +17,8 @@ from domain.constants import (
     GRID_AMP,
     GRID_FREQ,
     SYNC_FREQ_OK_HZ,
-    SYNC_VOLT_OK_V,
     SYNC_PHASE_OK_DEG,
+    SYNC_VOLT_OK_V,
 )
 
 
@@ -52,17 +56,24 @@ class MplCanvas(FigureCanvas):
         return self._min_size
 
 
-class WaveformTabMixin:
-    """
-    混入类，提供实时波形与同期表 Tab 的构建和渲染方法。
-    """
+class WaveformTabAPI(Protocol):
+    @property
+    def sim_state(self) -> object: ...
 
-    def _setup_tab_waveforms(self):
-        tab = QtWidgets.QWidget()
-        tab.setProperty("waveformPage", True)
-        self.tab_widget.addTab(tab, " 📊 实时波形与同期表 ")
+    @property
+    def physics(self) -> object: ...
 
-        root = QtWidgets.QVBoxLayout(tab)
+
+class WaveformTab(QtWidgets.QWidget):
+    def __init__(self, api: WaveformTabAPI, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._api = api
+        self._build()
+        self._init_lines()
+
+    def _build(self) -> None:
+        self.setProperty("waveformPage", True)
+        root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(12)
 
@@ -75,6 +86,20 @@ class WaveformTabMixin:
 
         content.addWidget(self._build_waveform_left_column(), stretch=3)
         content.addWidget(self._build_waveform_right_column(), stretch=2)
+
+    def render(self, rs) -> None:
+        d = rs.plot_data or {}
+        deg = rs.fixed_deg
+        bus_a_display = rs.bus_amp if rs.bus_live else 0.0
+
+        self._render_waveforms(d, deg, bus_a_display)
+        self._render_phasors(d, bus_a_display)
+        self._render_waveform_dashboard(rs)
+
+    def redraw_canvases(self) -> None:
+        self.canvas_wave.draw_idle()
+        self.canvas_bus.draw_idle()
+        self.canvas_phasor.draw_idle()
 
     def _build_waveform_header(self):
         layout = QtWidgets.QVBoxLayout()
@@ -212,13 +237,19 @@ class WaveformTabMixin:
         self.fig_wave.patch.set_facecolor(PLOT_THEME["figure_bg"])
         self.ax_a, self.ax_b, self.ax_c = self.fig_wave.subplots(3, 1, sharex=True)
 
-        deg_end = self.ctrl.physics.fixed_deg[-1]
+        deg_end = self._api.physics.fixed_deg[-1]
         for ax, title in zip(
             (self.ax_a, self.ax_b, self.ax_c),
             ("A 相", "B 相", "C 相"),
         ):
             self._style_axis(ax)
-            ax.set_title(title, loc="left", fontsize=10, color=PLOT_THEME["text"], fontweight="bold")
+            ax.set_title(
+                title,
+                loc="left",
+                fontsize=10,
+                color=PLOT_THEME["text"],
+                fontweight="bold",
+            )
             ax.set_ylim(-13000, 13000)
             ax.set_xlim(0, deg_end)
             ax.xaxis.set_major_locator(MultipleLocator(90))
@@ -233,9 +264,15 @@ class WaveformTabMixin:
         self.fig_bus.patch.set_facecolor(PLOT_THEME["figure_bg"])
         self.ax_all = self.fig_bus.add_subplot(111)
         self._style_axis(self.ax_all)
-        self.ax_all.set_title("母线总览", loc="left", fontsize=10, color=PLOT_THEME["text"], fontweight="bold")
+        self.ax_all.set_title(
+            "母线总览",
+            loc="left",
+            fontsize=10,
+            color=PLOT_THEME["text"],
+            fontweight="bold",
+        )
         self.ax_all.set_ylim(-13000, 13000)
-        self.ax_all.set_xlim(0, self.ctrl.physics.fixed_deg[-1])
+        self.ax_all.set_xlim(0, self._api.physics.fixed_deg[-1])
         self.ax_all.xaxis.set_major_locator(MultipleLocator(90))
         self.ax_all.set_xlabel("窗口角度 (°)", fontsize=9, color=PLOT_THEME["muted"])
         self.ax_all.set_ylabel("V", fontsize=8, color=PLOT_THEME["muted"])
@@ -268,16 +305,64 @@ class WaveformTabMixin:
 
     def _init_waveform_lines(self):
         self.line_ga, = self.ax_a.plot([], [], color=PLOT_THEME["phase_a"], lw=2.2, label="Busbar")
-        self.line_gen1_a, = self.ax_a.plot([], [], color=PLOT_THEME["phase_a"], ls="--", lw=1.4, alpha=0.78, label="Gen1")
-        self.line_gen2_a, = self.ax_a.plot([], [], color=PLOT_THEME["phase_a"], ls="-.", lw=1.4, alpha=0.78, label="Gen2")
+        self.line_gen1_a, = self.ax_a.plot(
+            [],
+            [],
+            color=PLOT_THEME["phase_a"],
+            ls="--",
+            lw=1.4,
+            alpha=0.78,
+            label="Gen1",
+        )
+        self.line_gen2_a, = self.ax_a.plot(
+            [],
+            [],
+            color=PLOT_THEME["phase_a"],
+            ls="-.",
+            lw=1.4,
+            alpha=0.78,
+            label="Gen2",
+        )
 
         self.line_gb, = self.ax_b.plot([], [], color=PLOT_THEME["phase_b"], lw=2.2, label="Busbar")
-        self.line_gen1_b, = self.ax_b.plot([], [], color=PLOT_THEME["phase_b"], ls="--", lw=1.4, alpha=0.78, label="Gen1")
-        self.line_gen2_b, = self.ax_b.plot([], [], color=PLOT_THEME["phase_b"], ls="-.", lw=1.4, alpha=0.78, label="Gen2")
+        self.line_gen1_b, = self.ax_b.plot(
+            [],
+            [],
+            color=PLOT_THEME["phase_b"],
+            ls="--",
+            lw=1.4,
+            alpha=0.78,
+            label="Gen1",
+        )
+        self.line_gen2_b, = self.ax_b.plot(
+            [],
+            [],
+            color=PLOT_THEME["phase_b"],
+            ls="-.",
+            lw=1.4,
+            alpha=0.78,
+            label="Gen2",
+        )
 
         self.line_gc, = self.ax_c.plot([], [], color=PLOT_THEME["phase_c"], lw=2.2, label="Busbar")
-        self.line_gen1_c, = self.ax_c.plot([], [], color=PLOT_THEME["phase_c"], ls="--", lw=1.4, alpha=0.78, label="Gen1")
-        self.line_gen2_c, = self.ax_c.plot([], [], color=PLOT_THEME["phase_c"], ls="-.", lw=1.4, alpha=0.78, label="Gen2")
+        self.line_gen1_c, = self.ax_c.plot(
+            [],
+            [],
+            color=PLOT_THEME["phase_c"],
+            ls="--",
+            lw=1.4,
+            alpha=0.78,
+            label="Gen1",
+        )
+        self.line_gen2_c, = self.ax_c.plot(
+            [],
+            [],
+            color=PLOT_THEME["phase_c"],
+            ls="-.",
+            lw=1.4,
+            alpha=0.78,
+            label="Gen2",
+        )
 
         self.line_all_a, = self.ax_all.plot([], [], color=PLOT_THEME["phase_a"], lw=2.2, label="A 相")
         self.line_all_b, = self.ax_all.plot([], [], color=PLOT_THEME["phase_b"], lw=2.2, label="B 相")
@@ -334,7 +419,7 @@ class WaveformTabMixin:
 
     def _render_waveform_dashboard(self, rs):
         d = rs.plot_data or {}
-        sim = self.ctrl.sim_state
+        sim = self._api.sim_state
         if not rs.bus_live:
             self._render_waveform_dashboard_no_reference(rs, sim)
             return
@@ -418,9 +503,9 @@ class WaveformTabMixin:
             }
         if rs.bus_live:
             return {
-                "freq": getattr(self.ctrl.physics, "bus_freq", GRID_FREQ),
+                "freq": getattr(self._api.physics, "bus_freq", GRID_FREQ),
                 "amp": rs.bus_amp,
-                "phase_deg": np.degrees(getattr(self.ctrl.physics, "bus_phase", 0.0)),
+                "phase_deg": np.degrees(getattr(self._api.physics, "bus_phase", 0.0)),
                 "badge_text": rs.bus_reference_msg or "参考基准: 母排",
             }
         return {
@@ -436,11 +521,6 @@ class WaveformTabMixin:
     def _compute_phase_delta_deg(self, target_phase_deg, ref_phase_deg):
         raw = abs(target_phase_deg - ref_phase_deg) % 360.0
         return min(raw, 360.0 - raw)
-
-    def _draw_waveform_canvases(self):
-        self.canvas_wave.draw_idle()
-        self.canvas_bus.draw_idle()
-        self.canvas_phasor.draw_idle()
 
     def _make_metric_card(self, title, caption):
         card = self._make_panel_card(metric=True)
