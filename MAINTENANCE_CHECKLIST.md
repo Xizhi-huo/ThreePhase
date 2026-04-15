@@ -1,3 +1,118 @@
+<!-- ─────────── 第 26 轮提示词（复制给执行型 AI） ─────────── -->
+
+```text
+你是本仓库的执行型重构 AI。本轮任务：Phase 3 — Round 26：test_panel.py 宿主残留调用热修复。
+本轮不是组件化轮，而是对 R22 遗留回归的最小范围修复 + 审计清单加固。严格按范围执行，不做额外重构。
+
+─────────────────────────────────────
+一、背景与问题根因
+─────────────────────────────────────
+• 仓库路径：/Users/promise/Downloads/3/Intership/ThreePhase_entier/ThreePhase
+• 当前 PowerSyncUI 继承链：5-Mixin（本轮不减 Mixin，维持 5）
+• Python 环境：/Users/promise/opt/anaconda3/envs/power_gui/bin/python
+• 快照测试基线：13 passed
+
+【问题链路】
+  - ui/test_panel.py:1216 在 `_on_tp_start_step` 的 step==1 分支仍调用
+      self._on_toggle_loop_test_mode()
+  - 但 R22 已将切换逻辑迁进 LoopTestTab._on_toggle_loop_mode（ui/tabs/loop_test_tab.py:197）
+  - PowerSyncUI 现在只持有组件实例（ui/main_window.py:117），不再拥有宿主私有方法
+  - 结果：进入/退出第一步测试时抛 AttributeError —— 属于"宿主残留调用"
+
+【定性】
+  - 不是 service/controller 问题
+  - 是 test_panel.py 对旧 UI 宿主私有方法的遗留耦合
+  - 验证了 test_panel.py 仍是最大风险文件
+
+─────────────────────────────────────
+二、本轮唯一目标
+─────────────────────────────────────
+  1. 修复 ui/test_panel.py:1213 `_on_tp_start_step` 的 step==1 分支，改为通过 Controller 公开接口驱动
+  2. 在 MAINTENANCE_CHECKLIST.md §5（审计清单）新增"跨面板/跨 Tab 悬空调用扫描"硬门禁，防止 R27+ 再犯
+  3. 在 §9 轮次历史记录本轮为"R22 验收遗漏热修复"
+
+─────────────────────────────────────
+三、必须的修改（只改这一处代码）
+─────────────────────────────────────
+把 ui/test_panel.py:1213-1216 的：
+
+    def _on_tp_start_step(self):
+        step = self._current_test_step()
+        if step == 1:
+            self._on_toggle_loop_test_mode()
+
+改为：
+
+    def _on_tp_start_step(self):
+        step = self._current_test_step()
+        if step == 1:
+            if self.ctrl.sim_state.loop_test_mode:
+                self.ctrl.exit_loop_test_mode()
+            else:
+                self.ctrl.enter_loop_test_mode()
+
+语义说明：
+  - 与 LoopTestTab._on_toggle_loop_mode 完全一致（后者读 self._api.sim_state.loop_test_mode
+    并调用 enter/exit_loop_test_mode）
+  - step 2-5 分支已经是这种"读状态 + 公开方法"模板，step 1 也对齐
+
+─────────────────────────────────────
+四、禁止事项（硬门禁）
+─────────────────────────────────────
+✗ 禁止在 PowerSyncUI 中重新补 _on_toggle_loop_test_mode 兼容壳（会把刚拆掉的宿主耦合缝回来）
+✗ 禁止让 test_panel.py 调用 self._loop_test_tab._on_toggle_loop_mode()（跨组件私有调用，更糟）
+✗ 禁止修改 services/ / domain/ / adapters/ / tests/ 下任何文件
+✗ 禁止顺手重构 test_panel.py 其他内容（本轮是热修复，不是 test_panel 拆分）
+✗ 禁止改动任何 ui/tabs/*.py
+✗ 禁止新增/修改 Controller 公开方法（enter_loop_test_mode / exit_loop_test_mode / sim_state 已存在，直接用）
+
+─────────────────────────────────────
+五、审计清单加固（本轮必须同步落地）
+─────────────────────────────────────
+在 MAINTENANCE_CHECKLIST.md §5 新增以下硬门禁项（作为 R27 及之后所有组件化轮的必检项）：
+
+  【悬空宿主调用扫描】每轮组件化结束后必须执行：
+    grep -rn "_on_toggle_\(loop\|pt_voltage\|pt_phase\|sync\)" ui/
+  结果必须只出现在组件自身文件内（ui/tabs/*_tab.py），
+  不得出现在 ui/test_panel.py、ui/main_window.py 或其他兄弟模块。
+
+说明加一句：
+  "R22 验收时遗漏了 test_panel.py 对宿主私有方法的调用，导致 step 1 切换抛 AttributeError，
+   R26 补修。后续组件化轮必须执行此扫描，防止同类回归。"
+
+─────────────────────────────────────
+六、验收自检（完成后必须全绿才算收工）
+─────────────────────────────────────
+在仓库根执行并粘贴输出：
+  1) grep -rn "_on_toggle_loop_test_mode" --include="*.py"
+       → 无匹配（既不在 test_panel.py 也不在 PowerSyncUI）
+  2) grep -rn "_on_toggle_\(loop\|pt_voltage\|pt_phase\|sync\)" ui/
+       → 仅在 ui/tabs/*_tab.py 内出现
+  3) git diff --name-only services domain adapters tests ui/tabs ui/main_window.py
+       → 空
+  4) git diff --name-only
+       → 仅应包含 ui/test_panel.py、MAINTENANCE_CHECKLIST.md
+  5) /Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q
+       → 13 passed
+  6) 手动 GUI 冒烟（由用户执行并反馈）：
+     • 启动 app，切到底部测试面板，选 step 1
+     • 点"开始第一步" → 应进入回路检查模式，无 AttributeError
+     • 点"退出第一步" → 应正常退出，无 AttributeError
+     • 切 step 2/3/4/5，各自点一次"开始/退出"，确认均无回归
+
+─────────────────────────────────────
+七、交付物
+─────────────────────────────────────
+请仅修改以下 2 个文件，且只修改这 2 个：
+  • ui/test_panel.py           （step==1 分支改为 Controller 公开接口，约 4 行）
+  • MAINTENANCE_CHECKLIST.md   （§5 新增悬空宿主调用扫描门禁；§9 记录 R26 热修复）
+
+完成后输出"第 26 轮已自检通过，待用户手动 GUI 冒烟验证"，然后等待我的审计。
+禁止自行 git commit。
+```
+
+<!-- ─────────── 第 26 轮提示词 结束 ─────────── -->
+
 # 维护与重构清单 v2
 
 最后更新：`2026-04-15`
@@ -141,7 +256,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 | 当前阶段 | Phase 3 — UI 组件化（进行中：LoopTestTab / PtVoltageCheckTab / PtPhaseCheckTab / SyncTestTab 已完成） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/test_panel.py`(2417)、`ui/styles.py`(1007) |
-| 下一轮默认起点 | Phase 3 — Round 26：PtExamTab 组件化 |
+| 下一轮默认起点 | Phase 3 — Round 27：PtExamTab 组件化 |
 
 ---
 
@@ -345,6 +460,20 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 规则：新实现落地后，同轮就删旧实现。
 
+### 5.1 组件化轮新增硬门禁：悬空宿主调用扫描
+
+每轮组件化结束后必须执行：
+
+```bash
+grep -rn "_on_toggle_\(loop\|pt_voltage\|pt_phase\|sync\)" ui/
+```
+
+结果必须只出现在组件自身文件内（`ui/tabs/*_tab.py`），不得出现在 `ui/test_panel.py`、`ui/main_window.py` 或其他兄弟模块。
+
+说明：
+- R22 验收时遗漏了 `test_panel.py` 对宿主私有方法的调用，导致 step 1 切换抛 `AttributeError`，R26 补修。
+- 后续组件化轮必须执行此扫描，防止同类回归。
+
 ---
 
 ## 6. 核心引擎快照测试规范
@@ -470,6 +599,23 @@ class PowerSyncUI(QMainWindow):
 
 ### 当前未完成但已明确方向
 - `ui/test_panel.py` 仍是当前最大风险文件。
+
+### 第 26 轮 (2026-04-15)：Phase 3（`test_panel.py` 宿主残留调用热修复）
+- 本轮唯一主攻目标：修复 `ui/test_panel.py` 对第一步旧宿主私有方法的残留调用，并补上后续组件化轮的审计门禁。
+- 实际完成：
+  - `ui/test_panel.py` 中 `_on_tp_start_step()` 的 `step == 1` 分支已改为直接通过 `self.ctrl.sim_state.loop_test_mode + enter/exit_loop_test_mode()` 驱动。
+  - 修复后，第一步开始/退出测试不再依赖 `PowerSyncUI._on_toggle_loop_test_mode()` 这一已被 R22 移除的宿主私有方法。
+  - `MAINTENANCE_CHECKLIST.md` §5 已新增“悬空宿主调用扫描”硬门禁，要求后续组件化轮强制执行 `_on_toggle_*` 搜索。
+- 删除了哪些旧代码：
+  - 删除 `ui/test_panel.py` 中对 `_on_toggle_loop_test_mode()` 的宿主残留调用。
+- 接口变化：
+  - 无新增接口；仅将 `test_panel.py` 的第一步切换逻辑对齐到现有 controller 公开能力。
+- 耦合度变化：
+  - `test_panel.py` 不再依赖已迁移步骤组件对应的宿主私有方法。
+  - 本轮属于 R22 验收遗漏回归的最小范围热修复，不改变当前 5-Mixin 基线。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PARTIAL（自动化回归通过；step 1-5 的完整手动 GUI 冒烟仍需在可交互 GUI 环境补做）
+- 下一轮起点：Phase 3 — Round 27：`PtExamTab` 组件化
 
 ### 第 25 轮 (2026-04-15)：Phase 3-4（SyncTestTab 组件化）
 - 本轮唯一主攻目标：将 `SyncTestTabMixin` 改造为独立 `QWidget` 组件，延续 Phase 3 的组件化迁移范式。

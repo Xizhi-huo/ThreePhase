@@ -1213,7 +1213,10 @@ class TestPanelMixin:
     def _on_tp_start_step(self):
         step = self._current_test_step()
         if step == 1:
-            self._on_toggle_loop_test_mode()
+            if self.ctrl.sim_state.loop_test_mode:
+                self.ctrl.exit_loop_test_mode()
+            else:
+                self.ctrl.enter_loop_test_mode()
         elif step == 2:
             if self.ctrl.pt_voltage_check_state.started:
                 self.ctrl.stop_pt_voltage_check()
