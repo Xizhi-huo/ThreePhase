@@ -21,8 +21,8 @@ PowerSyncUI 通过“Mixin + 独立 QWidget 组件”装配各区域：
   PtVoltageCheckTab      (ui/tabs/pt_voltage_check_tab.py)
     - Tab3（PT 线电压检查）的独立 QWidget 组件
 
-  PtPhaseCheckTabMixin (ui/tabs/pt_phase_check_tab.py)
-    - Tab4（PT 相序检查）的 QWidget 构建 + 渲染
+  PtPhaseCheckTab    (ui/tabs/pt_phase_check_tab.py)
+    - Tab4（PT 相序检查）的独立 QWidget 组件
 
   PtExamTabMixin      (ui/tabs/pt_exam_tab.py)
     - Tab5（PT 考核）的 QWidget 构建 + 渲染
@@ -45,7 +45,7 @@ from ui.tabs.waveform_tab import WaveformTabMixin
 from ui.tabs.circuit_tab import CircuitTabMixin
 from ui.tabs.loop_test_tab import LoopTestTab
 from ui.tabs.pt_voltage_check_tab import PtVoltageCheckTab
-from ui.tabs.pt_phase_check_tab import PtPhaseCheckTabMixin
+from ui.tabs.pt_phase_check_tab import PtPhaseCheckTab
 from ui.tabs.pt_exam_tab import PtExamTabMixin
 from ui.tabs.sync_test_tab import SyncTestTabMixin
 from ui.test_panel import TestPanelMixin
@@ -55,14 +55,13 @@ class PowerSyncUI(
     WidgetBuilderMixin,
     WaveformTabMixin,
     CircuitTabMixin,
-    PtPhaseCheckTabMixin,
     PtExamTabMixin,
     SyncTestTabMixin,
     TestPanelMixin,
     QtWidgets.QMainWindow,
 ):
     """
-    主窗口，装配剩余 Mixin 与已独立化的 Tab 组件。
+    主窗口，装配剩余 Mixin 与已独立化的步骤 Tab 组件。
     实例化后调用 showMaximized() 即可运行。
     """
 
@@ -132,7 +131,14 @@ class PowerSyncUI(
             ),
         )
         self.tab_widget.addTab(self._pt_voltage_check_tab, " 📏 第二步：PT线电压检查 ")
-        self._setup_tab_pt_phase_check()      # <- PtPhaseCheckTabMixin      Tab 4
+        self._pt_phase_check_tab = PtPhaseCheckTab(
+            self.ctrl,
+            on_open_circuit_tab=lambda: self.tab_widget.setCurrentIndex(1),
+            on_toggle_multimeter=lambda: self.multimeter_cb.setChecked(
+                not self.multimeter_cb.isChecked()
+            ),
+        )
+        self.tab_widget.addTab(self._pt_phase_check_tab, " 🔀 第三步：PT相序检查 ")
         self._setup_tab_pt_exam()             # <- PtExamTabMixin            Tab 5
         self._setup_tab_sync_test()           # <- SyncTestTabMixin          Tab 6
         self._init_lines()                    # <- WaveformTabMixin
@@ -204,7 +210,7 @@ class PowerSyncUI(
         self._loop_test_tab.render(p)
         self._pt_voltage_check_tab.render(p)
         self._render_pt_record_tables(p)
-        self._render_pt_phase_check(p)
+        self._pt_phase_check_tab.render(p)
         self._render_sync_test(p)
         self._render_pt_exam(p)
         self._update_generator_buttons()

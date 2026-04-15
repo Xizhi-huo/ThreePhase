@@ -285,6 +285,9 @@ class PowerSyncController:
     def reset_pt_phase_check(self):
         self.pt_phase_svc.reset_pt_phase_check()
 
+    def get_pt_phase_check_steps(self):
+        return self.pt_phase_svc.get_pt_phase_check_steps()
+
     # ════════════════════════════════════════════════════════════════════════
     # 第四步：PT 二次端子压差考核 — 委托给 PtExamService
     # ════════════════════════════════════════════════════════════════════════
