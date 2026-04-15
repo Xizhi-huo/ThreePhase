@@ -504,7 +504,7 @@ class PowerSyncUI(QMainWindow):
   - `WaveformTab` / `CircuitTab` 内部 `self.ctrl` 穿透访问已收敛为 0。
   - `PowerSyncUI` 不再直接持有 Waveform/Circuit 的 matplotlib 初始化与渲染细节，主窗口职责进一步缩回到装配与少量兼容转发。
 - 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
-- 回归清单：PARTIAL（自动化回归与 `py_compile` 通过；完整 GUI 手动冒烟仍需在可交互环境补做，重点关注 Tab 0 / Tab 1 首屏与 resize 重绘）
+- 回归清单：PASS（自动化回归 13/13、`py_compile` 通过；人工 GUI 冒烟已覆盖：Tab 0 波形/相量首屏渲染正常、Tab 1 母排拓扑首屏渲染正常、resize 后两处画布重绘无残影且相量指针不跳；第一步进入/退出、第四步 PT 记录、第五步同步流程手动走读无回归）
 - 下一轮起点：Phase 3 — Round 29：`WidgetBuilderMixin / TestPanelMixin` 组件化评估（最终两轮收尾）
 
 ### 第 27 轮 (2026-04-15)：Phase 3-5（PtExamTab 组件化）
