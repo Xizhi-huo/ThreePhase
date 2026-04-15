@@ -4,7 +4,7 @@ ui/main_window.py  -  PyQt5 主窗口（组装入口）
 
 架构
 ----
-PowerSyncUI 通过多重继承组合各个 Mixin：
+PowerSyncUI 通过“Mixin + 独立 QWidget 组件”装配各区域：
 
   WidgetBuilderMixin  (ui/panels/control_panel.py)
     - 右侧控制面板的所有 QWidget 构建 + 槽函数
@@ -18,8 +18,8 @@ PowerSyncUI 通过多重继承组合各个 Mixin：
   LoopTestTab          (ui/tabs/loop_test_tab.py)
     - Tab2（回路测试）的独立 QWidget 组件
 
-  PtVoltageCheckTabMixin (ui/tabs/pt_voltage_check_tab.py)
-    - Tab3（PT 线电压检查）的 QWidget 构建 + 渲染
+  PtVoltageCheckTab      (ui/tabs/pt_voltage_check_tab.py)
+    - Tab3（PT 线电压检查）的独立 QWidget 组件
 
   PtPhaseCheckTabMixin (ui/tabs/pt_phase_check_tab.py)
     - Tab4（PT 相序检查）的 QWidget 构建 + 渲染
@@ -33,7 +33,7 @@ PowerSyncUI 通过多重继承组合各个 Mixin：
 本文件只负责：
   - 窗口框架（QMainWindow）
   - 中央布局（Tab 区 + 控制面板滚动区）
-  - 调用各 Mixin 的构建入口
+  - 调用各 Mixin 的构建入口 / 装配独立 Tab 组件
   - show_warning 等少量顶层接口
 """
 
@@ -44,7 +44,7 @@ from ui.panels.control_panel import WidgetBuilderMixin
 from ui.tabs.waveform_tab import WaveformTabMixin
 from ui.tabs.circuit_tab import CircuitTabMixin
 from ui.tabs.loop_test_tab import LoopTestTab
-from ui.tabs.pt_voltage_check_tab import PtVoltageCheckTabMixin
+from ui.tabs.pt_voltage_check_tab import PtVoltageCheckTab
 from ui.tabs.pt_phase_check_tab import PtPhaseCheckTabMixin
 from ui.tabs.pt_exam_tab import PtExamTabMixin
 from ui.tabs.sync_test_tab import SyncTestTabMixin
@@ -55,7 +55,6 @@ class PowerSyncUI(
     WidgetBuilderMixin,
     WaveformTabMixin,
     CircuitTabMixin,
-    PtVoltageCheckTabMixin,
     PtPhaseCheckTabMixin,
     PtExamTabMixin,
     SyncTestTabMixin,
@@ -63,7 +62,7 @@ class PowerSyncUI(
     QtWidgets.QMainWindow,
 ):
     """
-    主窗口，组合所有 Mixin。
+    主窗口，装配剩余 Mixin 与已独立化的 Tab 组件。
     实例化后调用 showMaximized() 即可运行。
     """
 
@@ -125,7 +124,14 @@ class PowerSyncUI(
             ),
         )
         self.tab_widget.addTab(self._loop_test_tab, " 🔌 第一步：回路连通性测试 ")
-        self._setup_tab_pt_voltage_check()    # <- PtVoltageCheckTabMixin    Tab 3
+        self._pt_voltage_check_tab = PtVoltageCheckTab(
+            self.ctrl,
+            on_open_circuit_tab=lambda: self.tab_widget.setCurrentIndex(1),
+            on_toggle_multimeter=lambda: self.multimeter_cb.setChecked(
+                not self.multimeter_cb.isChecked()
+            ),
+        )
+        self.tab_widget.addTab(self._pt_voltage_check_tab, " 📏 第二步：PT线电压检查 ")
         self._setup_tab_pt_phase_check()      # <- PtPhaseCheckTabMixin      Tab 4
         self._setup_tab_pt_exam()             # <- PtExamTabMixin            Tab 5
         self._setup_tab_sync_test()           # <- SyncTestTabMixin          Tab 6
@@ -196,7 +202,7 @@ class PowerSyncUI(
         self._render_multimeter(p)
         # _render_circuit_quick_record 已移除（记录功能集中在右侧测试条）
         self._loop_test_tab.render(p)
-        self._render_pt_voltage_check(p)
+        self._pt_voltage_check_tab.render(p)
         self._render_pt_record_tables(p)
         self._render_pt_phase_check(p)
         self._render_sync_test(p)

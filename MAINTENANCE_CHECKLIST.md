@@ -138,10 +138,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 3 — UI 组件化（进行中：LoopTestTab 已完成） |
+| 当前阶段 | Phase 3 — UI 组件化（进行中：LoopTestTab / PtVoltageCheckTab 已完成） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/test_panel.py`(2417)、`ui/styles.py`(1007) |
-| 下一轮默认起点 | Phase 3 — Round 23：PtVoltageCheckTab 组件化 |
+| 下一轮默认起点 | Phase 3 — Round 24：PtPhaseCheckTab 组件化 |
 
 ---
 
@@ -274,7 +274,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
   - 定义 `LoopTestTabAPI(Protocol)`：`get_loop_test_state()` / `record_loop_measurement()` / `is_loop_test_complete()`
   - 从 `PowerSyncUI` 继承链中删除 `LoopTestTabMixin`
   - 验证全流程正常
-- [ ] **`PtVoltageCheckTab`（10 处 ctrl 引用）**
+- [x] **`PtVoltageCheckTab`（10 处 ctrl 引用）**
 - [ ] **`PtPhaseCheckTab`（10 处 ctrl 引用）**
 - [ ] **`SyncTestTab`（16 处 ctrl 引用）**
 - [ ] **`PtExamTab`（20 处 ctrl 引用）**
@@ -470,6 +470,26 @@ class PowerSyncUI(QMainWindow):
 
 ### 当前未完成但已明确方向
 - `ui/test_panel.py` 仍是当前最大风险文件。
+
+### 第 23 轮 (2026-04-14)：Phase 3-2（PtVoltageCheckTab 组件化）
+- 本轮唯一主攻目标：将 `PtVoltageCheckTabMixin` 改造为独立 `QWidget` 组件，延续 Phase 3 的组件化迁移范式。
+- 实际完成：
+  - `ui/tabs/pt_voltage_check_tab.py` 已彻底改写：删除 `PtVoltageCheckTabMixin`，新增 `PtVoltageCheckTabAPI(Protocol)` 与 `PtVoltageCheckTab(QWidget)`。
+  - `PtVoltageCheckTab` 已通过最小接口 `self._api` 与 controller 交互；同层 UI 协调通过 `on_open_circuit_tab` / `on_toggle_multimeter` 两个回调注入。
+  - `app/main.py` 为第二步流程补了 1 个薄转发方法：`get_pt_voltage_check_steps()`。
+  - `ui/main_window.py` 已从基类列表中删除 `PtVoltageCheckTabMixin`，改为组合装配 `self._pt_voltage_check_tab = PtVoltageCheckTab(...)`，并将渲染路径切换为 `self._pt_voltage_check_tab.render(p)`。
+  - 第二步颜色映射已统一复用 `ui.tabs._step_style.tone_from_color()`，未在组件内重复造一套样式辅助。
+- 删除了哪些旧代码：
+  - 删除 `ui/tabs/pt_voltage_check_tab.py` 中整套 Mixin 实现与宿主命名空间属性写入方式。
+- 接口变化：
+  - PtVoltageCheckTab 不再隐式依赖 `PowerSyncUI` 宿主状态；改为显式依赖 `PtVoltageCheckTabAPI + 2 个 UI 回调`。
+  - `PowerSyncUI` 的 Mixin 继承链从 8 个 UI Mixin 减至 7 个。
+- 耦合度变化：
+  - `PtVoltageCheckTab` 内部 `self.ctrl` / `self.pt_voltage_svc` 引用已收敛为 0。
+  - 第二阶段组件化继续沿用“独立 QWidget 自持状态 + 最小 Protocol 接口”的固定范式。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PARTIAL（自动化回归通过；组件级离屏实例化与 render 校验通过，完整人工点击第二步流程仍需在可交互 GUI 环境补做）
+- 下一轮起点：Phase 3 — Round 24：`PtPhaseCheckTab` 组件化
 
 ### 第 22 轮 (2026-04-14)：Phase 3-1（LoopTestTab 组件化概念验证）
 - 本轮唯一主攻目标：将 `LoopTestTabMixin` 改造为独立 `QWidget` 组件，作为 Phase 3 的范式试点。
@@ -797,8 +817,8 @@ class PowerSyncUI(QMainWindow):
 如果后续没有新的明确指令，默认按以下顺序继续：
 
 **Phase 3：**
-1. `PtVoltageCheckTab` 组件化
-2. `PtPhaseCheckTab` / `SyncTestTab` 顺序迁移
+1. `PtPhaseCheckTab` 组件化
+2. `SyncTestTab` / `PtExamTab` 顺序迁移
 3. 最后处理 `ui/test_panel.py`
 
 ---

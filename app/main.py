@@ -264,6 +264,9 @@ class PowerSyncController:
     def stop_pt_voltage_check(self):
         self.pt_voltage_svc.stop_pt_voltage_check()
 
+    def get_pt_voltage_check_steps(self):
+        return self.pt_voltage_svc.get_pt_voltage_check_steps()
+
     # ════════════════════════════════════════════════════════════════════════
     # 第三步：PT 相序检查 — 委托给 PtPhaseCheckService
     # ════════════════════════════════════════════════════════════════════════
