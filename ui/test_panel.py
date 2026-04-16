@@ -1,21 +1,28 @@
 """
 ui/test_panel.py
-合闸前测试模式 — 竖向测试控制条 Mixin
+合闸前测试模式 — 竖向测试控制条独立组件
 
-进入测试模式后，右侧控制台隐藏，本 Mixin 提供的竖向测试条替代之。
+进入测试模式后，右侧控制台隐藏，本组件提供的竖向测试条替代之。
 母排拓扑图自动保持前台，所有测试步骤的必要按钮全部集中在此条内。
 """
 
+from typing import Callable, Optional, Protocol
+
 from PyQt5 import QtWidgets, QtCore, QtGui
+
 from domain.assessment import AssessmentEventType
 from domain.enums import BreakerPosition
 from domain.fault_scenarios import SCENARIOS
+from ui.tabs._step_style import (
+    apply_badge_tone as _apply_badge_tone,
+    apply_button_tone as _apply_button_tone,
+    set_props as _set_props,
+)
+from ui.widgets.gen_wiring_widget import _GenWiringWidget
+from ui.widgets.pt_wiring_widget import _PTWiringWidget
 
 # ── 主题色常量（清新工业教学风）────────────────────────────────────────────
-_PANEL_BG   = "#eef3f9"
-_TITLE_BG   = "#ffffff"
 _SECTION_BG = "#ffffff"
-_BTN        = "font-size:12px; font-weight:bold; padding:6px 12px; border-radius:8px;"
 _GRP_STYLE  = (
     "QGroupBox{{background:{bg}; color:#0f172a; font-size:13px; font-weight:bold;"
     " border:1px solid #dbe4f0; border-radius:12px; margin-top:12px; padding-top:14px;}}"
@@ -26,387 +33,127 @@ _GRP_STYLE  = (
 
 
 # ── 相色常量（黄/绿/红）────────────────────────────────────────────────────
-_PC = {'A': '#f59e0b', 'B': '#22c55e', 'C': '#ef4444'}
-_PI = {'A': 0, 'B': 1, 'C': 2}
+class TestPanelAPI(Protocol):
+    @property
+    def sim_state(self) -> object: ...
+    @property
+    def loop_test_state(self) -> object: ...
+    @property
+    def pt_voltage_check_state(self) -> object: ...
+    @property
+    def pt_phase_check_state(self) -> object: ...
+    @property
+    def pt_exam_states(self) -> object: ...
+    @property
+    def sync_test_state(self) -> object: ...
+    @property
+    def physics(self) -> object: ...
+    @property
+    def test_flow_mode(self) -> str: ...
+    @test_flow_mode.setter
+    def test_flow_mode(self, value: str) -> None: ...
+
+    def reset_for_scenario(self, scenario_id: str) -> None: ...
+    def inject_fault(self, fault_id: str) -> None: ...
+    def enter_loop_test_mode(self) -> None: ...
+    def exit_loop_test_mode(self) -> None: ...
+    def start_pt_voltage_check(self) -> None: ...
+    def stop_pt_voltage_check(self) -> None: ...
+    def start_pt_phase_check(self) -> None: ...
+    def stop_pt_phase_check(self) -> None: ...
+    def start_pt_exam(self, gen_id: int) -> None: ...
+    def stop_pt_exam(self, gen_id: int) -> None: ...
+    def start_sync_test(self) -> None: ...
+    def stop_sync_test(self) -> None: ...
+    def reset_loop_test(self) -> None: ...
+    def reset_pt_voltage_check(self) -> None: ...
+    def reset_pt_phase_check(self) -> None: ...
+    def reset_pt_exam(self, gen_id: int) -> None: ...
+    def reset_sync_test(self) -> None: ...
+    def finalize_loop_test(self) -> None: ...
+    def finalize_pt_voltage_check(self) -> None: ...
+    def finalize_pt_phase_check(self) -> None: ...
+    def finalize_all_pt_exams(self) -> None: ...
+    def finalize_sync_test(self) -> None: ...
+    def record_loop_measurement(self, phase: str) -> None: ...
+    def record_pt_voltage_measurement(self, pt_name: str, pair: str) -> None: ...
+    def record_current_pt_measurement(self, gen_id: int) -> None: ...
+    def record_all_pt_measurements_quick(self) -> None: ...
+    def record_sync_round(self, round_no: int) -> None: ...
+    def update_pt_ratio(self, attr: str, ratio: float) -> None: ...
+    def get_loop_test_steps(self) -> list: ...
+    def get_pt_voltage_check_steps(self) -> list: ...
+    def get_pt_phase_check_steps(self) -> list: ...
+    def get_pt_exam_steps(self, gen_id: int) -> list: ...
+    def get_sync_test_steps(self) -> list: ...
+    def is_loop_test_complete(self) -> bool: ...
+    def is_pt_voltage_check_complete(self) -> bool: ...
+    def is_pt_phase_check_complete(self) -> bool: ...
+    def is_sync_test_complete(self) -> bool: ...
+    def allow_admin_shortcuts(self) -> bool: ...
+    def can_use_pt_exam_quick_record(self) -> bool: ...
+    def should_show_fault_detected_banner(self) -> bool: ...
+    def can_advance_with_fault(self) -> bool: ...
+    def should_hold_at_step4_when_wiring_fault_unrepaired(self) -> bool: ...
+    def has_unrepaired_wiring_fault(self) -> bool: ...
+    def is_assessment_mode(self) -> bool: ...
+    def start_assessment_session(self, scenario_id: str, *, preset_mode: str) -> None: ...
+    def append_assessment_event(self, event_type, **kwargs) -> None: ...
+    def get_test_progress_snapshot(self, step: int, pre_step5_repair_triggered: bool) -> object: ...
+    def finish_assessment_session_if_ready(self, step: int) -> object: ...
+    def mark_assessment_result_shown(self) -> None: ...
+    def submit_random_fault_identification(self, scene_id: str) -> None: ...
+    def can_inspect_blackbox(self) -> bool: ...
+    def can_repair_in_blackbox(self) -> bool: ...
+    def get_blackbox_runtime_state(self, target: str) -> object: ...
+    def apply_blackbox_repair_attempt(self, **kwargs) -> object: ...
+    def toggle_engine(self, gen_id: int) -> None: ...
+    def toggle_breaker(self, gen_id: int) -> None: ...
+    def record_phase_sequence(self, pt_name: str, seq: str) -> bool: ...
 
 
-class _GenWiringWidget(QtWidgets.QWidget):
-    """发电机端子盒接线图：上方三个内部绕组圆（A/B/C 固定色），
-    下方三个输出接线柱方块（U/V/W），连线根据 mapping 动态绘制。
-    interactive=True 时支持点击两个节点互换接线。"""
+class TestPanelWidget(QtWidgets.QWidget):
+    """
+    独立 QWidget 组件，为 PowerSyncUI 提供合闸前测试模式的竖向控制条。
+    """
 
-    def __init__(self, mapping, interactive=False, parent=None):
-        """mapping: dict {terminal('A'/'B'/'C'): actual_phase}"""
+    def __init__(
+        self,
+        api: TestPanelAPI,
+        *,
+        on_show_test_panel: Callable[[bool], None],
+        on_set_current_tab: Callable[[int], None],
+        on_set_step_tabs_visible: Callable[[bool], None],
+        on_toggle_multimeter: Callable[[], None],
+        on_force_multimeter_off: Callable[[], None],
+        on_connect_phase_seq_meter: Callable[[str], None],
+        on_disconnect_phase_seq_meter: Callable[[], None],
+        get_phase_seq_meter_sequence: Callable[[], str],
+        parent: Optional[QtWidgets.QWidget] = None,
+    ) -> None:
         super().__init__(parent)
-        self.mapping = mapping
-        self.interactive = interactive
-        # _order[i] = 第 i 个接线柱（U/V/W）实际连接的绕组相
-        phases = ['A', 'B', 'C']
-        self._order = [mapping.get(p, p) for p in phases]
-        self._selected = None   # (zone, raw_idx): zone='top'|'bot', raw_idx∈{0,1,2}
-        self.setFixedSize(320, 250)
-        if interactive:
-            self.setCursor(QtCore.Qt.PointingHandCursor)
+        self._api = api
+        self._on_show_test_panel = on_show_test_panel
+        self._on_set_current_tab = on_set_current_tab
+        self._on_set_step_tabs_visible = on_set_step_tabs_visible
+        self._on_toggle_multimeter = on_toggle_multimeter
+        self._on_force_multimeter_off = on_force_multimeter_off
+        self._on_connect_phase_seq_meter = on_connect_phase_seq_meter
+        self._on_disconnect_phase_seq_meter = on_disconnect_phase_seq_meter
+        self._get_phase_seq_meter_sequence = get_phase_seq_meter_sequence
+        self.test_panel = self
+        self._pre_test_scenario_id = ""
+        self._pre_test_flow_mode = "teaching"
+        self._pre_test_preset_mode = "normal"
+        self._setup_test_panel()
 
-    def get_order(self):
-        """返回当前 [ph_at_U, ph_at_V, ph_at_W] 列表（供修复时写入 pt_phase_orders）。"""
-        return list(self._order)
+    def set_pretest_config(self, scenario_id: str, flow_mode: str, preset_mode: str) -> None:
+        self._pre_test_scenario_id = scenario_id
+        self._pre_test_flow_mode = flow_mode
+        self._pre_test_preset_mode = preset_mode
 
-    def _xs(self):
-        return [int(self.width() * 0.22), int(self.width() * 0.50), int(self.width() * 0.78)]
-
-    def _hit_test(self, pos):
-        """返回 (zone, raw_idx) 或 None。top=绕组圆(idx=相序0-2), bot=接线柱(idx=柱0-2)。"""
-        xs = self._xs(); r = 13
-        for i in range(3):
-            if abs(pos.x() - xs[i]) <= r + 4 and abs(pos.y() - 64) <= r + 4:
-                return ('top', i)
-        for i in range(3):
-            if abs(pos.x() - xs[i]) <= r + 4 and abs(pos.y() - 186) <= r + 4:
-                return ('bot', i)
-        return None
-
-    def _resolve_j(self, zone, raw_idx):
-        """将点击 (zone, raw_idx) 转换为接线柱下标 j（0/1/2 对应 U/V/W）。"""
-        if zone == 'bot':
-            return raw_idx
-        # top: raw_idx 是绕组序号 → 找到该绕组当前连接的接线柱
-        ph = ['A', 'B', 'C'][raw_idx]
-        return self._order.index(ph)
-
-    def mousePressEvent(self, event):
-        if not self.interactive:
-            return
-        hit = self._hit_test(event.pos())
-        if hit is None:
-            self._selected = None
-            self.update()
-            return
-        if self._selected is None:
-            self._selected = hit
-            self.update()
-            return
-        # 第二次点击：计算两个接线柱下标并互换
-        j1 = self._resolve_j(*self._selected)
-        j2 = self._resolve_j(*hit)
-        if j1 != j2:
-            self._order[j1], self._order[j2] = self._order[j2], self._order[j1]
-        self._selected = None
-        self.update()
-
-    def paintEvent(self, event):
-        qp = QtGui.QPainter(self)
-        qp.setRenderHint(QtGui.QPainter.Antialiasing)
-        w = self.width()
-        xs = self._xs()
-        phases = ['A', 'B', 'C']
-        term_labels = ['U', 'V', 'W']
-        r = 13          # circle/square half-size
-        y_src = 64      # 内部绕组圆心 y
-        y_dst = 186     # 输出接线柱中心 y
-
-        # 白色背景
-        qp.setPen(QtCore.Qt.NoPen)
-        qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
-        qp.drawRoundedRect(0, 0, w, self.height(), 6, 6)
-
-        # 区域标签
-        f7 = QtGui.QFont(); f7.setPointSize(8)
-        qp.setFont(f7); qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
-        qp.drawText(QtCore.QRect(0, 8, w, 16), QtCore.Qt.AlignCenter, "── 内闭绕组 ──")
-        qp.drawText(QtCore.QRect(0, y_dst + r + 24, w, 16),
-                    QtCore.Qt.AlignCenter, "── 输出接线柱 ──")
-
-        # ── 连线（先画，在圆下方）──
-        for i in range(3):
-            actual = self._order[i]
-            sx = xs[_PI[actual]]   # 源：actual 相绕组的固定 x
-            dx = xs[i]             # 目标：第 i 个接线柱 x
-            c = QtGui.QColor(_PC[actual])
-            pen = QtGui.QPen(c, 2.5, QtCore.Qt.SolidLine,
-                             QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)
-            qp.setPen(pen)
-            qp.drawLine(sx, y_src + r + 1, dx, y_dst - r - 1)
-
-        f9b = QtGui.QFont(); f9b.setPointSize(10); f9b.setBold(True)
-
-        # ── 内部绕组圆（A=黄/B=绿/C=红，位置固定）──
-        for i, ph in enumerate(phases):
-            x = xs[i]; c = QtGui.QColor(_PC[ph])
-            # 选中高亮
-            sel_top = (self._selected == ('top', i))
-            border_c = QtGui.QColor('#1d4ed8') if sel_top else c.darker(130)
-            border_w = 3.5 if sel_top else 2
-            qp.setPen(QtGui.QPen(border_c, border_w))
-            qp.setBrush(QtGui.QBrush(c))
-            qp.drawEllipse(x - r, y_src - r, 2 * r, 2 * r)
-            qp.setPen(QtGui.QPen(QtGui.QColor('#ffffff')))
-            qp.setFont(f9b)
-            qp.drawText(QtCore.QRect(x - r, y_src - r, 2 * r, 2 * r),
-                        QtCore.Qt.AlignCenter, ph)
-
-        # ── 输出接线柱方块（U/V/W，颜色跟随实际相）──
-        for i in range(3):
-            x = xs[i]
-            actual = self._order[i]
-            c = QtGui.QColor(_PC[actual])
-            sel_bot = (self._selected == ('bot', i))
-            border_c = QtGui.QColor('#1d4ed8') if sel_bot else QtGui.QColor('#475569')
-            border_w = 3 if sel_bot else 2
-            qp.setPen(QtGui.QPen(border_c, border_w))
-            qp.setBrush(QtGui.QBrush(QtGui.QColor('#f0f4f8')))
-            qp.drawRect(x - r, y_dst - r, 2 * r, 2 * r)
-            qp.setPen(QtGui.QPen(QtGui.QColor('#1e293b')))
-            qp.setFont(f9b)
-            qp.drawText(QtCore.QRect(x - r, y_dst - r, 2 * r, 2 * r),
-                        QtCore.Qt.AlignCenter, term_labels[i])
-            # 实际相标注（接线柱下方）
-            f8 = QtGui.QFont(); f8.setPointSize(9)
-            qp.setFont(f8); qp.setPen(QtGui.QPen(c))
-            qp.drawText(QtCore.QRect(x - 22, y_dst + r + 6, 44, 18),
-                        QtCore.Qt.AlignCenter, f"({actual})")
-        qp.end()
-
-
-class _PTWiringWidget(QtWidgets.QWidget):
-    """PT 接线盒图：按逐级传播后的实际相别显示每一层端子颜色。
-
-    下方输入电缆显示上游实际来相顺序；
-    A1/B1/C1 显示一次侧传播后的实际相别；
-    A2/B2/C2 显示二次侧传播后的实际相别；
-    最上方测量端仅将二次侧当前结果垂直引出，不再额外重排为 ABC。
-    """
-
-    _Y_OUT   = 56
-    _Y_SEC   = 176
-    _Y_BOXT  = 224
-    _Y_BOXB  = 344
-    _Y_PRI   = 392
-    _Y_CABLE = 496
-
-    def __init__(self, pri_order, sec_order, pri_input_order=None,
-                 interactive_pri=False, interactive_sec=False, parent=None):
-        """pri_order/sec_order 为本级置换，pri_input_order 为上游实际来相顺序。"""
-        super().__init__(parent)
-        self._pri_order = list(pri_order)
-        self._sec_order = list(sec_order)
-        self._pri_input_order = list(pri_input_order or ['A', 'B', 'C'])
-        self.interactive_pri = interactive_pri
-        self.interactive_sec = interactive_sec
-        self._sel_sec = None
-        self._sel_pri = None
-        self.setFixedSize(410, 560)
-        if interactive_pri or interactive_sec:
-            self.setCursor(QtCore.Qt.PointingHandCursor)
-
-    def get_pri_order(self):
-        return list(self._pri_order)
-
-    def get_sec_order(self):
-        return list(self._sec_order)
-
-    def _primary_actual_order(self):
-        labels = ('A', 'B', 'C')
-        return [self._pri_input_order[labels.index(cable_label)] for cable_label in self._pri_order]
-
-    def _secondary_actual_order(self):
-        labels = ('A', 'B', 'C')
-        primary_actual = self._primary_actual_order()
-        return [primary_actual[labels.index(sec_label)] for sec_label in self._sec_order]
-
-    def _xs(self):
-        return [int(self.width() * 0.22), int(self.width() * 0.50), int(self.width() * 0.78)]
-
-    def _hit_sec(self, pos):
-        """若点击落在二次侧端子圆内，返回下标（0/1/2），否则返回 None。"""
-        xs = self._xs(); r = 11
-        for i in range(3):
-            if abs(pos.x() - xs[i]) <= r + 4 and abs(pos.y() - self._Y_SEC) <= r + 4:
-                return i
-        return None
-
-    def _hit_pri(self, pos):
-        xs = self._xs(); r = 11
-        for i in range(3):
-            if abs(pos.x() - xs[i]) <= r + 4 and abs(pos.y() - self._Y_PRI) <= r + 4:
-                return i
-        return None
-
-    def mousePressEvent(self, event):
-        if not (self.interactive_pri or self.interactive_sec):
-            return
-        sec_hit = self._hit_sec(event.pos()) if self.interactive_sec else None
-        pri_hit = self._hit_pri(event.pos()) if self.interactive_pri else None
-        if sec_hit is not None:
-            self._sel_pri = None
-            if self._sel_sec is None:
-                self._sel_sec = sec_hit
-                self.update()
-                return
-            j1, j2 = self._sel_sec, sec_hit
-            if j1 != j2:
-                self._sec_order[j1], self._sec_order[j2] = self._sec_order[j2], self._sec_order[j1]
-            self._sel_sec = None
-            self.update()
-            return
-        # 第二次点击：互换两个二次侧端子的相
-        if pri_hit is not None:
-            self._sel_sec = None
-            if self._sel_pri is None:
-                self._sel_pri = pri_hit
-                self.update()
-                return
-            j1, j2 = self._sel_pri, pri_hit
-            if j1 != j2:
-                self._pri_order[j1], self._pri_order[j2] = self._pri_order[j2], self._pri_order[j1]
-            self._sel_pri = None
-            self.update()
-            return
-        self._sel_sec = None
-        self._sel_pri = None
-        self.update()
-
-    def paintEvent(self, event):
-        qp = QtGui.QPainter(self)
-        qp.setRenderHint(QtGui.QPainter.Antialiasing)
-        w = self.width()
-        xs = self._xs()
-        pri_input = self._pri_input_order
-        pri_actual = self._primary_actual_order()
-        sec_actual = self._secondary_actual_order()
-        r = 11   # 端子半径
-
-        y_out   = self._Y_OUT
-        y_sec   = self._Y_SEC
-        y_boxt  = self._Y_BOXT
-        y_boxb  = self._Y_BOXB
-        y_pri   = self._Y_PRI
-        y_cable = self._Y_CABLE
-
-        # 白色背景
-        qp.setPen(QtCore.Qt.NoPen)
-        qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
-        qp.drawRoundedRect(0, 0, w, self.height(), 6, 6)
-
-        # 变压器铁芯盒（中间灰色虚线框）
-        qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8'), 1.5, QtCore.Qt.DashLine))
-        qp.setBrush(QtGui.QBrush(QtGui.QColor('#f0f9ff')))
-        qp.drawRect(16, y_boxt, w - 32, y_boxb - y_boxt)
-        f8 = QtGui.QFont(); f8.setPointSize(9)
-        qp.setFont(f8); qp.setPen(QtGui.QPen(QtGui.QColor('#64748b')))
-        ymid = (y_boxt + y_boxb) // 2
-        qp.drawText(QtCore.QRect(0, ymid - 10, w, 20),
-                    QtCore.Qt.AlignCenter, "⚡  变压器铁芯（黑盒）")
-
-        f9b = QtGui.QFont(); f9b.setPointSize(10); f9b.setBold(True)
-        f7  = QtGui.QFont(); f7.setPointSize(8)
-
-        # ═══════════════════ 二次侧（上半部）═══════════════════
-
-        # 测量端口圆：仅垂直引出二次侧当前实际结果
-        qp.setFont(f7); qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
-        qp.drawText(QtCore.QRect(0, 12, w, 18), QtCore.Qt.AlignCenter,
-                    f"实际输出: {''.join(sec_actual)}")
-        for i, ph in enumerate(sec_actual):
-            x = xs[i]; c = QtGui.QColor(_PC[ph])
-            qp.setPen(QtGui.QPen(c.darker(120), 1.5))
-            qp.setBrush(QtGui.QBrush(c.lighter(140)))
-            qp.drawEllipse(x - r, y_out - r, 2 * r, 2 * r)
-            qp.setPen(QtGui.QPen(c.darker(140)))
-            qp.setFont(f9b)
-            qp.drawText(QtCore.QRect(x - r, y_out - r, 2 * r, 2 * r),
-                        QtCore.Qt.AlignCenter, ph)
-
-        # 二次侧输出：从 A2/B2/C2 垂直引出当前实际相别
-        for i, ph_out in enumerate(sec_actual):
-            sx = xs[i]
-            c  = QtGui.QColor(_PC[ph_out])
-            pen = QtGui.QPen(c, 2.2, QtCore.Qt.SolidLine,
-                             QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)
-            qp.setPen(pen)
-            qp.drawLine(sx, y_sec - r - 1, sx, y_out + r + 1)
-
-        # 二次侧端子圆（a2/b2/c2，颜色跟随输出相；选中时蓝边）
-        sec_lbl = ['a2', 'b2', 'c2']
-        for i, ph_out in enumerate(sec_actual):
-            x = xs[i]; c = QtGui.QColor(_PC[ph_out])
-            selected = (self._sel_sec == i)
-            border_c = QtGui.QColor('#1d4ed8') if selected else c.darker(120)
-            border_w = 3.5 if selected else 2
-            qp.setPen(QtGui.QPen(border_c, border_w))
-            qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
-            qp.drawEllipse(x - r, y_sec - r, 2 * r, 2 * r)
-            f7b = QtGui.QFont(); f7b.setPointSize(8); f7b.setBold(True)
-            qp.setFont(f7b); qp.setPen(QtGui.QPen(QtGui.QColor('#1e293b')))
-            qp.drawText(QtCore.QRect(x - r, y_sec - r, 2 * r, 2 * r),
-                        QtCore.Qt.AlignCenter, sec_lbl[i])
-            qp.setFont(f7)
-            qp.setPen(QtGui.QPen(c))
-            qp.drawText(QtCore.QRect(x + r + 6, y_sec - 9, 36, 18),
-                        QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, f"({ph_out})")
-
-        qp.setFont(f7)
-        qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
-        qp.drawText(QtCore.QRect(0, y_sec + r + 10, w, 16), QtCore.Qt.AlignCenter,
-                    "── 二次侧测量端口 ──")
-
-        # ═══════════════════ 一次侧（下半部）═══════════════════
-
-        # 一次侧端子圆：显示一次侧端子处的实际相别
-        qp.setFont(f7); qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
-        qp.drawText(QtCore.QRect(0, y_pri - r - 26, w, 16), QtCore.Qt.AlignCenter,
-                    f"一次侧结果: {''.join(pri_actual)}")
-        pri_lbl = ['A1', 'B1', 'C1']
-        for i, ph_in in enumerate(pri_actual):
-            x = xs[i]; c = QtGui.QColor(_PC[ph_in])
-            selected = (self._sel_pri == i)
-            border_c = QtGui.QColor('#1d4ed8') if selected else c.darker(120)
-            border_w = 3.5 if selected else 2
-            qp.setPen(QtGui.QPen(border_c, border_w))
-            qp.setBrush(QtGui.QBrush(QtGui.QColor('#ffffff')))
-            qp.drawEllipse(x - r, y_pri - r, 2 * r, 2 * r)
-            f7b = QtGui.QFont(); f7b.setPointSize(8); f7b.setBold(True)
-            qp.setFont(f7b); qp.setPen(QtGui.QPen(QtGui.QColor('#1e293b')))
-            qp.drawText(QtCore.QRect(x - r, y_pri - r, 2 * r, 2 * r),
-                        QtCore.Qt.AlignCenter, pri_lbl[i])
-            qp.setFont(f7)
-            qp.setPen(QtGui.QPen(c))
-            qp.drawText(QtCore.QRect(x + r + 6, y_pri - 9, 36, 18),
-                        QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, f"({ph_in})")
-
-        # 一次侧交叉连线：从下方来相实际位置连到一次侧端子
-        for i, ph_in in enumerate(pri_actual):
-            src_x = xs[pri_input.index(ph_in)]
-            dst_x = xs[i]
-            c = QtGui.QColor(_PC[ph_in])
-            pen = QtGui.QPen(c, 2.2, QtCore.Qt.SolidLine,
-                             QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)
-            qp.setPen(pen)
-            qp.drawLine(src_x, y_cable - r - 1, dst_x, y_pri + r + 1)
-
-        # 输入电缆圆：继承上游实际来相顺序
-        for i, ph in enumerate(pri_input):
-            x = xs[i]; c = QtGui.QColor(_PC[ph])
-            qp.setPen(QtGui.QPen(c.darker(120), 2))
-            qp.setBrush(QtGui.QBrush(c))
-            qp.drawEllipse(x - r, y_cable - r, 2 * r, 2 * r)
-            qp.setPen(QtGui.QPen(QtGui.QColor('#ffffff')))
-            qp.setFont(f9b)
-            qp.drawText(QtCore.QRect(x - r, y_cable - r, 2 * r, 2 * r),
-                        QtCore.Qt.AlignCenter, ph)
-
-        qp.setFont(f7); qp.setPen(QtGui.QPen(QtGui.QColor('#94a3b8')))
-        qp.drawText(QtCore.QRect(0, self.height() - 30, w, 16),
-                    QtCore.Qt.AlignCenter, "── 一次侧输入电缆 ──")
-        qp.drawText(QtCore.QRect(0, y_cable + r + 8, w, 16), QtCore.Qt.AlignCenter,
-                    f"实际来相: {''.join(pri_input)}")
-        qp.end()
-
-
-class TestPanelMixin:
-    """
-    混入类，为 PowerSyncUI 提供合闸前测试模式的竖向控制条。
-    """
+    def is_test_mode_active(self) -> bool:
+        return getattr(self, "_test_mode_active", False)
 
     # ════════════════════════════════════════════════════════════════════
     # 构建入口
@@ -417,9 +164,8 @@ class TestPanelMixin:
         self._tp_gen_refs: dict = {}
 
         # ── 外层容器（与 ctrl_container 同宽，初始隐藏）────────────────
-        self.test_panel = QtWidgets.QWidget()
-        self.test_panel.setFixedWidth(520)
-        self._set_props(self.test_panel, testPanelRoot=True, panelSurface=True)
+        self.setFixedWidth(520)
+        _set_props(self.test_panel, testPanelRoot=True, panelSurface=True)
         self.test_panel.setVisible(False)
 
         tl = QtWidgets.QVBoxLayout(self.test_panel)
@@ -428,26 +174,26 @@ class TestPanelMixin:
 
         # ── 顶部标题栏 ────────────────────────────────────────────────
         top = QtWidgets.QWidget()
-        self._set_props(top, testPanelBar=True)
+        _set_props(top, testPanelBar=True)
         top.setFixedHeight(44)
         trow = QtWidgets.QHBoxLayout(top)
         trow.setContentsMargins(8, 4, 8, 4)
 
         title = QtWidgets.QLabel("🔬 合闸前测试模式")
-        self._set_props(title, testPanelTitle=True)
+        _set_props(title, testPanelTitle=True)
 
         self.tp_btn_reset = QtWidgets.QPushButton("⚠️ 重置本步")
         self.tp_btn_reset.clicked.connect(self._on_tp_reset_step)
-        self._apply_button_tone(self.tp_btn_reset, "danger")
+        _apply_button_tone(self, self.tp_btn_reset, "danger")
 
         btn_exit = QtWidgets.QPushButton("退出测试")
         btn_exit.clicked.connect(self.exit_test_mode)
-        self._apply_button_tone(btn_exit, "primary", secondary=True)
+        _apply_button_tone(self, btn_exit, "primary", secondary=True)
 
         self._tp_admin_mode = False
         self.tp_btn_admin = QtWidgets.QPushButton("🔧 管理员")
         self.tp_btn_admin.setCheckable(True)
-        self._set_props(self.tp_btn_admin, adminButton=True)
+        _set_props(self.tp_btn_admin, adminButton=True)
         self.tp_btn_admin.clicked.connect(self._on_tp_toggle_admin)
 
         trow.addWidget(title, 1)
@@ -459,7 +205,7 @@ class TestPanelMixin:
         # ── 步骤进度点（管理员模式下变为可点击按钮）─────────────────────
         self._tp_forced_step: int | None = None   # None = 自动推算
         step_bar = QtWidgets.QWidget()
-        self._set_props(step_bar, testPanelBar=True)
+        _set_props(step_bar, testPanelBar=True)
         step_bar.setFixedHeight(52)
         srow = QtWidgets.QHBoxLayout(step_bar)
         srow.setContentsMargins(8, 6, 8, 6)
@@ -483,14 +229,14 @@ class TestPanelMixin:
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         content = QtWidgets.QWidget()
-        self._set_props(content, testPanelRoot=True)
+        _set_props(content, testPanelRoot=True)
         cl = QtWidgets.QVBoxLayout(content)
         cl.setContentsMargins(8, 6, 8, 6)
         cl.setSpacing(6)
 
         # 故障训练场景横幅（有故障时显示）
         self._tp_fault_banner = QtWidgets.QLabel("")
-        self._set_props(self._tp_fault_banner, stepBanner=True, tone="danger")
+        _set_props(self._tp_fault_banner, stepBanner=True, tone="danger")
         self._tp_fault_banner.setAlignment(QtCore.Qt.AlignCenter)
         self._tp_fault_banner.setWordWrap(True)
         self._tp_fault_banner.setMinimumHeight(40)
@@ -500,18 +246,16 @@ class TestPanelMixin:
         # 全步骤共用：母排状态 + 万用表
         self.tp_bus_lbl = QtWidgets.QLabel("母排: --")
         self.tp_bus_lbl.setAlignment(QtCore.Qt.AlignCenter)
-        self._apply_badge_tone(self.tp_bus_lbl, "warning")
+        _apply_badge_tone(self.tp_bus_lbl, "warning")
         cl.addWidget(self.tp_bus_lbl)
 
         self._tp_mm_btn = QtWidgets.QPushButton("🔌 开启 / 关闭万用表")
-        self._tp_mm_btn.clicked.connect(
-            lambda: self.multimeter_cb.setChecked(
-                not self.multimeter_cb.isChecked()))
-        self._apply_button_tone(self._tp_mm_btn, "warning")
+        self._tp_mm_btn.clicked.connect(self._on_toggle_multimeter)
+        _apply_button_tone(self, self._tp_mm_btn, "warning")
         cl.addWidget(self._tp_mm_btn)
 
         self.tp_meter_lbl = QtWidgets.QLabel("万用表: 关闭")
-        self._set_props(self.tp_meter_lbl, stepStatus=True, mutedText=True)
+        _set_props(self.tp_meter_lbl, stepStatus=True, mutedText=True)
         self.tp_meter_lbl.setWordWrap(True)
         self.tp_meter_lbl.setMaximumWidth(320)
         self.tp_meter_lbl.setMinimumHeight(36)
@@ -532,18 +276,18 @@ class TestPanelMixin:
 
         # ── 底部操作按钮 ──────────────────────────────────────────────
         bottom = QtWidgets.QWidget()
-        self._set_props(bottom, testPanelBar=True, barRole="footer")
+        _set_props(bottom, testPanelBar=True, barRole="footer")
         brow = QtWidgets.QHBoxLayout(bottom)
         brow.setContentsMargins(8, 6, 8, 6)
         brow.setSpacing(6)
 
         self.tp_btn_start = QtWidgets.QPushButton("开始测试")
         self.tp_btn_start.clicked.connect(self._on_tp_start_step)
-        self._apply_button_tone(self.tp_btn_start, "warning", hero=True)
+        _apply_button_tone(self, self.tp_btn_start, "warning", hero=True)
 
         self.tp_btn_complete = QtWidgets.QPushButton("完成本步 ✓")
         self.tp_btn_complete.clicked.connect(self._on_tp_complete_step)
-        self._apply_button_tone(self.tp_btn_complete, "success", hero=True)
+        _apply_button_tone(self, self.tp_btn_complete, "success", hero=True)
 
         brow.addWidget(self.tp_btn_start, 1)
         brow.addWidget(self.tp_btn_complete, 1)
@@ -561,14 +305,14 @@ class TestPanelMixin:
     def _make_btn(self, text, bg="#1d4ed8"):
         btn = QtWidgets.QPushButton(text)
         if bg == "#64748b":
-            self._apply_button_tone(btn, "primary", secondary=True)
+            _apply_button_tone(self, btn, "primary", secondary=True)
             return btn
         tone = {
             "#16a34a": "success",
             "#dc2626": "danger",
             "#7c3aed": "primary",
         }.get(bg, "warning" if bg in {"#d97706", "#92400e"} else "primary")
-        self._apply_button_tone(btn, tone)
+        _apply_button_tone(self, btn, tone)
         return btn
 
     @staticmethod
@@ -586,7 +330,7 @@ class TestPanelMixin:
 
     def _make_note_label(self, text, tone="neutral", *, italic=False):
         lbl = QtWidgets.QLabel(text)
-        self._set_props(lbl, noteText=True, tone=tone)
+        _set_props(lbl, noteText=True, tone=tone)
         if italic:
             font = lbl.font()
             font.setItalic(True)
@@ -595,23 +339,23 @@ class TestPanelMixin:
 
     def _make_inline_row(self):
         row = QtWidgets.QWidget()
-        self._set_props(row, inlineRow=True)
+        _set_props(row, inlineRow=True)
         return row
 
     def _make_feedback_label(self, text):
         lbl = QtWidgets.QLabel(text)
         lbl.setWordWrap(True)
-        self._set_props(lbl, feedbackText=True, tone="success")
+        _set_props(lbl, feedbackText=True, tone="success")
         return lbl
 
     def _set_feedback_label(self, label, text, color):
         label.setText(text)
-        self._set_props(label, feedbackText=True, tone=self._tone_from_color(color))
+        _set_props(label, feedbackText=True, tone=self._tone_from_color(color))
 
     def _set_step_list_label(self, label, text, done, in_mode):
         label.setText(f"{'✓' if done else '□'} {text}")
         tone = "success" if done else ("active" if in_mode else "muted")
-        self._set_props(label, stepListItem=True, tone=tone)
+        _set_props(label, stepListItem=True, tone=tone)
 
     def _make_step_list(self, parent_lay, n_steps):
         """Add a checklist widget; return list of QLabel."""
@@ -622,7 +366,7 @@ class TestPanelMixin:
         for _ in range(n_steps):
             lbl = QtWidgets.QLabel("")
             lbl.setWordWrap(True)
-            self._set_props(lbl, stepListItem=True)
+            _set_props(lbl, stepListItem=True)
             lay.addWidget(lbl)
             labels.append(lbl)
         parent_lay.addWidget(grp)
@@ -638,7 +382,7 @@ class TestPanelMixin:
         show_pos     : show 脱开/工作 position radio buttons
         show_engine  : show 起机/停机 toggle button
         """
-        gen = self.ctrl.sim_state.gen1 if gen_id == 1 else self.ctrl.sim_state.gen2
+        gen = self._api.sim_state.gen1 if gen_id == 1 else self._api.sim_state.gen2
 
         inner = QtWidgets.QGroupBox(f"Gen {gen_id}")
         ilay = QtWidgets.QVBoxLayout(inner)
@@ -647,7 +391,7 @@ class TestPanelMixin:
 
         # Status label
         brk_lbl = QtWidgets.QLabel("--")
-        self._apply_badge_tone(brk_lbl, "neutral")
+        _apply_badge_tone(brk_lbl, "neutral")
         brk_lbl.setAlignment(QtCore.Qt.AlignCenter)
         ilay.addWidget(brk_lbl)
 
@@ -663,7 +407,7 @@ class TestPanelMixin:
             bg_mode = QtWidgets.QButtonGroup(self)
             for txt, val in mode_options:
                 rb = QtWidgets.QRadioButton(txt)
-                self._set_props(rb, inlineRadio=True)
+                _set_props(rb, inlineRadio=True)
                 rb.setChecked(gen.mode == val)
                 rb.toggled.connect(
                     lambda chk, v=val, gid=gen_id: self._on_gen_mode(gid, v, chk))
@@ -684,7 +428,7 @@ class TestPanelMixin:
             for txt, val in [("脱开", BreakerPosition.DISCONNECTED),
                               ("工作", BreakerPosition.WORKING)]:
                 rb = QtWidgets.QRadioButton(txt)
-                self._set_props(rb, inlineRadio=True)
+                _set_props(rb, inlineRadio=True)
                 rb.setChecked(gen.breaker_position == val)
                 rb.toggled.connect(
                     lambda chk, v=val, gid=gen_id: self._on_brk_pos(gid, v, chk))
@@ -701,11 +445,11 @@ class TestPanelMixin:
         eng_btn = None
         if show_engine:
             eng_btn = self._make_btn("起机", "#16a34a")
-            eng_btn.clicked.connect(lambda _, gid=gen_id: self.ctrl.hw.toggle_engine(gid))
+            eng_btn.clicked.connect(lambda _, gid=gen_id: self._api.toggle_engine(gid))
             br.addWidget(eng_btn)
 
         brk_btn = self._make_btn("合闸", "#1d4ed8")
-        brk_btn.clicked.connect(lambda _, gid=gen_id: self.ctrl.hw.toggle_breaker(gid))
+        brk_btn.clicked.connect(lambda _, gid=gen_id: self._api.toggle_breaker(gid))
         br.addWidget(brk_btn)
 
         ilay.addWidget(btn_row)
@@ -720,7 +464,7 @@ class TestPanelMixin:
         """在任意步骤组中插入四个物理接线黑盒检查按钮（可查看 + 交互修复）。"""
         bb_lbl = self._make_note_label("物理接线检查 / 手动修复 (开盖查线):")
         lay.addWidget(bb_lbl)
-        allow_blackbox = self.ctrl.flow_mgr.can_inspect_blackbox()
+        allow_blackbox = self._api.can_inspect_blackbox()
         bb_row1 = self._make_inline_row()
         bb_h1 = QtWidgets.QHBoxLayout(bb_row1)
         bb_h1.setContentsMargins(0, 0, 0, 0)
@@ -765,11 +509,11 @@ class TestPanelMixin:
         self._tp_gnd_rbs = {}
         for label, val in [("断开", "断开"), ("小电阻", "小电阻接地"), ("直接", "直接接地")]:
             rb = QtWidgets.QRadioButton(label)
-            self._set_props(rb, inlineRadio=True)
-            rb.setChecked(self.ctrl.sim_state.grounding_mode == val)
+            _set_props(rb, inlineRadio=True)
+            rb.setChecked(self._api.sim_state.grounding_mode == val)
             rb.toggled.connect(
                 lambda chk, v=val: (
-                    setattr(self.ctrl.sim_state, 'grounding_mode', v) if chk else None))
+                    setattr(self._api.sim_state, 'grounding_mode', v) if chk else None))
             self._tp_gnd_bg.addButton(rb)
             gnd_h.addWidget(rb)
             self._tp_gnd_rbs[val] = rb
@@ -801,7 +545,7 @@ class TestPanelMixin:
         for ph in ('A', 'B', 'C'):
             btn = self._make_btn(f"{ph} 相", "#1d4ed8")
             btn.clicked.connect(
-                lambda _, p=ph: self.ctrl.record_loop_measurement(p))
+                lambda _, p=ph: self._api.record_loop_measurement(p))
             rh.addWidget(btn)
             self.tp_s1_rec_btns[ph] = btn
         lay.addWidget(rrow)
@@ -851,7 +595,7 @@ class TestPanelMixin:
             pri_spin.setValue(pri_default)
             pri_spin.setSuffix(" V")
             pri_spin.setFixedWidth(90)
-            self._set_props(pri_spin, compactInput=True)
+            _set_props(pri_spin, compactInput=True)
 
             colon_lbl = self._make_note_label(":")
 
@@ -860,13 +604,13 @@ class TestPanelMixin:
             sec_spin.setValue(sec_default)
             sec_spin.setSuffix(" V")
             sec_spin.setFixedWidth(78)
-            self._set_props(sec_spin, compactInput=True)
+            _set_props(sec_spin, compactInput=True)
 
             eq_lbl = self._make_note_label("=")
 
             ratio_lbl = QtWidgets.QLabel(f"{pri_default / sec_default:.2f}")
             ratio_lbl.setFixedWidth(52)
-            self._set_props(ratio_lbl, valueChip=True)
+            _set_props(ratio_lbl, valueChip=True)
             ratio_lbl.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
 
             def _update_ratio(_val=None, _p=pri_spin, _s=sec_spin, _l=ratio_lbl, _a=ratio_attr):
@@ -874,7 +618,7 @@ class TestPanelMixin:
                 sec = max(1, _s.value())
                 ratio = pri / sec
                 _l.setText(f"{ratio:.2f}")
-                self.ctrl.update_pt_ratio(_a, ratio)
+                self._api.update_pt_ratio(_a, ratio)
 
             pri_spin.valueChanged.connect(_update_ratio)
             sec_spin.valueChanged.connect(_update_ratio)
@@ -899,11 +643,11 @@ class TestPanelMixin:
         self._tp_s2_gnd_rbs = {}
         for label, val in [("断开", "断开"), ("小电阻", "小电阻接地"), ("直接", "直接接地")]:
             rb = QtWidgets.QRadioButton(label)
-            self._set_props(rb, inlineRadio=True)
-            rb.setChecked(self.ctrl.sim_state.grounding_mode == val)
+            _set_props(rb, inlineRadio=True)
+            rb.setChecked(self._api.sim_state.grounding_mode == val)
             rb.toggled.connect(
                 lambda chk, v=val: (
-                    setattr(self.ctrl.sim_state, 'grounding_mode', v) if chk else None))
+                    setattr(self._api.sim_state, 'grounding_mode', v) if chk else None))
             self._tp_s2_gnd_bg.addButton(rb)
             gnd2_h.addWidget(rb)
             self._tp_s2_gnd_rbs[val] = rb
@@ -916,7 +660,7 @@ class TestPanelMixin:
         self._make_gen_block(lay, 's2', 2, show_engine=True)
 
         self.tp_s2_probe_lbl = self._make_feedback_label("当前表笔: 未放置")
-        self._set_props(self.tp_s2_probe_lbl, feedbackText=True, tone="warning")
+        _set_props(self.tp_s2_probe_lbl, feedbackText=True, tone="warning")
         lay.addWidget(self.tp_s2_probe_lbl)
 
         rlbl = self._make_note_label("按相位快速记录（A→AB，B→BC，C→CA）:")
@@ -1000,7 +744,7 @@ class TestPanelMixin:
         self._add_blackbox_section(lay)
 
         self.tp_s3_fb_lbl = self._make_feedback_label("请先接入相序仪查看结果，再点击记录")
-        self._set_props(self.tp_s3_fb_lbl, feedbackText=True, tone="neutral")
+        _set_props(self.tp_s3_fb_lbl, feedbackText=True, tone="neutral")
         lay.addWidget(self.tp_s3_fb_lbl)
 
         cl.addWidget(grp)
@@ -1031,7 +775,7 @@ class TestPanelMixin:
         for txt, val in [("Gen 1", 1), ("Gen 2", 2)]:
             rb = QtWidgets.QRadioButton(txt)
             rb.setChecked(val == 1)
-            self._set_props(rb, inlineRadio=True)
+            _set_props(rb, inlineRadio=True)
             self._tp_s4_bg.addButton(rb, val)
             sh.addWidget(rb)
         lay.addWidget(sel_row)
@@ -1041,7 +785,7 @@ class TestPanelMixin:
         rh.setContentsMargins(0, 0, 0, 0)
         btn_rec = self._make_btn("记录当前表笔位置", "#16a34a")
         btn_rec.clicked.connect(
-            lambda: self.ctrl.record_current_pt_measurement(
+            lambda: self._api.record_current_pt_measurement(
                 max(1, self._tp_s4_bg.checkedId())))
         rh.addWidget(btn_rec)
         lay.addWidget(rrow)
@@ -1055,7 +799,7 @@ class TestPanelMixin:
             "跳过逐组表笔测量，直接从物理引擎计算 Gen1+Gen2 全部 18 组压差并写入。"
         )
         self._tp_s4_quick_btn.clicked.connect(
-            lambda: self.ctrl.record_all_pt_measurements_quick())
+            lambda: self._api.record_all_pt_measurements_quick())
         self._tp_s4_quick_btn.setVisible(False)
         lay.addWidget(self._tp_s4_quick_btn)
 
@@ -1080,7 +824,7 @@ class TestPanelMixin:
         rs_lbl = self._make_note_label("远程启动信号:")
         self.tp_s5_remote_btn = QtWidgets.QPushButton("⚡ 开启自动")
         self.tp_s5_remote_btn.setCheckable(True)
-        self._apply_button_tone(self.tp_s5_remote_btn, "primary", secondary=True)
+        _apply_button_tone(self, self.tp_s5_remote_btn, "primary", secondary=True)
         self.tp_s5_remote_btn.clicked.connect(self._on_tp_s5_remote_toggle)
         rs_h.addWidget(rs_lbl)
         rs_h.addStretch()
@@ -1118,18 +862,18 @@ class TestPanelMixin:
 
             lbl = QtWidgets.QLabel(f"{label}({unit})")
             lbl.setFixedWidth(72)
-            self._set_props(lbl, noteText=True)
+            _set_props(lbl, noteText=True)
 
             bar = QtWidgets.QProgressBar()
             bar.setRange(0, 1000)
             bar.setValue(0)
             bar.setTextVisible(False)
             bar.setFixedHeight(14)
-            self._set_props(bar, metricBar=True)
+            _set_props(bar, metricBar=True)
 
             val_lbl = QtWidgets.QLabel("0.0")
             val_lbl.setFixedWidth(46)
-            self._set_props(val_lbl, valueChip=True)
+            _set_props(val_lbl, valueChip=True)
             val_lbl.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
 
             rh.addWidget(lbl)
@@ -1139,11 +883,11 @@ class TestPanelMixin:
             self.tp_s5_bars[key] = (bar, val_lbl, max_val)
 
         btn_r1 = self._make_btn("记录第一轮（Gen1 基准 → Gen2 同步）", "#16a34a")
-        btn_r1.clicked.connect(lambda: self.ctrl.record_sync_round(1))
+        btn_r1.clicked.connect(lambda: self._api.record_sync_round(1))
         lay.addWidget(btn_r1)
 
         btn_r2 = self._make_btn("记录第二轮（Gen2 基准 → Gen1 同步）", "#16a34a")
-        btn_r2.clicked.connect(lambda: self.ctrl.record_sync_round(2))
+        btn_r2.clicked.connect(lambda: self._api.record_sync_round(2))
         lay.addWidget(btn_r2)
 
         self.tp_s5_fb_lbl = self._make_feedback_label("请按步骤列表操作")
@@ -1159,39 +903,39 @@ class TestPanelMixin:
     def enter_test_mode(self):
         # 读取控制面板预设场景并注入（_pre_test_scenario_id 定义在 control_panel.py）
         scenario_id = getattr(self, '_pre_test_scenario_id', '')
-        self.ctrl.test_flow_mode = getattr(self, '_pre_test_flow_mode', 'teaching')
+        self._api.test_flow_mode = getattr(self, '_pre_test_flow_mode', 'teaching')
         if scenario_id:
             # 有故障：完整重置（停机 + 清空所有测试状态 + 注入故障）
-            self.ctrl.reset_for_scenario(scenario_id)
+            self._api.reset_for_scenario(scenario_id)
         else:
             # 无故障：仅清除可能残留的故障注入
-            self.ctrl.inject_fault('')
+            self._api.inject_fault('')
 
         self._test_mode_active = True
         self._assessment_last_logged_step = None
         self._pre_step5_repair_triggered = False   # 重置第五步前修复关卡
-        self.ctrl_container.setVisible(False)
+        self._on_show_test_panel(True)
         self.test_panel.setVisible(True)
-        self.tp_btn_admin.setVisible(self.ctrl.flow_mgr.allow_admin_shortcuts())
+        self.tp_btn_admin.setVisible(self._api.allow_admin_shortcuts())
         if hasattr(self, '_tp_s4_quick_btn'):
-            self._tp_s4_quick_btn.setVisible(self.ctrl.flow_mgr.can_use_pt_exam_quick_record())
-        if not self.ctrl.flow_mgr.allow_admin_shortcuts():
+            self._tp_s4_quick_btn.setVisible(self._api.can_use_pt_exam_quick_record())
+        if not self._api.allow_admin_shortcuts():
             self._tp_admin_mode = False
             self.tp_btn_admin.setChecked(False)
             self._tp_forced_step = None
-        self.ctrl.assessment_coord.start_assessment_session(
+        self._api.start_assessment_session(
             scenario_id,
             preset_mode=getattr(self, '_pre_test_preset_mode', 'specified'),
         )
-        self.tab_widget.setCurrentIndex(1)
+        self._on_set_current_tab(1)
         # 进入测试模式即自动开启回路检查，省去用户二次点击
-        if not self.ctrl.sim_state.loop_test_mode:
-            self.ctrl.enter_loop_test_mode()
+        if not self._api.sim_state.loop_test_mode:
+            self._api.enter_loop_test_mode()
 
     def exit_test_mode(self):
         self._test_mode_active = False
         self.test_panel.setVisible(False)
-        self.ctrl_container.setVisible(True)
+        self._on_show_test_panel(False)
 
     # ════════════════════════════════════════════════════════════════════
     # Bottom bar slot functions
@@ -1199,80 +943,80 @@ class TestPanelMixin:
     def _on_tp_reset_step(self):
         step = self._current_test_step()
         if step == 1:
-            self.ctrl.reset_loop_test()
+            self._api.reset_loop_test()
         elif step == 2:
-            self.ctrl.reset_pt_voltage_check()
+            self._api.reset_pt_voltage_check()
         elif step == 3:
-            self.ctrl.reset_pt_phase_check()
+            self._api.reset_pt_phase_check()
         elif step == 4:
             gen_id = max(1, self._tp_s4_bg.checkedId())
-            self.ctrl.reset_pt_exam(gen_id)
+            self._api.reset_pt_exam(gen_id)
         elif step == 5:
-            self.ctrl.reset_sync_test()
+            self._api.reset_sync_test()
 
     def _on_tp_start_step(self):
         step = self._current_test_step()
         if step == 1:
-            if self.ctrl.sim_state.loop_test_mode:
-                self.ctrl.exit_loop_test_mode()
+            if self._api.sim_state.loop_test_mode:
+                self._api.exit_loop_test_mode()
             else:
-                self.ctrl.enter_loop_test_mode()
+                self._api.enter_loop_test_mode()
         elif step == 2:
-            if self.ctrl.pt_voltage_check_state.started:
-                self.ctrl.stop_pt_voltage_check()
+            if self._api.pt_voltage_check_state.started:
+                self._api.stop_pt_voltage_check()
             else:
-                self.ctrl.start_pt_voltage_check()
+                self._api.start_pt_voltage_check()
         elif step == 3:
-            if self.ctrl.pt_phase_check_state.started:
-                self.ctrl.stop_pt_phase_check()
+            if self._api.pt_phase_check_state.started:
+                self._api.stop_pt_phase_check()
             else:
-                self.ctrl.start_pt_phase_check()
+                self._api.start_pt_phase_check()
         elif step == 4:
-            both = (self.ctrl.pt_exam_states[1].started and
-                    self.ctrl.pt_exam_states[2].started)
+            both = (self._api.pt_exam_states[1].started and
+                    self._api.pt_exam_states[2].started)
             if both:
-                self.ctrl.stop_pt_exam(1)
-                self.ctrl.stop_pt_exam(2)
+                self._api.stop_pt_exam(1)
+                self._api.stop_pt_exam(2)
             else:
-                self.ctrl.start_pt_exam(1)
-                self.ctrl.start_pt_exam(2)
+                self._api.start_pt_exam(1)
+                self._api.start_pt_exam(2)
         elif step == 5:
-            if self.ctrl.sync_test_state.started:
-                self.ctrl.stop_sync_test()
+            if self._api.sync_test_state.started:
+                self._api.stop_sync_test()
             else:
-                self.ctrl.start_sync_test()
+                self._api.start_sync_test()
 
     def _on_tp_complete_step(self):
         step = self._current_test_step()
         before_complete = self._is_step_complete(step)
         if step == 1:
-            self.ctrl.finalize_loop_test()
+            self._api.finalize_loop_test()
         elif step == 2:
-            self.ctrl.finalize_pt_voltage_check()
-            self.multimeter_cb.setChecked(False)  # 步骤二结束后自动关闭万用表
+            self._api.finalize_pt_voltage_check()
+            self._on_force_multimeter_off()  # 步骤二结束后自动关闭万用表
         elif step == 3:
-            self.ctrl.finalize_pt_phase_check()
+            self._api.finalize_pt_phase_check()
             # 完成后自动关闭相序仪浮层，无需手动断开
-            if self.ctrl.pt_phase_check_state.completed:
+            if self._api.pt_phase_check_state.completed:
                 try:
-                    self.disconnect_phase_seq_meter()
+                    self._on_disconnect_phase_seq_meter()
                 except AttributeError:
                     pass
         elif step == 4:
-            self.ctrl.finalize_all_pt_exams()
+            self._api.finalize_all_pt_exams()
         elif step == 5:
-            self.ctrl.finalize_sync_test()
+            self._api.finalize_sync_test()
         after_complete = self._is_step_complete(step)
-        self.ctrl.assessment_coord.append_assessment_event(
+        self._api.append_assessment_event(
             AssessmentEventType.STEP_FINALIZE_ATTEMPTED,
             step=step,
             allowed=after_complete,
-            mode=self.ctrl.test_flow_mode,
+            mode=self._api.test_flow_mode,
         )
         if after_complete and not before_complete:
-            self.ctrl.assessment_coord.append_assessment_event(AssessmentEventType.STEP_COMPLETED, step=step)
+            self._api.append_assessment_event(AssessmentEventType.STEP_COMPLETED, step=step)
         elif not after_complete:
-            self.ctrl.assessment_coord.append_assessment_event(
+            self._api.append_assessment_event(
                 AssessmentEventType.ADVANCE_BLOCKED,
                 step=step,
                 from_step=step,
@@ -1281,24 +1025,24 @@ class TestPanelMixin:
             )
 
     def _on_tp_s5_remote_toggle(self, checked):
-        self.ctrl.sim_state.remote_start_signal = checked
+        self._api.sim_state.remote_start_signal = checked
         if checked:
             self.tp_s5_remote_btn.setText("⚡ 关闭自动")
-            self._apply_button_tone(self.tp_s5_remote_btn, "success")
+            _apply_button_tone(self, self.tp_s5_remote_btn, "success")
         else:
             self.tp_s5_remote_btn.setText("⚡ 开启自动")
-            self._apply_button_tone(self.tp_s5_remote_btn, "primary", secondary=True)
+            _apply_button_tone(self, self.tp_s5_remote_btn, "primary", secondary=True)
 
     def _tp_s2_record(self, phase, pair):
-        sim = self.ctrl.sim_state
+        sim = self._api.sim_state
         n1 = sim.probe1_node or ""
         pt_name = n1.split('_')[0] if n1.startswith('PT') else None
         if pt_name:
-            self.ctrl.record_pt_voltage_measurement(pt_name, pair)
+            self._api.record_pt_voltage_measurement(pt_name, pair)
         else:
-            self.ctrl.pt_voltage_check_state.feedback = \
+            self._api.pt_voltage_check_state.feedback = \
                 "请先将表笔放在某一 PT 的两相端子上，再点击记录。"
-            self.ctrl.pt_voltage_check_state.feedback_color = "red"
+            self._api.pt_voltage_check_state.feedback_color = "red"
 
     # ════════════════════════════════════════════════════════════════════
     # Helpers
@@ -1330,7 +1074,7 @@ class TestPanelMixin:
     def _on_connect_psm(self, pt_name: str):
         """接入相序仪到指定 PT，驱动母排图侧栏显示。"""
         try:
-            self.connect_phase_seq_meter(pt_name)   # 方法定义在主窗口 mixin 上
+            self._on_connect_phase_seq_meter(pt_name)
         except AttributeError:
             pass
         # 接入后才允许记录
@@ -1342,29 +1086,29 @@ class TestPanelMixin:
     def _on_disconnect_psm(self):
         """断开相序仪，隐藏侧栏。"""
         try:
-            self.disconnect_phase_seq_meter()
+            self._on_disconnect_phase_seq_meter()
         except AttributeError:
             pass
         for btn in self._tp_s3_rec_btns.values():
             btn.setEnabled(False)
         self.tp_s3_fb_lbl.setText("相序仪已断开，可重新接入")
-        self._set_props(self.tp_s3_fb_lbl, feedbackText=True, tone="neutral")
+        _set_props(self.tp_s3_fb_lbl, feedbackText=True, tone="neutral")
 
     def _on_record_psm(self, pt_name: str):
         """根据当前相序仪示数记录相序结果到服务层。"""
-        seq = getattr(self.phase_seq_meter, '_sequence', 'unknown')
+        seq = self._get_phase_seq_meter_sequence()
         if seq == 'unknown':
             self._set_feedback_label(self.tp_s3_fb_lbl, "请先接入相序仪，再记录结果。", "orange")
             return
-        ok = self.ctrl.pt_phase_svc.record_phase_sequence(pt_name, seq)
-        state = self.ctrl.pt_phase_check_state
+        ok = self._api.record_phase_sequence(pt_name, seq)
+        state = self._api.pt_phase_check_state
         self._set_feedback_label(self.tp_s3_fb_lbl, state.feedback, state.feedback_color)
         if ok and pt_name in self._tp_s3_rec_btns:
             self._tp_s3_rec_btns[pt_name].setEnabled(False)
 
     def _on_tp_toggle_admin(self, checked):
         """管理员模式：显示/隐藏步骤详情 Tab 2-6，步骤按钮变为可点击。"""
-        if checked and not self.ctrl.flow_mgr.allow_admin_shortcuts():
+        if checked and not self._api.allow_admin_shortcuts():
             self.tp_btn_admin.setChecked(False)
             return
         self._tp_admin_mode = checked
@@ -1378,36 +1122,32 @@ class TestPanelMixin:
         else:
             for btn in self.tp_step_btns:
                 btn.setCursor(QtCore.Qt.PointingHandCursor)
-        for i in range(2, 7):
-            try:
-                self.tab_widget.setTabVisible(i, checked)
-            except AttributeError:
-                pass
+        self._on_set_step_tabs_visible(checked)
         # 第四步快捷记录按钮在管理员模式或考核模式下可见
         if hasattr(self, '_tp_s4_quick_btn'):
-            self._tp_s4_quick_btn.setVisible(checked or self.ctrl.flow_mgr.is_assessment_mode())
+            self._tp_s4_quick_btn.setVisible(checked or self._api.is_assessment_mode())
 
     def _update_fault_banner(self):
         """根据当前故障注入状态更新横幅显示。不向学员透露具体场景信息。"""
-        fc = self.ctrl.sim_state.fault_config
-        if not self.ctrl.flow_mgr.should_show_fault_detected_banner():
+        fc = self._api.sim_state.fault_config
+        if not self._api.should_show_fault_detected_banner():
             self._tp_fault_banner.setVisible(False)
             return
         if fc.active and fc.scenario_id:
             if fc.repaired:
                 text = "✅ 故障已修复，请继续按正常流程完成剩余步骤"
-                self._set_props(self._tp_fault_banner, stepBanner=True, tone="success")
+                _set_props(self._tp_fault_banner, stepBanner=True, tone="success")
             elif fc.detected:
-                if self.ctrl.flow_mgr.can_advance_with_fault():
+                if self._api.can_advance_with_fault():
                     text = ("🔍 已发现异常证据 | 请继续完成所有测试步骤，"
                             "记录全部数据后将在第五步前统一进行检修")
                 else:
                     text = ("🔍 已发现异常证据 | 当前流程模式要求先排除故障并复测合格，"
                             "再继续后续步骤")
-                self._set_props(self._tp_fault_banner, stepBanner=True, tone="warning")
+                _set_props(self._tp_fault_banner, stepBanner=True, tone="warning")
             else:
                 text = "⚠ 故障训练模式已启用 | 请按正常流程测试，通过测量数据发现并定位异常"
-                self._set_props(self._tp_fault_banner, stepBanner=True, tone="danger")
+                _set_props(self._tp_fault_banner, stepBanner=True, tone="danger")
             self._tp_fault_banner.setText(text)
             self._tp_fault_banner.setVisible(True)
         else:
@@ -1434,7 +1174,7 @@ class TestPanelMixin:
         read_only : True = 只显示，不可调（自动模式下设置）
         返回 entry_map {attr: (slider, entry, read_only_lbl)}
         """
-        c = self.ctrl
+        c = self._api
         gen = c.sim_state.gen1 if gen_id == 1 else c.sim_state.gen2
 
         grp = QtWidgets.QGroupBox(f"Gen {gen_id} 频率/幅值/相位")
@@ -1456,7 +1196,7 @@ class TestPanelMixin:
 
             lbl = QtWidgets.QLabel(label)
             lbl.setFixedWidth(66)
-            self._set_props(lbl, noteText=True)
+            _set_props(lbl, noteText=True)
 
             sl = QtWidgets.QSlider(QtCore.Qt.Horizontal)
             sl.setRange(vmin, vmax)
@@ -1466,10 +1206,10 @@ class TestPanelMixin:
 
             entry = QtWidgets.QLineEdit(f"{getattr(gen, attr):.1f}")
             entry.setFixedWidth(56)
-            self._set_props(entry, compactInput=True)
+            _set_props(entry, compactInput=True)
             entry.setEnabled(not read_only)
             entry.setReadOnly(read_only)
-            self._set_props(entry, compactInput=True, readonlyTone=read_only)
+            _set_props(entry, compactInput=True, readonlyTone=read_only)
 
             def _sl_ch(val, _a=attr, _sc=scale, _e=entry, _gid=gen_id):
                 v = round(val / _sc, 3)
@@ -1509,31 +1249,31 @@ class TestPanelMixin:
         # 管理员模式强制指定步骤时直接返回
         if self._tp_admin_mode and self._tp_forced_step is not None:
             return self._tp_forced_step
-        c = self.ctrl
-        if not c.loop_svc.is_loop_test_complete():
+        c = self._api
+        if not c.is_loop_test_complete():
             return 1
-        if not c.pt_voltage_svc.is_pt_voltage_check_complete():
+        if not c.is_pt_voltage_check_complete():
             return 2
-        if not c.pt_phase_svc.is_pt_phase_check_complete():
+        if not c.is_pt_phase_check_complete():
             return 3
         if not (c.pt_exam_states[1].completed and c.pt_exam_states[2].completed):
             return 4
-        if (c.flow_mgr.should_hold_at_step4_when_wiring_fault_unrepaired()
-                and c.fault_mgr.has_unrepaired_wiring_fault()):
+        if (c.should_hold_at_step4_when_wiring_fault_unrepaired()
+                and c.has_unrepaired_wiring_fault()):
             return 4
         return 5
 
     def _is_step_complete(self, step: int) -> bool:
         if step == 1:
-            return self.ctrl.loop_svc.is_loop_test_complete()
+            return self._api.is_loop_test_complete()
         if step == 2:
-            return self.ctrl.pt_voltage_svc.is_pt_voltage_check_complete()
+            return self._api.is_pt_voltage_check_complete()
         if step == 3:
-            return self.ctrl.pt_phase_svc.is_pt_phase_check_complete()
+            return self._api.is_pt_phase_check_complete()
         if step == 4:
-            return self.ctrl.pt_exam_states[1].completed and self.ctrl.pt_exam_states[2].completed
+            return self._api.pt_exam_states[1].completed and self._api.pt_exam_states[2].completed
         if step == 5:
-            return self.ctrl.sync_svc.is_sync_test_complete()
+            return self._api.is_sync_test_complete()
         return False
 
     def _show_assessment_result_dialog(self, result):
@@ -1583,13 +1323,13 @@ class TestPanelMixin:
 
         def _make_info_card(title_text: str, body_text: str, accent: str = "#cbd5e1", body_size: int = 20):
             card = QtWidgets.QFrame()
-            self._set_props(card, dialogCard=True)
+            _set_props(card, dialogCard=True)
             card_lay = QtWidgets.QVBoxLayout(card)
             card_lay.setContentsMargins(14, 12, 14, 12)
             card_lay.setSpacing(6)
 
             title_lbl = QtWidgets.QLabel(title_text)
-            self._set_props(title_lbl, dialogCaption=True)
+            _set_props(title_lbl, dialogCaption=True)
             card_lay.addWidget(title_lbl)
 
             bar = QtWidgets.QFrame()
@@ -1607,7 +1347,7 @@ class TestPanelMixin:
         dlg = QtWidgets.QDialog(self)
         dlg.setWindowTitle("考核成绩单")
         dlg.resize(760, 720)
-        self._set_props(dlg, themedDialog=True)
+        _set_props(dlg, themedDialog=True)
         dlg.setStyleSheet(
             "QLabel{color:#0f172a;}"
             "QHeaderView::section{background:#e2e8f0; color:#0f172a; padding:6px 8px; border:none; font-weight:bold;}"
@@ -1634,7 +1374,7 @@ class TestPanelMixin:
         tag_bg = "#dcfce7" if result.passed else "#fee2e2"
         tag_fg = "#166534" if result.passed else "#991b1b"
         overview = QtWidgets.QFrame()
-        self._set_props(overview, dialogCard=True)
+        _set_props(overview, dialogCard=True)
         overview_lay = QtWidgets.QHBoxLayout(overview)
         overview_lay.setContentsMargins(18, 16, 18, 16)
         overview_lay.setSpacing(14)
@@ -1645,18 +1385,18 @@ class TestPanelMixin:
         hero_lay.setSpacing(8)
 
         kicker = QtWidgets.QLabel("考核结果报告")
-        self._set_props(kicker, dialogKicker=True)
+        _set_props(kicker, dialogKicker=True)
         hero_lay.addWidget(kicker)
 
         title = QtWidgets.QLabel("考核成绩单")
-        self._set_props(title, dialogTitle=True)
+        _set_props(title, dialogTitle=True)
         hero_lay.addWidget(title)
 
         hero_info = QtWidgets.QLabel(
             f"场景：{result.scene_id or '正常模式'}    模式：考核模式\n"
             f"完成时间：{result.finished_at.replace('T', ' ')}"
         )
-        self._set_props(hero_info, dialogCaption=True)
+        _set_props(hero_info, dialogCaption=True)
         hero_lay.addWidget(hero_info)
 
         tag = QtWidgets.QLabel(result_tag)
@@ -1679,18 +1419,18 @@ class TestPanelMixin:
 
         summary = QtWidgets.QLabel(result.summary)
         summary.setWordWrap(True)
-        self._set_props(summary, dialogCard=True)
+        _set_props(summary, dialogCard=True)
         summary.setContentsMargins(14, 14, 14, 14)
         content_lay.addWidget(summary)
 
         if result.veto_reason:
             veto = QtWidgets.QLabel(f"否决原因：{result.veto_reason}")
             veto.setWordWrap(True)
-            self._set_props(veto, stepBanner=True, tone="danger")
+            _set_props(veto, stepBanner=True, tone="danger")
             content_lay.addWidget(veto)
 
         section1 = QtWidgets.QLabel("分项汇总")
-        self._set_props(section1, dialogSection=True)
+        _set_props(section1, dialogSection=True)
         content_lay.addWidget(section1)
 
         summary_grid_wrap = QtWidgets.QFrame()
@@ -1712,7 +1452,7 @@ class TestPanelMixin:
             card_lay.setSpacing(4)
 
             name_lbl = QtWidgets.QLabel(score_labels.get(key, key))
-            self._set_props(name_lbl, dialogCaption=True)
+            _set_props(name_lbl, dialogCaption=True)
             name_lbl.setStyleSheet(f"color:{fg}; font-weight:bold;")
             card_lay.addWidget(name_lbl)
 
@@ -1727,18 +1467,18 @@ class TestPanelMixin:
             else:
                 note = "存在扣分项"
             note_lbl = QtWidgets.QLabel(note)
-            self._set_props(note_lbl, dialogCaption=True)
+            _set_props(note_lbl, dialogCaption=True)
             card_lay.addWidget(note_lbl)
 
             summary_grid.addWidget(card, idx // 2, idx % 2)
         content_lay.addWidget(summary_grid_wrap)
 
         section2 = QtWidgets.QLabel("详细计分点")
-        self._set_props(section2, dialogSection=True)
+        _set_props(section2, dialogSection=True)
         content_lay.addWidget(section2)
 
         detail_hint = QtWidgets.QLabel("以下表格列出每个计分点的通过情况、得分与具体说明。")
-        self._set_props(detail_hint, dialogCaption=True)
+        _set_props(detail_hint, dialogCaption=True)
         content_lay.addWidget(detail_hint)
 
         detail_table = QtWidgets.QTableWidget(len(result.score_items), 8)
@@ -1778,13 +1518,13 @@ class TestPanelMixin:
         content_lay.addWidget(detail_table)
 
         section3 = QtWidgets.QLabel("过程统计")
-        self._set_props(section3, dialogSection=True)
+        _set_props(section3, dialogSection=True)
         content_lay.addWidget(section3)
 
         extra_penalties = [penalty for penalty in result.penalties if penalty.code in {"X1", "X2"}]
         if extra_penalties:
             section_extra = QtWidgets.QLabel("额外扣分说明")
-            self._set_props(section_extra, dialogSection=True)
+            _set_props(section_extra, dialogSection=True)
             content_lay.addWidget(section_extra)
 
             extra_wrap = QtWidgets.QFrame()
@@ -1831,7 +1571,7 @@ class TestPanelMixin:
             card_lay.setSpacing(4)
 
             label_lbl = QtWidgets.QLabel(label)
-            self._set_props(label_lbl, dialogCaption=True)
+            _set_props(label_lbl, dialogCaption=True)
             card_lay.addWidget(label_lbl)
 
             value_lbl = QtWidgets.QLabel(value_text)
@@ -1845,7 +1585,7 @@ class TestPanelMixin:
         btn_row = QtWidgets.QHBoxLayout()
         btn_row.addStretch()
         btn_close = QtWidgets.QPushButton("关闭")
-        self._apply_button_tone(btn_close, "primary")
+        _apply_button_tone(self, btn_close, "primary")
         btn_close.clicked.connect(dlg.accept)
         btn_row.addWidget(btn_close)
         lay.addLayout(btn_row)
@@ -1864,21 +1604,21 @@ class TestPanelMixin:
             | QtCore.Qt.CustomizeWindowHint
             | QtCore.Qt.WindowTitleHint
         )
-        self._set_props(dlg, themedDialog=True)
+        _set_props(dlg, themedDialog=True)
 
         lay = QtWidgets.QVBoxLayout(dlg)
         lay.setContentsMargins(16, 14, 16, 14)
         lay.setSpacing(10)
 
         title_lbl = QtWidgets.QLabel("请先判断本轮随机故障，再生成第 4 步成绩单")
-        self._set_props(title_lbl, dialogTitle=True)
+        _set_props(title_lbl, dialogTitle=True)
         lay.addWidget(title_lbl)
 
         desc_lbl = QtWidgets.QLabel(
             "随机故障考核不会提前公开场景。请根据前四步测量结果，选择你认为最符合当前现象的故障场景。"
         )
         desc_lbl.setWordWrap(True)
-        self._set_props(desc_lbl, dialogCaption=True)
+        _set_props(desc_lbl, dialogCaption=True)
         lay.addWidget(desc_lbl)
 
         combo = QtWidgets.QComboBox()
@@ -1901,7 +1641,7 @@ class TestPanelMixin:
 
         hint_lbl = QtWidgets.QLabel("")
         hint_lbl.setWordWrap(True)
-        self._set_props(hint_lbl, feedbackText=True, tone="warning")
+        _set_props(hint_lbl, feedbackText=True, tone="warning")
         hint_lbl.setVisible(False)
         lay.addWidget(hint_lbl)
 
@@ -1910,7 +1650,7 @@ class TestPanelMixin:
         btn_row = QtWidgets.QHBoxLayout()
         btn_row.addStretch()
         btn_ok = QtWidgets.QPushButton("提交判定并生成成绩单")
-        self._apply_button_tone(btn_ok, "primary")
+        _apply_button_tone(self, btn_ok, "primary")
 
         def _submit():
             guessed_scene_id = combo.currentData()
@@ -1918,7 +1658,7 @@ class TestPanelMixin:
                 hint_lbl.setText("请先选择一个故障场景。")
                 hint_lbl.setVisible(True)
                 return
-            self.ctrl.assessment_coord.submit_random_fault_identification(guessed_scene_id)
+            self._api.submit_random_fault_identification(guessed_scene_id)
             dlg.accept()
 
         btn_ok.clicked.connect(_submit)
@@ -1927,6 +1667,65 @@ class TestPanelMixin:
 
         dlg.exec_()
 
+    def _show_blackbox_required_dialog(self, fc):
+        """步骤五前发现黑盒接线未修复时，提示学员先回到黑盒中完成物理修复。"""
+        info = SCENARIOS.get(fc.scenario_id, {})
+        dlg = QtWidgets.QDialog(self)
+        is_assessment = self._api.is_assessment_mode()
+        dlg.setWindowTitle("⚠️ 当前流程尚未闭环" if is_assessment else "⚠️ 仍有接线故障未修复")
+        dlg.setModal(True)
+        dlg.resize(500, 300)
+
+        lay = QtWidgets.QVBoxLayout(dlg)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(10)
+
+        if is_assessment:
+            title_text = "当前考核尚未闭环"
+        else:
+            title_text = info.get('title', '故障') + " — 需先完成黑盒修复"
+        title_lbl = QtWidgets.QLabel(title_text)
+        title_lbl.setStyleSheet("font-size:14px; font-weight:bold; color:#991b1b;")
+        lay.addWidget(title_lbl)
+
+        if is_assessment:
+            hint_text = (
+                "当前考核仍未满足结束条件，暂不能继续后续流程。\n\n"
+                "请根据前四步已获得的测量结果继续排查并完成闭环。"
+                "如需进一步确认，可进入黑盒检查，但系统不会提供具体故障位置提示。"
+            )
+        else:
+            hint_text = (
+                "当前仍存在未恢复的物理接线错误，不能进入第五步【同步功能测试】。\n\n"
+                "请先回到当前流程中的黑盒检查区，完成相关接线修复。"
+                "只有当相关接线全部恢复为正确顺序后，系统才会自动允许进入第五步。"
+            )
+        hint = QtWidgets.QLabel(hint_text)
+        hint.setWordWrap(True)
+        hint.setStyleSheet(
+            "font-size:12px; color:#1f2937; background:#fff7ed;"
+            " border:1px solid #fdba74; border-radius:4px; padding:8px;")
+        lay.addWidget(hint)
+
+        if not is_assessment:
+            symptom_lbl = QtWidgets.QLabel("【当前已记录的异常现象】\n" + info.get('symptom', ''))
+            symptom_lbl.setWordWrap(True)
+            symptom_lbl.setStyleSheet(
+                "font-size:11px; color:#374151; background:#fef3c7;"
+                " padding:6px; border-radius:4px;")
+            lay.addWidget(symptom_lbl)
+
+        btn_ok = QtWidgets.QPushButton("知道了")
+        btn_ok.setStyleSheet(
+            "background:#334155; color:white; font-weight:bold; padding:6px 14px;")
+        btn_ok.clicked.connect(dlg.accept)
+        lay.addWidget(btn_ok, alignment=QtCore.Qt.AlignRight)
+
+        dlg.exec_()
+
+    def render(self, rs):
+        self._render_test_panel(rs)
+
     # ════════════════════════════════════════════════════════════════════
     # Render (called every frame from render_visuals)
     # ════════════════════════════════════════════════════════════════════
@@ -1934,27 +1733,27 @@ class TestPanelMixin:
         if not self._test_mode_active:
             return
 
-        sim  = self.ctrl.sim_state
+        sim  = self._api.sim_state
         step = self._current_test_step()
 
         # ── Step dots / admin buttons ──────────────────────────────────
         # 计算自然完成步骤（不受 forced 影响）
-        c = self.ctrl
-        self.tp_btn_admin.setVisible(self.ctrl.flow_mgr.allow_admin_shortcuts())
+        c = self._api
+        self.tp_btn_admin.setVisible(self._api.allow_admin_shortcuts())
         if hasattr(self, '_tp_s4_quick_btn'):
-            self._tp_s4_quick_btn.setVisible(self.ctrl.flow_mgr.can_use_pt_exam_quick_record())
+            self._tp_s4_quick_btn.setVisible(self._api.can_use_pt_exam_quick_record())
         if self._assessment_last_logged_step != step:
-            self.ctrl.assessment_coord.append_assessment_event(AssessmentEventType.STEP_ENTERED, step=step)
+            self._api.append_assessment_event(AssessmentEventType.STEP_ENTERED, step=step)
             self._assessment_last_logged_step = step
-        if not self.ctrl.flow_mgr.allow_admin_shortcuts():
+        if not self._api.allow_admin_shortcuts():
             self._tp_admin_mode = False
             self.tp_btn_admin.setChecked(False)
             self._tp_forced_step = None
-        _auto = (1 if not c.loop_svc.is_loop_test_complete() else
-                 2 if not c.pt_voltage_svc.is_pt_voltage_check_complete() else
-                 3 if not c.pt_phase_svc.is_pt_phase_check_complete() else
-                 4 if ((c.flow_mgr.should_hold_at_step4_when_wiring_fault_unrepaired()
-                        and c.fault_mgr.has_unrepaired_wiring_fault()) or not (
+        _auto = (1 if not c.is_loop_test_complete() else
+                 2 if not c.is_pt_voltage_check_complete() else
+                 3 if not c.is_pt_phase_check_complete() else
+                 4 if ((c.should_hold_at_step4_when_wiring_fault_unrepaired()
+                        and c.has_unrepaired_wiring_fault()) or not (
                             c.pt_exam_states[1].completed and c.pt_exam_states[2].completed
                         )) else 5)
         for i, btn in enumerate(self.tp_step_btns):
@@ -1976,13 +1775,13 @@ class TestPanelMixin:
             grp.setVisible(s == step)
 
         # ── Bus status ────────────────────────────────────────────────
-        msg = getattr(self.ctrl.physics, 'bus_status_msg', '母排: --')
+        msg = getattr(self._api.physics, 'bus_status_msg', '母排: --')
         self.tp_bus_lbl.setText(msg)
-        bus_live = getattr(self.ctrl.physics, 'bus_live', False)
+        bus_live = getattr(self._api.physics, 'bus_live', False)
         if bus_live:
-            self._apply_badge_tone(self.tp_bus_lbl, "success")
+            _apply_badge_tone(self.tp_bus_lbl, "success")
         else:
-            self._apply_badge_tone(self.tp_bus_lbl, "warning")
+            _apply_badge_tone(self.tp_bus_lbl, "warning")
 
         # ── Fault banner update ───────────────────────────────────────
         self._update_fault_banner()
@@ -1990,14 +1789,14 @@ class TestPanelMixin:
         # ── 第五步前黑盒修复门禁 ──────────────────────────────────────
         # E01/E02/E03 在 Gen2 实际合闸时触发事故弹窗；黑盒接线类故障需先在步骤1~4修复。
         fc = sim.fault_config
-        progress = self.ctrl.assessment_coord.get_test_progress_snapshot(
+        progress = self._api.get_test_progress_snapshot(
             step,
             getattr(self, '_pre_step5_repair_triggered', False),
         )
         if progress.block_before_step5 and not getattr(self, '_pre_step5_repair_triggered', False):
             self._pre_step5_repair_triggered = True
             if progress.should_emit_assessment_gate_event:
-                self.ctrl.assessment_coord.append_assessment_event(
+                self._api.append_assessment_event(
                     AssessmentEventType.ASSESSMENT_GATE_BLOCKED,
                     step=4,
                     scene_id=fc.scenario_id,
@@ -2005,7 +1804,7 @@ class TestPanelMixin:
                 )
             if progress.should_show_blackbox_required_dialog:
                 self._show_blackbox_required_dialog(fc)
-        elif not self.ctrl.fault_mgr.has_unrepaired_wiring_fault():
+        elif not self._api.has_unrepaired_wiring_fault():
             self._pre_step5_repair_triggered = False
 
         # ── Multimeter (hidden on step 3 which uses phase seq meter) ──
@@ -2013,12 +1812,12 @@ class TestPanelMixin:
         self._tp_mm_btn.setVisible(mm_visible)
         self.tp_meter_lbl.setVisible(mm_visible)
         if sim.multimeter_mode:
-            reading = getattr(self.ctrl.physics, 'meter_reading', '--')
+            reading = getattr(self._api.physics, 'meter_reading', '--')
             self.tp_meter_lbl.setText(f"万用表: {reading}")
-            self._set_props(self.tp_meter_lbl, stepStatus=True, mutedText=False)
+            _set_props(self.tp_meter_lbl, stepStatus=True, mutedText=False)
         else:
             self.tp_meter_lbl.setText("万用表: 关闭")
-            self._set_props(self.tp_meter_lbl, stepStatus=True, mutedText=True)
+            _set_props(self.tp_meter_lbl, stepStatus=True, mutedText=True)
 
         # ── Gen control buttons ───────────────────────────────────────
         self._refresh_tp_gen_refs(sim, step)
@@ -2041,10 +1840,10 @@ class TestPanelMixin:
         if progress.random_fault_guess_required:
             self._show_random_fault_identification_dialog()
 
-        result = self.ctrl.assessment_coord.finish_assessment_session_if_ready(step)
+        result = self._api.finish_assessment_session_if_ready(step)
         if result is not None:
             self._show_assessment_result_dialog(result)
-            self.ctrl.assessment_coord.mark_assessment_result_shown()
+            self._api.mark_assessment_result_shown()
 
     def _refresh_tp_gen_refs(self, sim, step):
         step1_active = (step == 1)
@@ -2061,18 +1860,18 @@ class TestPanelMixin:
             run_str = "运行" if gen.running else "停机"
             cls_str = "合闸" if gen.breaker_closed else "断路"
             brk_lbl.setText(f"{run_str} | {pos_str} | {cls_str}")
-            self._apply_badge_tone(brk_lbl, "success" if gen.breaker_closed else "danger")
+            _apply_badge_tone(brk_lbl, "success" if gen.breaker_closed else "danger")
 
             if eng_btn is not None:
                 allow_engine_toggle = gen.running or gen.mode == "manual"
                 eng_btn.setEnabled(allow_engine_toggle)
                 eng_btn.setText("停机" if gen.running else "起机")
                 if gen.running:
-                    self._apply_button_tone(eng_btn, "warning")
+                    _apply_button_tone(self, eng_btn, "warning")
                 elif allow_engine_toggle:
-                    self._apply_button_tone(eng_btn, "success")
+                    _apply_button_tone(self, eng_btn, "success")
                 else:
-                    self._apply_button_tone(eng_btn, "primary", muted=True)
+                    _apply_button_tone(self, eng_btn, "primary", muted=True)
 
             # 合/分闸按钮
             if gen.breaker_closed:
@@ -2085,7 +1884,7 @@ class TestPanelMixin:
                 close_label = "合闸"
                 brk_bg = "#1d4ed8"
             brk_btn.setText(close_label)
-            self._apply_button_tone(brk_btn, "danger" if brk_bg == "#dc2626" else "primary")
+            _apply_button_tone(self, brk_btn, "danger" if brk_bg == "#dc2626" else "primary")
 
             # Sync mode radio buttons
             for val, rb in mode_rbs.items():
@@ -2102,25 +1901,25 @@ class TestPanelMixin:
         if step == 1:
             started = sim.loop_test_mode
         elif step == 2:
-            started = self.ctrl.pt_voltage_check_state.started
+            started = self._api.pt_voltage_check_state.started
         elif step == 3:
-            started = self.ctrl.pt_phase_check_state.started
+            started = self._api.pt_phase_check_state.started
         elif step == 4:
-            started = (self.ctrl.pt_exam_states[1].started and
-                       self.ctrl.pt_exam_states[2].started)
+            started = (self._api.pt_exam_states[1].started and
+                       self._api.pt_exam_states[2].started)
         elif step == 5:
-            started = self.ctrl.sync_test_state.started
+            started = self._api.sync_test_state.started
 
         if started:
             self.tp_btn_start.setText(f"退出{name}")
-            self._apply_button_tone(self.tp_btn_start, "danger", hero=True)
+            _apply_button_tone(self, self.tp_btn_start, "danger", hero=True)
         else:
             self.tp_btn_start.setText(f"开始{name}")
-            self._apply_button_tone(self.tp_btn_start, "warning", hero=True)
+            _apply_button_tone(self, self.tp_btn_start, "warning", hero=True)
 
     def _refresh_tp_step1(self, sim):
         in_mode = sim.loop_test_mode
-        steps = self.ctrl.loop_svc.get_loop_test_steps()
+        steps = self._api.get_loop_test_steps()
         for lbl, (text, done) in zip(self.tp_s1_step_lbls, steps):
             self._set_step_list_label(lbl, text, done, in_mode)
 
@@ -2133,12 +1932,12 @@ class TestPanelMixin:
         for btn in self.tp_s1_rec_btns.values():
             btn.setEnabled(active)
 
-        state = self.ctrl.loop_test_state
+        state = self._api.loop_test_state
         self._set_feedback_label(self.tp_s1_fb_lbl, state.feedback, state.feedback_color)
 
     def _refresh_tp_step2(self, sim):
-        in_mode = self.ctrl.pt_voltage_check_state.started
-        steps = self.ctrl.pt_voltage_svc.get_pt_voltage_check_steps()
+        in_mode = self._api.pt_voltage_check_state.started
+        steps = self._api.get_pt_voltage_check_steps()
         for lbl, (text, done) in zip(self.tp_s2_step_lbls, steps):
             self._set_step_list_label(lbl, text, done, in_mode)
 
@@ -2151,10 +1950,10 @@ class TestPanelMixin:
         n1, n2 = sim.probe1_node, sim.probe2_node
         if n1 and n2:
             self.tp_s2_probe_lbl.setText(f"当前表笔: {n1} ↔ {n2}")
-            self._set_props(self.tp_s2_probe_lbl, feedbackText=True, tone="info")
+            _set_props(self.tp_s2_probe_lbl, feedbackText=True, tone="info")
         else:
             self.tp_s2_probe_lbl.setText("当前表笔: 未放置")
-            self._set_props(self.tp_s2_probe_lbl, feedbackText=True, tone="warning")
+            _set_props(self.tp_s2_probe_lbl, feedbackText=True, tone="warning")
 
         # 同步 PT 变比三值行（发电机运行时锁定输入）
         any_running = sim.gen1.running or sim.gen2.running
@@ -2178,24 +1977,24 @@ class TestPanelMixin:
                 if not entry.hasFocus():
                     entry.setText(f"{getattr(gen, attr):.1f}")
 
-        state = self.ctrl.pt_voltage_check_state
+        state = self._api.pt_voltage_check_state
         self._set_feedback_label(self.tp_s2_fb_lbl, state.feedback, state.feedback_color)
 
     def _refresh_tp_step3(self):
-        in_mode = self.ctrl.pt_phase_check_state.started
-        steps = self.ctrl.pt_phase_svc.get_pt_phase_check_steps()
+        in_mode = self._api.pt_phase_check_state.started
+        steps = self._api.get_pt_phase_check_steps()
         for lbl, (text, done) in zip(self.tp_s3_step_lbls, steps):
             self._set_step_list_label(lbl, text, done, in_mode)
 
-        state = self.ctrl.pt_phase_check_state
+        state = self._api.pt_phase_check_state
         self._set_feedback_label(self.tp_s3_fb_lbl, state.feedback, state.feedback_color)
 
     def _refresh_tp_step4(self):
-        sim = self.ctrl.sim_state
+        sim = self._api.sim_state
         gen_id = max(1, self._tp_s4_bg.checkedId())
-        in_mode = (self.ctrl.pt_exam_states[1].started and
-                   self.ctrl.pt_exam_states[2].started)
-        steps = self.ctrl.pt_exam_svc.get_pt_exam_steps(gen_id)
+        in_mode = (self._api.pt_exam_states[1].started and
+                   self._api.pt_exam_states[2].started)
+        steps = self._api.get_pt_exam_steps(gen_id)
         for lbl, (text, done) in zip(self.tp_s4_step_lbls, steps):
             self._set_step_list_label(lbl, text, done, in_mode)
 
@@ -2210,28 +2009,28 @@ class TestPanelMixin:
                 if not entry.hasFocus():
                     entry.setText(f"{getattr(gen, attr):.1f}")
 
-        state = self.ctrl.pt_exam_states[gen_id]
+        state = self._api.pt_exam_states[gen_id]
         self._set_feedback_label(self.tp_s4_fb_lbl, state.feedback, state.feedback_color)
 
     def _show_blackbox_dialog(self, target):
         """打开物理接线黑盒检查对话框（图形化 + 交互修复）。target: 'G1'|'G2'|'PT1'|'PT3'
         G1/G2/PT1/PT3 支持点击互换接线后确认修复。"""
-        if not self.ctrl.flow_mgr.can_inspect_blackbox():
+        if not self._api.can_inspect_blackbox():
             return
-        self.ctrl.assessment_coord.append_assessment_event(
+        self._api.append_assessment_event(
             AssessmentEventType.BLACKBOX_OPENED, step=self._current_test_step(), target=target
         )
-        sim = self.ctrl.sim_state
+        sim = self._api.sim_state
         fc  = sim.fault_config
-        allow_repair = self.ctrl.flow_mgr.can_repair_in_blackbox()
-        assessment_mode = self.ctrl.flow_mgr.is_assessment_mode()
+        allow_repair = self._api.can_repair_in_blackbox()
+        assessment_mode = self._api.is_assessment_mode()
 
         # 是否存在活跃未修复故障（影响接线显示）
-        blackbox_state = self.ctrl.blackbox_handler.get_blackbox_runtime_state(target)
+        blackbox_state = self._api.get_blackbox_runtime_state(target)
         fault_active = blackbox_state['fault_active']
 
         dlg = QtWidgets.QDialog(self)
-        self._set_props(dlg, themedDialog=True)
+        _set_props(dlg, themedDialog=True)
         dlg.setMinimumWidth(340)
         vlay = QtWidgets.QVBoxLayout(dlg)
         vlay.setSpacing(6)
@@ -2253,7 +2052,7 @@ class TestPanelMixin:
             sub_txt = ("上方绕组（A黄/B绿/C红）→ 下方接线柱（U/V/W）"
                        + (" [可交互修复]" if interactive else " [仅查看]"))
             sub = QtWidgets.QLabel(sub_txt)
-            self._set_props(sub, dialogCaption=True)
+            _set_props(sub, dialogCaption=True)
             vlay.addWidget(sub)
             widget = _GenWiringWidget(mapping, interactive=interactive)
             initial_order = widget.get_order()
@@ -2272,7 +2071,7 @@ class TestPanelMixin:
                 if allow_repair else
                 "PT1 接线按当前物理状态绘制：当前流程模式仅允许查看，不允许直接修复。"
             )
-            self._set_props(sub, dialogCaption=True)
+            _set_props(sub, dialogCaption=True)
             vlay.addWidget(sub)
             widget = _PTWiringWidget(
                 pri_order,
@@ -2299,7 +2098,7 @@ class TestPanelMixin:
                 if allow_repair else
                 "上: 二次侧输出→测量端口 [只读]  |  下: 一次侧输入←Gen2 [只读]"
             )
-            self._set_props(sub, dialogCaption=True)
+            _set_props(sub, dialogCaption=True)
             vlay.addWidget(sub)
             widget = _PTWiringWidget(
                 pri_order,
@@ -2313,14 +2112,14 @@ class TestPanelMixin:
             repair_target = blackbox_state['repair_target']
             if fault_active and fc.scenario_id == 'E03' and not assessment_mode:
                 note = QtWidgets.QLabel("⚠ A 相极性反接：A1 正负极颠倒（a2 输出反相）")
-                self._set_props(note, stepBanner=True, tone="warning")
+                _set_props(note, stepBanner=True, tone="warning")
                 note.setWordWrap(True)
                 vlay.addWidget(note)
 
         # ── 反馈标签 ────────────────────────────────────────────────────
         fb_lbl = QtWidgets.QLabel("")
         fb_lbl.setWordWrap(True)
-        self._set_props(fb_lbl, feedbackText=True, tone="neutral")
+        _set_props(fb_lbl, feedbackText=True, tone="neutral")
         fb_lbl.setVisible(False)
         vlay.addWidget(fb_lbl)
 
@@ -2336,7 +2135,7 @@ class TestPanelMixin:
                 new_order = widget.get_order() if repair_target in ('G1', 'G2') else None
                 new_pri = widget.get_pri_order() if repair_target in ('PT1', 'PT3') else None
                 new_sec = widget.get_sec_order() if repair_target in ('PT1', 'PT3') else None
-                outcome = self.ctrl.blackbox_handler.apply_blackbox_repair_attempt(
+                outcome = self._api.apply_blackbox_repair_attempt(
                     repair_target,
                     step=self._current_test_step(),
                     initial_order=initial_order,
@@ -2348,7 +2147,7 @@ class TestPanelMixin:
                 )
                 if not assessment_mode and fb_lbl is not None:
                     fb_lbl.setText(outcome.message)
-                    self._set_props(
+                    _set_props(
                         fb_lbl,
                         feedbackText=True,
                         tone=self._tone_from_color(outcome.message_color),
@@ -2356,27 +2155,27 @@ class TestPanelMixin:
                     fb_lbl.setVisible(True)
                 elif assessment_mode and fb_lbl is not None:
                     fb_lbl.setText("接线已保存，请关闭黑盒后返回外部测试流程复测。")
-                    self._set_props(fb_lbl, feedbackText=True, tone="info")
+                    _set_props(fb_lbl, feedbackText=True, tone="info")
                     fb_lbl.setVisible(True)
                 if outcome.disable_repair_button and not assessment_mode:
                     btn_repair.setEnabled(False)
 
             btn_repair = QtWidgets.QPushButton("保存接线" if assessment_mode else "确认修复 ✓")
-            self._apply_button_tone(btn_repair, "success")
+            _apply_button_tone(self, btn_repair, "success")
             btn_repair.clicked.connect(_on_confirm)
             bh.addWidget(btn_repair, 1)
 
         btn_ok = QtWidgets.QPushButton("关闭")
-        self._apply_button_tone(btn_ok, "primary")
+        _apply_button_tone(self, btn_ok, "primary")
         btn_ok.clicked.connect(dlg.accept)
         bh.addWidget(btn_ok)
         vlay.addWidget(btn_row)
         dlg.exec_()
 
     def _refresh_tp_step5(self, sim):
-        state   = self.ctrl.sync_test_state
+        state   = self._api.sync_test_state
         in_mode = state.started
-        steps = self.ctrl.sync_svc.get_sync_test_steps()
+        steps = self._api.get_sync_test_steps()
         for lbl, (text, done) in zip(self.tp_s5_step_lbls, steps):
             self._set_step_list_label(lbl, text, done, in_mode)
 
@@ -2387,10 +2186,10 @@ class TestPanelMixin:
         self.tp_s5_remote_btn.blockSignals(False)
         if rs:
             self.tp_s5_remote_btn.setText("⚡ 关闭自动")
-            self._apply_button_tone(self.tp_s5_remote_btn, "success")
+            _apply_button_tone(self, self.tp_s5_remote_btn, "success")
         else:
             self.tp_s5_remote_btn.setText("⚡ 开启自动")
-            self._apply_button_tone(self.tp_s5_remote_btn, "primary", secondary=True)
+            _apply_button_tone(self, self.tp_s5_remote_btn, "primary", secondary=True)
 
         # Gen fap 控件：auto 模式下只显示，不可调
         for gid, entry_map in getattr(self, '_tp_s5_fap', {}).items():
@@ -2405,7 +2204,7 @@ class TestPanelMixin:
                 if not entry.hasFocus():
                     entry.setText(f"{getattr(gen, attr):.1f}")
                 entry.setReadOnly(is_auto)
-                self._set_props(entry, compactInput=True, readonlyTone=is_auto)
+                _set_props(entry, compactInput=True, readonlyTone=is_auto)
 
         gen1, gen2 = sim.gen1, sim.gen2
         freq_diff  = abs(gen1.freq - gen2.freq)

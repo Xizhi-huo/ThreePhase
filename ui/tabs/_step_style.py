@@ -50,6 +50,12 @@ def apply_button_tone(owner, button, tone="primary", *, hero=False, secondary=Fa
     refresh_styles(button)
 
 
+def apply_badge_tone(widget, tone="neutral"):
+    widget.setProperty("badge", True)
+    widget.setProperty("tone", tone)
+    refresh_styles(widget)
+
+
 def set_live_text(widget, tone="neutral"):
     set_props(widget, liveText=True, tone=tone)
 

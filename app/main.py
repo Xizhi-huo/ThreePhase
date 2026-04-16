@@ -168,6 +168,60 @@ class PowerSyncController:
     def is_assessment_mode(self):
         return self.flow_mgr.is_assessment_mode()
 
+    def allow_admin_shortcuts(self):
+        return self.flow_mgr.allow_admin_shortcuts()
+
+    def can_use_pt_exam_quick_record(self):
+        return self.flow_mgr.can_use_pt_exam_quick_record()
+
+    def should_show_fault_detected_banner(self):
+        return self.flow_mgr.should_show_fault_detected_banner()
+
+    def can_advance_with_fault(self):
+        return self.flow_mgr.can_advance_with_fault()
+
+    def should_hold_at_step4_when_wiring_fault_unrepaired(self):
+        return self.flow_mgr.should_hold_at_step4_when_wiring_fault_unrepaired()
+
+    def has_unrepaired_wiring_fault(self):
+        return self.fault_mgr.has_unrepaired_wiring_fault()
+
+    def can_inspect_blackbox(self):
+        return self.flow_mgr.can_inspect_blackbox()
+
+    def can_repair_in_blackbox(self):
+        return self.flow_mgr.can_repair_in_blackbox()
+
+    def start_assessment_session(self, scenario_id: str, *, preset_mode: str):
+        return self.assessment_coord.start_assessment_session(scenario_id, preset_mode=preset_mode)
+
+    def append_assessment_event(self, event_type, **kwargs):
+        return self.assessment_coord.append_assessment_event(event_type, **kwargs)
+
+    def get_test_progress_snapshot(self, step: int, pre_step5_repair_triggered: bool):
+        return self.assessment_coord.get_test_progress_snapshot(step, pre_step5_repair_triggered)
+
+    def finish_assessment_session_if_ready(self, step: int):
+        return self.assessment_coord.finish_assessment_session_if_ready(step)
+
+    def mark_assessment_result_shown(self):
+        return self.assessment_coord.mark_assessment_result_shown()
+
+    def submit_random_fault_identification(self, scene_id: str):
+        return self.assessment_coord.submit_random_fault_identification(scene_id)
+
+    def get_blackbox_runtime_state(self, target: str):
+        return self.blackbox_handler.get_blackbox_runtime_state(target)
+
+    def apply_blackbox_repair_attempt(self, *args, **kwargs):
+        return self.blackbox_handler.apply_blackbox_repair_attempt(*args, **kwargs)
+
+    def toggle_engine(self, gen_id: int):
+        return self.hw.toggle_engine(gen_id)
+
+    def toggle_breaker(self, gen_id: int):
+        return self.hw.toggle_breaker(gen_id)
+
     def request_ui_tab(self, tab_index: int):
         self._pending_ui_tab_index = tab_index
 
@@ -276,6 +330,9 @@ class PowerSyncController:
     def get_pt_voltage_check_steps(self):
         return self.pt_voltage_svc.get_pt_voltage_check_steps()
 
+    def is_pt_voltage_check_complete(self):
+        return self.pt_voltage_svc.is_pt_voltage_check_complete()
+
     # ════════════════════════════════════════════════════════════════════════
     # 第三步：PT 相序检查 — 委托给 PtPhaseCheckService
     # ════════════════════════════════════════════════════════════════════════
@@ -296,6 +353,12 @@ class PowerSyncController:
 
     def get_pt_phase_check_steps(self):
         return self.pt_phase_svc.get_pt_phase_check_steps()
+
+    def is_pt_phase_check_complete(self):
+        return self.pt_phase_svc.is_pt_phase_check_complete()
+
+    def record_phase_sequence(self, pt_name: str, seq: str):
+        return self.pt_phase_svc.record_phase_sequence(pt_name, seq)
 
     # ════════════════════════════════════════════════════════════════════════
     # 第四步：PT 二次端子压差考核 — 委托给 PtExamService

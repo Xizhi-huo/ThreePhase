@@ -48,12 +48,11 @@ from ui.tabs.pt_voltage_check_tab import PtVoltageCheckTab
 from ui.tabs.pt_phase_check_tab import PtPhaseCheckTab
 from ui.tabs.pt_exam_tab import PtExamTab
 from ui.tabs.sync_test_tab import SyncTestTab
-from ui.test_panel import TestPanelMixin
+from ui.test_panel import TestPanelWidget
 
 
 class PowerSyncUI(
     WidgetBuilderMixin,
-    TestPanelMixin,
     QtWidgets.QMainWindow,
 ):
     """
@@ -123,7 +122,7 @@ class PowerSyncUI(
             },
             apply_badge_tone=self._apply_badge_tone,
             on_circuit_click=self._on_circuit_click,
-            is_test_mode_active=lambda: getattr(self, "_test_mode_active", False),
+            is_test_mode_active=self._is_test_mode_active,
             get_current_test_step=self._current_test_step,
             parent=self,
         )
@@ -177,8 +176,23 @@ class PowerSyncUI(
                 pass  # Qt < 5.15 fallback: 无 setTabVisible
 
         # -- 竖向测试控制条（测试模式时替换右侧控制台） -------------------------
-        self._setup_test_panel()              # <- TestPanelMixin
-        h_layout.addWidget(self.test_panel)   # 加入主布局（初始隐藏）
+        self._test_panel_widget = TestPanelWidget(
+            self.ctrl,
+            on_show_test_panel=lambda active: self.ctrl_container.setVisible(not active),
+            on_set_current_tab=lambda idx: self.tab_widget.setCurrentIndex(idx),
+            on_set_step_tabs_visible=lambda active: [
+                self.tab_widget.setTabVisible(i, active) for i in range(2, 7)
+            ],
+            on_toggle_multimeter=lambda: self.multimeter_cb.setChecked(
+                not self.multimeter_cb.isChecked()
+            ),
+            on_force_multimeter_off=lambda: self.multimeter_cb.setChecked(False),
+            on_connect_phase_seq_meter=lambda pt: self.connect_phase_seq_meter(pt),
+            on_disconnect_phase_seq_meter=lambda: self.disconnect_phase_seq_meter(),
+            get_phase_seq_meter_sequence=lambda: getattr(self.phase_seq_meter, "_sequence", "unknown"),
+            parent=self,
+        )
+        h_layout.addWidget(self._test_panel_widget)   # 加入主布局（初始隐藏）
 
     # -- resize 防抖回调 -------------------------------------------------------
     def resizeEvent(self, event: QtGui.QResizeEvent):
@@ -188,6 +202,18 @@ class PowerSyncUI(
 
     def _on_resize_done(self):
         self._is_resizing = False
+
+    @property
+    def test_panel(self):
+        return self._test_panel_widget
+
+    def _is_test_mode_active(self):
+        panel = getattr(self, "_test_panel_widget", None)
+        return panel.is_test_mode_active() if panel is not None else False
+
+    def _current_test_step(self):
+        panel = getattr(self, "_test_panel_widget", None)
+        return panel._current_test_step() if panel is not None else 1
 
     @property
     def ax_circuit(self):
@@ -213,6 +239,17 @@ class PowerSyncUI(
     def disconnect_phase_seq_meter(self):
         self._circuit_tab.disconnect_phase_seq_meter()
 
+    def enter_test_mode(self):
+        self._test_panel_widget.set_pretest_config(
+            getattr(self, "_pre_test_scenario_id", ""),
+            getattr(self, "_pre_test_flow_mode", "teaching"),
+            getattr(self, "_pre_test_preset_mode", "normal"),
+        )
+        self._test_panel_widget.enter_test_mode()
+
+    def exit_test_mode(self):
+        self._test_panel_widget.exit_test_mode()
+
     def _consume_controller_ui_requests(self):
         tab_index = self.ctrl.consume_requested_ui_tab()
         if tab_index is not None:
@@ -222,7 +259,7 @@ class PowerSyncUI(
         if not ratio_updates:
             return
 
-        rows = getattr(self, '_tp_s2_ratio_rows', {})
+        rows = getattr(self._test_panel_widget, '_tp_s2_ratio_rows', {})
         for ratio_attr, (pri_value, sec_value) in ratio_updates.items():
             row = rows.get(ratio_attr)
             if not row:
@@ -250,7 +287,7 @@ class PowerSyncUI(
         self._sync_test_tab.render(p)
         self._pt_exam_tab.render(p)
         self._update_generator_buttons()
-        self._render_test_panel(p)
+        self._test_panel_widget.render(p)
         self._check_fault_detection()
 
         # resize/全屏动画期间跳过 canvas 重绘，防止卡死

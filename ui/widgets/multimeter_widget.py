@@ -69,7 +69,7 @@ class MultimeterWidget(QtWidgets.QWidget):
                      probe1: str | None,
                      probe2: str | None,
                      mode: str) -> None:
-        """每帧由 _render_multimeter 调用，传入最新物理量。"""
+        """每帧由电路页渲染逻辑调用，传入最新物理量。"""
         self._voltage = voltage
         self._status  = status
         self._probe1  = probe1
