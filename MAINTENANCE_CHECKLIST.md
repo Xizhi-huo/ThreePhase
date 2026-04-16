@@ -6,6 +6,151 @@
 - 给人看：明确当前项目的维护边界、阶段目标、已完成进度。
 - 给 AI 看：后续新对话先读本文件，再决定下一轮该做什么，不再重复讨论方向。
 
+---
+
+<!-- ─────────── 第 29 轮提示词 ─────────── -->
+
+# Phase 3 — Round 29：WidgetBuilderMixin / TestPanelMixin 组件化评估（最终两轮收尾）
+
+## 0. 角色与规矩
+你是本仓库（`/Users/promise/Downloads/3/Intership/ThreePhase_entier/ThreePhase`）的**评估 AI**，不是执行 AI。本轮的交付物是一份**可落地的评估报告**，以及 Round 30（和可能的 Round 31）的具体执行方案。
+
+**硬性约束：本轮不允许修改任何 `.py` 源码文件**（唯一可改的只有 `MAINTENANCE_CHECKLIST.md`，用于登记结论与下一轮起点）。任何代码改动都视为越界。
+
+## 1. 背景
+- R22~R28 已把 5 个业务 Tab（LoopTest / PtVoltageCheck / PtPhaseCheck / SyncTest / PtExam）和 2 个展示 Tab（Waveform / Circuit）从 Mixin 改成独立 `QWidget` 组件。
+- 当前 `PowerSyncUI` 基类列表已收敛到只剩两个 Mixin：
+  - `WidgetBuilderMixin`（`ui/panels/control_panel.py:25`）：776 行，12 处 `self.ctrl.` 穿透。
+  - `TestPanelMixin`（`ui/test_panel.py:406`）：2423 行，114 处 `self.ctrl.` 穿透——是当前仓库的**最大文件、最高耦合点**，也是 §4.3 明确登记的"最大风险文件"。
+- 两者的难度差异巨大：前者是 ~10 处耦合的"边界上点洁癖问题"，后者是 ~100 处耦合、跨 5 个步骤、长期承担"右侧测试控制条"重任的大头文件。**不能用同一种范式同时处理**。
+- Round 29 的使命是把这两个目标**拆成可独立决策的问题**，而不是强行复用 R22~R28 的 Tab 组件化范式。
+
+## 2. 目标
+产出一份评估报告，用于决定接下来两轮（Round 30、可能的 Round 31）要不要做、做什么、怎么做。报告必须回答下面 4 个问题：
+
+### Q1：`WidgetBuilderMixin` 是否值得组件化？
+它只构建右侧控制面板（QSpinBox / QRadioButton / QGroupBox 等），几乎不承担渲染逻辑。评估是否满足：
+- **拆分收益**：基类列表再 -1？职责是否清晰？
+- **拆分成本**：它创建的 `self.xxx` 属性（`self.multimeter_cb` / `self.bus_status_lbl` / `self.gen1_amp_spin` …）被主窗口 / TestPanel / 诸 Tab 当作命名空间大量访问，直接搬走会把整个应用打穿。
+- **替代方案**：改为**纯构造辅助类**（`ControlPanelBuilder`），只接收 parent 并返回一个 `QWidget` + 一组 attribute accessor，然后在 `PowerSyncUI.__init__` 里显式挂到 `self.xxx`？或者**保留 Mixin 形态**，仅把穿透 `self.ctrl.` 的 12 处改成 Protocol 化、不做类层级变动？
+
+### Q2：`TestPanelMixin` 是否值得组件化，以及怎么拆？
+它承担的职责至少包含：
+1. 右侧**测试控制条**（test_panel QWidget）构建 —— `_setup_test_panel` / `_make_grp` / `_make_btn` / 五个 `_build_stepN`。
+2. **测试模式切换**生命周期 —— `enter_test_mode` / `exit_test_mode`。
+3. **步骤动作分发** —— `_on_tp_reset_step` / `_on_tp_start_step` / `_on_tp_complete_step` / `_on_tp_step_btn_clicked`。
+4. **步骤记录转发** —— `_tp_s2_record` / `_on_connect_psm` / `_on_disconnect_psm` / `_on_record_psm`。
+5. **管理员模式 / 随机故障识别** —— `_on_tp_toggle_admin` / `_show_random_fault_identification_dialog` / `_show_assessment_result_dialog` 等。
+6. **每帧渲染刷新** —— `_render_test_panel` / `_refresh_tp_*`。
+7. 嵌入式 QWidget 子类 —— `_GenWiringWidget` / `_PTWiringWidget`（已是独立类，但仍嵌在同一个 2423 行文件里）。
+
+评估必须回答：
+- 拆成**一个** `TestPanelWidget(QWidget)` 组件够不够？还是需要进一步分层？
+- 至少 3 种拆分方案对比，每种给出"命名 / 接口轮廓 / 行数估计 / 风险点"：
+  - 方案 A：整体单组件 `TestPanelWidget` + `TestPanelAPI`。
+  - 方案 B：按步骤拆（Step1Panel / Step2Panel …），由 `TestPanelWidget` 外壳装配。
+  - 方案 C：按职责分层（构建层 + 生命周期控制器 + 渲染层），保留 Mixin 不动 / 做浅组件化。
+- 最终给出**推荐方案**及选择理由。
+
+### Q3：`_GenWiringWidget` / `_PTWiringWidget` 是否应在本轮之前先外提？
+它们已经是独立 `QtWidgets.QWidget` 子类，但被埋在 2423 行 `test_panel.py` 中。评估**是否先把它们单文件化**（至 `ui/widgets/gen_wiring_widget.py` / `ui/widgets/pt_wiring_widget.py`）作为 Round 30 的热身动作，或者不划算。
+
+### Q4：下一轮的**具体执行方案**
+基于 Q1~Q3 的结论，写出 Round 30 的完整"目标 / 范围 / Protocol 轮廓 / 边界禁止 / 验收自检 / 交付物"框架草案（不必像 R28 那么详尽，但要具备可执行性）。如果结论是需要 Round 31 配合收尾，也要明确 Round 31 的定位（比如"Round 30 拆 TestPanelWidget 骨架，Round 31 再把 5 个步骤面板按 B 方案进一步解构"）。
+
+## 3. 评估必须产出的具体数据（这些是"数据面"，不是观点）
+
+### 3.1 WidgetBuilderMixin 数据面
+运行并汇总：
+```bash
+grep -n "self\.ctrl\." ui/panels/control_panel.py
+grep -nE "self\.[a-z_]+ *=" ui/panels/control_panel.py | head -80
+grep -rn --include="*.py" "self\.multimeter_cb\|self\.bus_status_lbl\|self\.bus_reference_lbl\|self\.arbitrator_lbl\|self\.relay_lbl\|self\.status1_lbl\|self\.status2_lbl\|self\.ctrl_layout\|self\.ctrl_inner" ui app
+```
+产出：
+- 12 处 `self.ctrl.` 的完整清单（行号 + 访问点）。
+- `WidgetBuilderMixin` 在 `self.xxx` 上创建的**属性全集**（至少主要的 30~50 个）。
+- 这些属性被**哪些其他文件**外部读写——决定了 Q1 里"直接搬走会打穿应用"这一风险的真实半径。
+
+### 3.2 TestPanelMixin 数据面
+运行并汇总：
+```bash
+grep -c "self\.ctrl\." ui/test_panel.py
+grep -n "self\.ctrl\." ui/test_panel.py | awk -F: '{print $2}' | head -30
+grep -nE "^\s{4}def " ui/test_panel.py | wc -l
+grep -nE "^\s{4}def " ui/test_panel.py
+```
+产出：
+- 114 处 `self.ctrl.` 分布在哪些方法内、每类访问面大致是哪几类（sim_state 直读 / service 方法调用 / UI 请求回调）。
+- `TestPanelMixin` 的**方法全集分组**，按上文 §2.Q2 的 7 类职责归档。
+- 标记出"跨 Mixin 依赖"——哪些方法依赖 `WidgetBuilderMixin` 创建的属性（如 `self.multimeter_cb`）。
+
+### 3.3 兼容面扫描
+```bash
+grep -rn --include="*.py" "self\.test_panel\|self\.ctrl_container\|enter_test_mode\|exit_test_mode\|_on_tp_\|_refresh_tp_\|_render_test_panel" ui app
+```
+产出：哪些文件 / 调用点**要求 `PowerSyncUI` 上保留这些名字**。任何一个 R30 的拆分方案都必须列出"兼容转发面"的大小。
+
+## 4. 评估报告的硬性结构
+你的最终输出必须是一份 Markdown 报告，结构固定为以下 8 节，缺一不可：
+
+1. **执行摘要**（5 行以内，给出两个结论：R30 做什么、R31 做不做/做什么）。
+2. **WidgetBuilderMixin 现状画像**（行数 / ctrl 穿透数据 / 属性清单 / 外部消费者）。
+3. **TestPanelMixin 现状画像**（行数 / ctrl 穿透分组 / 方法 7 类归档 / 跨 Mixin 依赖）。
+4. **Q1 答复**：WidgetBuilderMixin 是否拆，推荐哪种形态，理由。
+5. **Q2 答复**：TestPanelMixin 三方案对比表 + 推荐方案 + 理由。
+6. **Q3 答复**：`_GenWiringWidget` / `_PTWiringWidget` 是否先外提。
+7. **Round 30 执行方案草案**（可直接在 Round 30 作为种子提示词用）。
+8. **Round 31 定位说明**（做 / 不做 / 不确定——任选其一，并解释）。
+
+## 5. 决策原则（选方案时的权重）
+按下列优先级从高到低评估每个方案：
+1. **零功能回归**：任何方案都不能影响 5 个步骤的既有行为、考核流程、随机故障识别弹窗、管理员模式。
+2. **接口隔离**（§1.4）：组件不再直接穿透 service 对象（`flow_mgr` / `loop_svc` / `phase_resolver` / `sync_svc` / `assessment_coordinator` / `fault_manager` / `pt_exam_svc` …），只通过 Controller 薄转发或 sim_state 属性访问。
+3. **可验证性**：方案拆得越细，手动冒烟的覆盖面越难；推荐方案必须配套"可在 1 次人工冒烟内全覆盖"的验收路径。
+4. **增量可回退**：R30 若翻车必须能单 PR 回退，不得让 R30 半途留下"一半 Mixin、一半组件"的中间态。
+5. **行数收益**：`test_panel.py` 2423 行是 §1.2 "必须拆分"红线（>800 行）的 3 倍，本条目应被纳入，但不得凌驾于前 4 条之上（**行数是副产品，不是目标**）。
+
+## 6. 边界禁止事项（评估轮特有）
+- 禁止改动 `services/**`、`domain/**`、`adapters/**`、`tests/**`。
+- 禁止改动 `ui/**/*.py` 中的任何文件——包括"顺手把 12 处 ctrl 穿透 Protocol 化"这类看似无害的微操。
+- 禁止新增任何 `.py` 文件。
+- 禁止运行 `pytest` 以外的自动化重构工具。
+- 禁止给出模糊结论（如"可以考虑……"、"也许……"）——每一个 Q 必须给出**单一明确结论**（拆 / 不拆 / 先外提 / 后外提）。
+- 禁止把 Round 30 方案写成"继续评估"——Round 30 必须是执行轮。
+
+## 7. 允许的操作
+- `grep` / `find` / `wc` / `cat` / `head` / `sed -n` 等只读命令。
+- `git log` / `git blame` 查职责归属。
+- `pytest tests/ -q` 作为现状基线（预期仍是 13 passed）。
+- 可选：`python scripts/report_large_files.py --top 10` 给出当前文件大小分布，辅助决策。
+- 对 `MAINTENANCE_CHECKLIST.md` 的编辑**仅限**：
+  - §3 / §10 同步更新 R29 结论与 Round 30 起点；
+  - §9 追加 "### 第 29 轮 (日期)：Phase 3-7（评估轮）" 章节，登记评估结论摘要、推荐方案、风险标记。
+
+## 8. 验收自检（评估轮硬门）
+1. 没有任何 `.py` 文件被修改（`git diff --name-only -- '*.py'` 为空）。
+2. `pytest tests/ -q` 仍为 13 passed（作为现状基线记录，不作通过条件使用）。
+3. 报告 8 节齐全，每节都有具体数据支撑，而非空话。
+4. §5 的 5 条决策原则每一条都在报告中显式回应过（可标注"方案 X 满足原则 1、2、4；在原则 3 上需要……"）。
+5. Round 30 执行方案草案至少包含：目标一句话 / 修改文件清单 / Protocol 接口轮廓 / 需要新增的 Controller 薄转发清单 / 验收硬门条数。
+6. §4.3 登记的"`ui/test_panel.py` 是当前最大风险文件"**在报告中得到正面回应**——即方案明确处置了这一风险，或显式说明"本轮不处置，理由是……"。
+7. `MAINTENANCE_CHECKLIST.md` §3 / §9 / §10 已同步。
+
+## 9. 交付物清单
+- 上述 8 节评估报告（直接输出在对话窗口即可，不要新建 `.md` 文件）。
+- `MAINTENANCE_CHECKLIST.md` 的 3 处最小编辑 diff（§3、§9、§10）。
+- Round 30 执行方案草案（作为报告 §7，要能直接作为下一轮 AI 提示词的骨架）。
+- 本轮评估用到的关键 grep 原始输出片段（附在报告末尾作为"证据附录"，不超过 80 行）。
+
+## 10. 判定标准
+- 如果 8 节结构齐全、结论明确、Round 30 方案可执行——记为 PASS，可进入 Round 30。
+- 如果 Q1~Q4 任一出现"可以考虑…"式模糊结论 / Round 30 方案不具备可执行性 / 越界修改 `.py` 文件——记为 **暂不能视为完成**。
+
+<!-- ─────────── 第 29 轮提示词 END ─────────── -->
+
+---
+
 ## 1. 维护边界总原则
 
 ### 1.1 总目标
@@ -136,10 +281,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 3 — UI 组件化（进行中：LoopTestTab / PtVoltageCheckTab / PtPhaseCheckTab / SyncTestTab / PtExamTab / WaveformTab / CircuitTab 已完成） |
+| 当前阶段 | Phase 3 — UI 组件化收尾（R29 评估完成：WidgetBuilderMixin 暂不组件化；Round 30 进入 TestPanelWidget 骨架拆分） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
-| 当前最大风险文件 | `ui/test_panel.py`(2417)、`ui/styles.py`(1007) |
-| 下一轮默认起点 | Phase 3 — Round 29：WidgetBuilderMixin / TestPanelMixin 组件化评估（最终两轮收尾） |
+| 当前最大风险文件 | `ui/test_panel.py`(2423)、`ui/styles.py`(1007)、`ui/panels/control_panel.py`(776) |
+| 下一轮默认起点 | Phase 3 — Round 30：TestPanelWidget 骨架拆分 + `_GenWiringWidget` / `_PTWiringWidget` 外提（WidgetBuilderMixin 暂保留） |
 
 ---
 
@@ -482,6 +627,26 @@ class PowerSyncUI(QMainWindow):
 
 ### 当前未完成但已明确方向
 - `ui/test_panel.py` 仍是当前最大风险文件。
+
+### 第 29 轮 (2026-04-15)：Phase 3-7（WidgetBuilderMixin / TestPanelMixin 组件化评估）
+- 本轮唯一主攻目标：对 `WidgetBuilderMixin` 与 `TestPanelMixin` 做数据化评估，给出 Round 30 / Round 31 的单一明确执行方案，不做源码重构。
+- 实际完成：
+  - 已完成 `WidgetBuilderMixin` 数据画像：文件 `776` 行，`self.ctrl.` 穿透 `12` 处；但其构建出的宿主属性面很大，至少包括 `multimeter_cb`、`bus_status_lbl`、`bus_reference_lbl`、`arbitrator_lbl`、`relay_lbl`、`status1_lbl`、`status2_lbl`、`ctrl_layout`、`ctrl_inner` 等，并被 `ui/main_window.py`、`ui/test_panel.py`、步骤 Tab 回调广泛消费。
+  - 已完成 `TestPanelMixin` 数据画像：文件 `2423` 行，`self.ctrl.` 穿透 `114` 处，实例方法 `62` 个；职责已确认横跨构建、测试模式生命周期、步骤动作分发、记录转发、管理员/故障弹窗、逐帧渲染刷新、内嵌 wiring widget 七大类。
+  - 已确认 `TestPanelMixin` 的跨 Mixin / 宿主依赖面：直接依赖 `multimeter_cb`、`ctrl_container`、`tab_widget`、`phase_seq_meter`、`connect_phase_seq_meter()`、`disconnect_phase_seq_meter()`，并大量复用 `_apply_button_tone()`、`_apply_badge_tone()`、`_set_props()` 等宿主样式 helper。
+  - 已完成三方案比较：单体 `TestPanelWidget`、按步骤子面板拆分、按职责分层浅组件化；最终推荐“两轮法”——Round 30 先抽 `TestPanelWidget` 骨架并外提 `_GenWiringWidget` / `_PTWiringWidget`，Round 31 再按步骤子面板继续解构。
+  - 已明确结论：`WidgetBuilderMixin` 本轮后暂不做独立 QWidget 组件化，保留为宿主构造层；如后续仍需降耦，只考虑降级为 `ControlPanelBuilder / Facade` 形态，不单开一轮做激进搬迁。
+- 删除了哪些旧代码：
+  - 无。本轮是评估轮，只更新 `MAINTENANCE_CHECKLIST.md`。
+- 接口变化：
+  - 本轮无接口变更。
+  - 下一轮建议新增 `TestPanelAPI`，显式收口 `sim_state` / 步骤状态快照 / 测试模式动作 / 评估事件 / 黑盒状态查询等当前散落在 `self.ctrl.*` 上的访问面。
+- 耦合度变化：
+  - 代码耦合本轮未变；但剩余高风险面已从“两个都要拆”收敛为“主拆 `test_panel.py`，`WidgetBuilderMixin` 先稳住宿主属性面”。
+  - `ui/test_panel.py` 已被正面确认为 Phase 3 收尾主战场，`WidgetBuilderMixin` 则被降级为边界整理问题，而不是主组件化目标。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：BASELINE（本轮无 `.py` 改动；记录现状基线并完成评估，不做额外 GUI 重构验收）
+- 下一轮起点：Phase 3 — Round 30：`TestPanelWidget` 骨架拆分 + `_GenWiringWidget` / `_PTWiringWidget` 外提（`WidgetBuilderMixin` 暂保留）
 
 ### 第 28 轮 (2026-04-15)：Phase 3-6（WaveformTab / CircuitTab 组件化）
 - 本轮唯一主攻目标：将 `WaveformTabMixin` 与 `CircuitTabMixin` 同步迁移为独立 `QWidget` 组件，收敛 `PowerSyncUI` 继承链，并保住 matplotlib 画布生命周期与外部调用兼容面。
@@ -930,9 +1095,9 @@ class PowerSyncUI(QMainWindow):
 如果后续没有新的明确指令，默认按以下顺序继续：
 
 **Phase 3：**
-1. `WidgetBuilderMixin` / `TestPanelMixin` 组件化评估（最终两轮收尾）
-2. 判断 `WidgetBuilderMixin` 是否保留为主窗口初始化辅助，还是继续拆成独立面板组件
-3. 最后收口 `ui/test_panel.py` 与主窗口壳层
+1. `Round 30：TestPanelWidget` 骨架拆分 + `_GenWiringWidget` / `_PTWiringWidget` 外提（`WidgetBuilderMixin` 暂保留）
+2. `Round 31：`按步骤子面板继续拆分 `TestPanelWidget`（Step1~Step5），收口兼容转发面与宿主残留调用
+3. `WidgetBuilderMixin` 暂保留为主窗口初始化辅助；仅在 Round 30 / 31 稳定后，再评估是否降级为 `ControlPanelBuilder / Facade`
 
 ---
 
