@@ -1,3 +1,344 @@
+<!-- ─────────── 第 31 轮提示词 ─────────── -->
+
+# Phase 3 — Round 31：TestPanelWidget 子面板分解
+
+你是本仓库的资深重构实施 AI。现在对 `ui/test_panel.py` 的 `TestPanelWidget` 执行**子面板分解**（Plan B），把 5 个 Step 的 build + refresh 各自外提为独立 QGroupBox 子类。本轮 **严格范围锁定**：不触碰服务层、不触碰 `ui/panels/control_panel.py::WidgetBuilderMixin`、不改任何既有公开行为。
+
+## 0. 本轮完成后的全局状态
+
+- `ui/test_panel.py` 变为**协调器 Widget**：只持有外层容器、标题栏、admin 切换、步骤点、滚动区、底部操作条、顶层 `_render_test_panel` 派发、assessment/random-fault/blackbox 结果对话框。目标行数 `<= 900`。
+- 新增 5 个 Step 子面板文件（每个 `<= 500` 行）：
+  - `ui/widgets/step_panels/loop_test_panel.py` — LoopTestPanel（Step1）
+  - `ui/widgets/step_panels/pt_voltage_check_panel.py` — PtVoltageCheckPanel（Step2）
+  - `ui/widgets/step_panels/pt_phase_check_panel.py` — PtPhaseCheckPanel(Step3)
+  - `ui/widgets/step_panels/pt_exam_panel.py` — PtExamPanel（Step4）
+  - `ui/widgets/step_panels/sync_test_panel.py` — SyncTestPanel（Step5）
+- 新增 1 个共享构建器模块 `ui/widgets/step_panels/_panel_builders.py`，放置跨 Step 复用的 QWidget 构造器 / 步骤列表 / 发电机块 / gen_fap 块 / 样式胶水，避免在 5 个子面板中重复。
+- 新增 `ui/widgets/step_panels/__init__.py`，统一对外 export 5 个面板类。
+- 所有子面板与 TestPanelWidget 之间的交互 **只通过** ①构造注入的 `TestPanelAPI`，②构造注入的回调，③子面板回暴露的 `build()/refresh(rs, step)/reset()` 公共方法。**禁止**子面板反向读 `parent()`、反向读兄弟面板、反向读 `ctrl`。
+- Mixin 总数保持 **1**（仅剩 `WidgetBuilderMixin` 作为宿主构建层，本轮不动）。
+- 快照测试 `tests/` 仍 **13 passed**。
+- 手动冒烟：5 个 Step 的进入/完成/重置、admin 跳步、万用表切换、相序仪接入/断开、黑盒对话框、考核结果对话框全部无回归。
+
+## 1. 范围与硬红线
+
+### 1.1 允许修改
+- `ui/test_panel.py`（大幅瘦身为协调器）
+- 新增 `ui/widgets/step_panels/__init__.py`
+- 新增 `ui/widgets/step_panels/_panel_builders.py`
+- 新增 `ui/widgets/step_panels/loop_test_panel.py`
+- 新增 `ui/widgets/step_panels/pt_voltage_check_panel.py`
+- 新增 `ui/widgets/step_panels/pt_phase_check_panel.py`
+- 新增 `ui/widgets/step_panels/pt_exam_panel.py`
+- 新增 `ui/widgets/step_panels/sync_test_panel.py`
+- `ui/tabs/_step_style.py`：**仅**当子面板确实需要新的模块级样式函数时允许 **追加**；不得修改既有函数签名与行为。
+- `MAINTENANCE_CHECKLIST.md`：更新 §3（当前阶段 progress）、§9（本轮条目）、§10（下一轮默认起点）、本轮提示词区段（保留 R31 原文即可，不要新增 R32）。
+
+### 1.2 严格禁止（任一触碰 = 本轮失败）
+- `services/**`、`domain/**`、`adapters/**`、`tests/**`：零改动。
+- `ui/panels/control_panel.py`：零改动（`WidgetBuilderMixin` 按 R29 评估结论保留为宿主构建层）。
+- `ui/main_window.py`：零改动（R30 已完成装配；R31 不需要改装配）。
+- `app/main.py`：零改动（Controller 薄转发已在 R30 完成，无新增 API 需求）。
+- `ui/tabs/**`（除 `_step_style.py` 允许追加之外）：零改动。
+- `ui/widgets/gen_wiring_widget.py`、`ui/widgets/pt_wiring_widget.py`、`ui/widgets/phase_seq_meter.py`、`ui/widgets/multimeter_widget.py`：零改动。
+- **禁止**给 `TestPanelAPI` 增删任何方法签名（只把它作为现有 Protocol 直接传给子面板使用）。
+- **禁止**在子面板中出现 `self.ctrl.` / `self.flow_mgr` / `self.loop_svc` / `self.pt_voltage_svc` / `self.pt_phase_svc` / `self.pt_exam_svc` / `self.sync_svc` / `self.assessment_coord` / `self.fault_mgr` / `self.blackbox_handler` / `self.hw`（**R26 长期硬门**）。
+- **禁止**在子面板中出现 `self.parent()` 或 `self.parentWidget()` 做任何逻辑调用（仅在必要的 Qt 构造时作为 `parent` 参数传入）。
+- **禁止** Plan C 级进一步分解（例如把 Step2 的"PT 变比设置区"再切成独立 widget）——本轮以 Step 为最小切割粒度，不越界。
+
+## 2. 协调契约（TestPanelWidget ↔ 子面板）
+
+### 2.1 共用数据路径（所有 5 个子面板）
+每个子面板构造签名**强制**为：
+
+```python
+def __init__(
+    self,
+    api: TestPanelAPI,          # 直接复用 ui/test_panel.py 已有的 TestPanelAPI
+    *,
+    # — 所有子面板共用回调 —
+    get_current_test_step: Callable[[], int],        # 读当前步骤号（= 协调器的 _current_test_step）
+    is_step_complete: Callable[[int], bool],         # 读步骤完成（= 协调器的 _is_step_complete）
+    # — 下面这组按需注入（不用的面板不传） —
+    on_toggle_multimeter: Optional[Callable[[], None]] = None,
+    on_force_multimeter_off: Optional[Callable[[], None]] = None,
+    on_connect_phase_seq_meter: Optional[Callable[[str], None]] = None,
+    on_disconnect_phase_seq_meter: Optional[Callable[[], None]] = None,
+    get_phase_seq_meter_sequence: Optional[Callable[[], str]] = None,
+    show_blackbox_dialog: Optional[Callable[[str], None]] = None,  # 由协调器持有对话框
+    parent: Optional[QtWidgets.QWidget] = None,
+) -> None: ...
+```
+
+规则：
+- 子面板**只**通过 `self._api` 读业务状态 / 发命令；**只**通过注入的回调触发兄弟 UI 协作。
+- 不同子面板的具体回调需求见 §3。未声明需要的回调不得出现在其构造签名中。
+- 子面板本身继承 `QtWidgets.QGroupBox`；`__init__` 末尾调用 `self._build()` 组装。
+
+### 2.2 子面板对外公共方法（**仅**这三个）
+
+```python
+def refresh(self, rs, step: int) -> None: ...   # 协调器每帧在 step == 本面板步骤时调用
+def reset(self) -> None: ...                    # admin 跳步 / 退出测试模式时调用（可空实现）
+def on_enter(self) -> None: ...                 # 首次进入本步骤时调用（可空实现）
+```
+
+- 若子面板不需要 `reset/on_enter`，保留空 `pass`。
+- 协调器 `_render_test_panel` 里按 `step in {1..5}` 分发到对应子面板的 `refresh`。
+
+### 2.3 顶层 render 契约
+协调器的 `_render_test_panel(rs)` 需保证**完全等价**于 R30 行为：
+- step dots / admin / fault banner / bus / multimeter 可见性 / 底部按钮标签 / 随机故障识别对话框 / 考核结果对话框：**留在协调器**。
+- `_refresh_tp_step{1..5}` 的工作：**全部转移**到对应子面板的 `refresh()` 中。
+- `_refresh_tp_gen_refs` / `_refresh_tp_bottom` / `_tp_dot_style`：**留在协调器**（跨 step 共享）。
+
+## 3. 子面板职责与迁移清单
+
+对每个子面板，"迁入"列出的方法/UI 构建 **必须**全部搬到新文件，协调器中**必须**同步删除对应实现。
+
+### 3.1 LoopTestPanel（Step 1）
+- 迁入：`_build_step1` 的所有逻辑、`_refresh_tp_step1` 的所有逻辑。
+- 需要的回调：`on_toggle_multimeter`（黑盒按钮和多表按钮的协作）、`show_blackbox_dialog`（若 Step1 含黑盒入口请对照现状，无则不传）。
+- API 只读：`sim_state`、`loop_test_state`、`physics`、`is_loop_test_complete`、`get_loop_test_steps`、`record_loop_measurement`、`has_unrepaired_wiring_fault`、`reset_loop_test`。
+
+### 3.2 PtVoltageCheckPanel（Step 2）
+- 迁入：`_build_step2` 的所有逻辑（含 PT 变比 spinbox / 发电机 F-A-P 块 / `_tp_s2_record`）、`_refresh_tp_step2` 的所有逻辑。
+- 需要的回调：`on_toggle_multimeter`。
+- API 只读/写：`sim_state`、`pt_voltage_check_state`、`update_pt_ratio`、`start_pt_voltage_check` / `stop_pt_voltage_check` / `record_pt_voltage_measurement` / `is_pt_voltage_check_complete` / `get_pt_voltage_check_steps` / `reset_pt_voltage_check` / `finalize_pt_voltage_check`。
+
+### 3.3 PtPhaseCheckPanel（Step 3）
+- 迁入：`_build_step3` 的所有逻辑、`_refresh_tp_step3` 的所有逻辑、`_on_connect_psm` / `_on_disconnect_psm` / `_on_record_psm`。
+- 需要的回调：`on_connect_phase_seq_meter`、`on_disconnect_phase_seq_meter`、`get_phase_seq_meter_sequence`、`on_force_multimeter_off`（Step 3 强制关闭万用表）。
+- API：`sim_state`、`pt_phase_check_state`、`start_pt_phase_check` / `stop_pt_phase_check` / `record_phase_sequence` / `is_pt_phase_check_complete` / `get_pt_phase_check_steps` / `reset_pt_phase_check` / `finalize_pt_phase_check`。
+
+### 3.4 PtExamPanel（Step 4）
+- 迁入：`_build_step4` 的所有逻辑（含物理接线黑盒检查区）、`_refresh_tp_step4` 的所有逻辑。
+- 需要的回调：`on_toggle_multimeter`、`show_blackbox_dialog`。
+- API：`pt_exam_states`、`start_pt_exam(gen_id)` / `stop_pt_exam(gen_id)` / `reset_pt_exam(gen_id)` / `record_current_pt_measurement` / `record_all_pt_measurements_quick` / `get_pt_exam_steps(gen_id)` / `finalize_all_pt_exams` / `can_use_pt_exam_quick_record` / `has_unrepaired_wiring_fault`。
+
+### 3.5 SyncTestPanel（Step 5）
+- 迁入：`_build_step5` 的所有逻辑（含远程启动信号开关、`_on_tp_s5_remote_toggle`）、`_refresh_tp_step5` 的所有逻辑。
+- 需要的回调：`on_toggle_multimeter`（若 Step5 用）。
+- API：`sim_state`、`sync_test_state`、`test_flow_mode`、`start_sync_test` / `stop_sync_test` / `record_sync_round` / `is_sync_test_complete` / `get_sync_test_steps` / `reset_sync_test` / `finalize_sync_test`、`toggle_engine(gen_id)` / `toggle_breaker(gen_id)`。
+
+## 4. `_panel_builders.py` 共享构建器
+
+把下列 TestPanelWidget 方法**原样剪切**到模块级函数（只改成接受必要参数的 free function，不保留 `self`）：
+- `make_group(title, bg)` ← `_make_grp`
+- `make_button(text, bg)` ← `_make_btn`
+- `tone_from_color(color)` ← `_tone_from_color`（或直接从 `ui/tabs/_step_style.py` re-import）
+- `make_note_label(text, tone, italic)` ← `_make_note_label`
+- `make_inline_row()` ← `_make_inline_row`
+- `make_feedback_label(text)` ← `_make_feedback_label`
+- `set_feedback_label(label, text, color)` ← `_set_feedback_label`
+- `set_step_list_label(label, text, done, in_mode)` ← `_set_step_list_label`
+- `make_step_list(parent_lay, n_steps)` ← `_make_step_list`
+- `make_gen_block(...)` ← `_make_gen_block`
+- `make_gen_fap_block(...)` ← `_make_gen_fap_block`
+
+原 `TestPanelWidget` 内的这些方法**必须删除**；任何仍在协调器内使用这些能力的位置改为 `from ui.widgets.step_panels._panel_builders import make_group, ...` 后直接调用。
+
+样式胶水（`_set_props` / `_apply_button_tone` / `_apply_badge_tone`）继续从 `ui/tabs/_step_style.py` 以模块函数名导入使用；**不要**在 TestPanelWidget 或任何子面板上重复实现。
+
+## 5. 装配变更（最小化）
+
+在 `TestPanelWidget._setup_test_panel` 里，原本把 Step1~5 的 QGroupBox 直接 add 到 scroll content 的位置，改为：
+
+```python
+from ui.widgets.step_panels import (
+    LoopTestPanel, PtVoltageCheckPanel, PtPhaseCheckPanel,
+    PtExamPanel, SyncTestPanel,
+)
+
+self._tp_step_panels = {
+    1: LoopTestPanel(
+        self._api,
+        get_current_test_step=self._current_test_step,
+        is_step_complete=self._is_step_complete,
+        on_toggle_multimeter=self._on_toggle_multimeter,
+        parent=scroll_content,
+    ),
+    2: PtVoltageCheckPanel(
+        self._api,
+        get_current_test_step=self._current_test_step,
+        is_step_complete=self._is_step_complete,
+        on_toggle_multimeter=self._on_toggle_multimeter,
+        parent=scroll_content,
+    ),
+    3: PtPhaseCheckPanel(
+        self._api,
+        get_current_test_step=self._current_test_step,
+        is_step_complete=self._is_step_complete,
+        on_connect_phase_seq_meter=self._on_connect_phase_seq_meter,
+        on_disconnect_phase_seq_meter=self._on_disconnect_phase_seq_meter,
+        get_phase_seq_meter_sequence=self._get_phase_seq_meter_sequence,
+        on_force_multimeter_off=self._on_force_multimeter_off,
+        parent=scroll_content,
+    ),
+    4: PtExamPanel(
+        self._api,
+        get_current_test_step=self._current_test_step,
+        is_step_complete=self._is_step_complete,
+        on_toggle_multimeter=self._on_toggle_multimeter,
+        show_blackbox_dialog=self._show_blackbox_dialog,
+        parent=scroll_content,
+    ),
+    5: SyncTestPanel(
+        self._api,
+        get_current_test_step=self._current_test_step,
+        is_step_complete=self._is_step_complete,
+        on_toggle_multimeter=self._on_toggle_multimeter,
+        parent=scroll_content,
+    ),
+}
+self._tp_step_grps = self._tp_step_panels  # 名字保留向下兼容协调器 render 循环
+for panel in self._tp_step_panels.values():
+    scroll_lay.addWidget(panel)
+```
+
+注意：
+- 具体构造参数名称 / 回调组合必须与 §3 / §2.1 一致。
+- 若 Step1/Step5 确认**不需要**某个回调，则**不传**，不得"为对称"而保留 None。
+- `self._tp_step_panels[s].refresh(rs, step)` 在 `_render_test_panel` 的 step 分发处调用，替代原 `_refresh_tp_stepN`。
+
+## 6. 验收硬门（Hard Gates）
+
+全部通过才算本轮完成。执行顺序可并行。
+
+### G1 — 文件与类结构
+```bash
+ls ui/widgets/step_panels/__init__.py \
+   ui/widgets/step_panels/_panel_builders.py \
+   ui/widgets/step_panels/loop_test_panel.py \
+   ui/widgets/step_panels/pt_voltage_check_panel.py \
+   ui/widgets/step_panels/pt_phase_check_panel.py \
+   ui/widgets/step_panels/pt_exam_panel.py \
+   ui/widgets/step_panels/sync_test_panel.py
+```
+必须全部存在。
+
+### G2 — 类定义
+```bash
+grep -n "^class LoopTestPanel\|^class PtVoltageCheckPanel\|^class PtPhaseCheckPanel\|^class PtExamPanel\|^class SyncTestPanel" \
+    ui/widgets/step_panels/*.py
+```
+必须恰好 5 行输出，每个子面板一个类。
+
+### G3 — 服务穿透扫描（子面板 + 协调器）
+```bash
+grep -n "self\.ctrl\.\(flow_mgr\|loop_svc\|pt_voltage_svc\|pt_phase_svc\|pt_exam_svc\|sync_svc\|assessment_coord\|fault_mgr\|blackbox_handler\|hw\)" \
+    ui/test_panel.py ui/widgets/step_panels/*.py
+```
+必须 **0 匹配**。
+
+### G4 — R26 悬空宿主调用扫描（长期硬门）
+```bash
+grep -n "self\.\(flow_mgr\|loop_svc\|pt_voltage_svc\|pt_phase_svc\|pt_exam_svc\|sync_svc\|assessment_coord\|fault_mgr\|blackbox_handler\|hw\)\b" \
+    ui/test_panel.py ui/widgets/step_panels/*.py | grep -v "self\._api\."
+```
+必须 **0 匹配**。
+
+### G5 — 零 `self.ctrl`
+```bash
+grep -n "self\.ctrl" ui/widgets/step_panels/*.py
+```
+必须 **0 匹配**。
+
+### G6 — 零反向寻址
+```bash
+grep -n "self\.parent()\|self\.parentWidget()\|self\.window()" ui/widgets/step_panels/*.py
+```
+必须 **0 匹配**（Qt 构造时传入的 `parent=` 参数不受此规则约束）。
+
+### G7 — 协调器瘦身
+```bash
+wc -l ui/test_panel.py
+```
+必须 `<= 900`。且以下方法 **必须从 ui/test_panel.py 中消失**：
+- `_build_step1` / `_build_step2` / `_build_step3` / `_build_step4` / `_build_step5`
+- `_refresh_tp_step1` / `_refresh_tp_step2` / `_refresh_tp_step3` / `_refresh_tp_step4` / `_refresh_tp_step5`
+- `_on_connect_psm` / `_on_disconnect_psm` / `_on_record_psm`
+- `_tp_s2_record`
+- `_make_grp` / `_make_btn` / `_make_note_label` / `_make_inline_row` / `_make_feedback_label` / `_set_feedback_label` / `_set_step_list_label` / `_make_step_list` / `_make_gen_block` / `_make_gen_fap_block` / `_tone_from_color`
+
+```bash
+grep -n "def _build_step\|def _refresh_tp_step\|def _on_connect_psm\|def _on_disconnect_psm\|def _on_record_psm\|def _tp_s2_record\|def _make_grp\|def _make_btn\|def _make_note_label\|def _make_inline_row\|def _make_feedback_label\|def _set_feedback_label\|def _set_step_list_label\|def _make_step_list\|def _make_gen_block\|def _make_gen_fap_block\|def _tone_from_color" ui/test_panel.py
+```
+必须 **0 匹配**。
+
+### G8 — 子面板文件体量
+每个子面板文件 `<= 500` 行：
+```bash
+wc -l ui/widgets/step_panels/*.py
+```
+
+### G9 — Mixin 数仍为 1
+```bash
+grep -rn "class.*Mixin" ui app
+```
+必须只出现 `ui/panels/control_panel.py: class WidgetBuilderMixin:` 一行。
+
+### G10 — PowerSyncUI 装配未被触碰
+```bash
+git diff <BASE>..HEAD -- ui/main_window.py app/main.py
+```
+必须空输出。
+
+### G11 — 禁区目录未触碰
+```bash
+git diff --name-only <BASE>..HEAD -- services domain adapters tests ui/panels/control_panel.py ui/tabs/waveform_tab.py ui/tabs/circuit_tab.py ui/tabs/sync_test_tab.py ui/tabs/pt_phase_check_tab.py ui/tabs/pt_voltage_check_tab.py ui/tabs/loop_test_tab.py
+```
+必须空输出。`ui/tabs/_step_style.py` 若被修改，仅允许"追加模块级函数"，不允许修改既有函数。
+
+### G12 — 快照回归
+```bash
+/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q
+```
+必须 **13 passed**。
+
+### G13 — 冒烟导入（语法 & 依赖环可启动）
+```bash
+/Users/promise/opt/anaconda3/envs/power_gui/bin/python -c "from ui.test_panel import TestPanelWidget, TestPanelAPI; from ui.widgets.step_panels import LoopTestPanel, PtVoltageCheckPanel, PtPhaseCheckPanel, PtExamPanel, SyncTestPanel; print('OK')"
+```
+必须打印 `OK` 且无 ImportError。
+
+### G14 — 手动冒烟清单（人工执行，必须全部通过）
+1. `python -m app.main` 能启动到主窗口，无 traceback。
+2. 选任一场景进入"测试模式"，右侧出现 Test Panel。
+3. Step1：推进→完成→Reset，按钮标签随 `loop_test_state.is_complete` 正确切换；万用表按钮可用。
+4. Step2：PT 变比 spinbox 可改；F-A-P 块滑条/输入联动；`record` 按钮把测量写入 state 并让步骤列表转绿。
+5. Step3：接入相序仪、断开相序仪、记录相序；万用表在此 step 被强制隐藏。
+6. Step4：PT 考核两台机可切；"物理接线黑盒检查"弹框；`quick_record`（admin）按钮在 `can_use_pt_exam_quick_record()` 下可见。
+7. Step5：远程启动信号开关切换与 `_on_tp_s5_remote_toggle` 行为一致；sync 计数增加、完成态点亮。
+8. admin 模式下点击 step dot 可强制跳到任意 step，跳 step 后对应子面板可见、其它隐藏。
+9. 注入接线类故障并走到 Step4 完成点，再尝试进入 Step5：触发 `_show_blackbox_required_dialog`。
+10. 完成全流程 → `_show_assessment_result_dialog` 弹出且内容与 R30 一致。
+11. 退出测试模式 → 右侧控制台重新显示、Test Panel 隐藏；重入测试模式所有状态正确重置。
+
+## 7. 产出物要求
+
+实施结束时请一次性回报（中文，分段）：
+1. **新增/修改/删除文件清单**（每个文件一行，附行数）。
+2. **TestPanelWidget 最终方法清单**（grep `^    def ` 的结果粘贴）。
+3. **5 个子面板各自的方法清单**（同上）。
+4. **G1–G13 逐项执行结果**（命令原文 + 输出）。
+5. **G14 手动冒烟每条的通过/不通过**（需你亲自跑一遍）。
+6. 任何被迫微调既定接口的位置与原因（无则写"无"）。
+7. 本轮是否出现任何 Plan C 级越界分解（必须"无"）。
+
+## 8. 执行纪律
+
+- **先读后写**：动手前先 `git log --oneline -5` 确认你在 R30 之后（应能看到 `98bbbbd update` / `a6cd4f9 Round 30`）。
+- **最小增量**：一次只提交"完整结构搬迁"，不做顺带美化。
+- **不新增依赖**：不引入新三方库；所有 import 仅限 stdlib、PyQt5、本仓库既有模块。
+- **不改 CLAUDE.md / 不加文档 / 不加 README**：除 §1.1 列出的 `MAINTENANCE_CHECKLIST.md` 更新外，不产出任何 `.md` / `.rst` 新文件。
+- 注释：只在非平凡逻辑处保留或新增中文注释；不要给搬来的函数补 docstring、type hint 或多余注解。
+- 失败自愈：若 G3/G4/G5/G6 任何一项非零，立刻回去修正，不要先跑 G12；G12 绿灯但 G3/G4 有残留 = 本轮失败。
+
+确认以上所有约束后，开始实施。实施完成再进入产出物回报环节。
+
+<!-- ─────────── 第 31 轮提示词 结束 ─────────── -->
+
 # 维护与重构清单 v2
 
 最后更新：`2026-04-16`
@@ -136,10 +477,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 3 — UI 组件化收尾（进行中：TestPanelWidget 骨架拆分与 Wiring Widget 外提已完成；Round 31 待做步骤子面板解构） |
+| 当前阶段 | Phase 3 — UI 组件化收尾（进行中：TestPanelWidget 步骤子面板解构已完成；待人工 GUI 冒烟与审计） |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
-| 当前最大风险文件 | `ui/test_panel.py`(2222)、`ui/styles.py`(1007)、`ui/panels/control_panel.py`(776) |
-| 下一轮默认起点 | Phase 3 — Round 31：TestPanelWidget 步骤子面板解构 |
+| 当前最大风险文件 | `ui/styles.py`(1007)、`ui/panels/control_panel.py`(776)、`ui/widgets/step_panels/_panel_builders.py`(770) |
+| 下一轮默认起点 | Phase 3 — R31 验收收口：人工 GUI 冒烟 + 审计（不新开 R32） |
 
 ---
 
@@ -482,6 +823,28 @@ class PowerSyncUI(QMainWindow):
 
 ### 当前未完成但已明确方向
 - `ui/test_panel.py` 仍是当前最大风险文件。
+
+### 第 31 轮 (2026-04-16)：Phase 3-9（TestPanelWidget 步骤子面板解构）
+- 本轮唯一主攻目标：按 Step1~5 将 `TestPanelWidget` 的 build + refresh 继续外提为独立 `QGroupBox` 子面板，保留 `ui/test_panel.py` 作为协调器，不改服务层、不改主窗口装配。
+- 实际完成：
+  - 新增 `ui/widgets/step_panels/` 包及 7 个文件：`__init__.py`、`_panel_builders.py`、`loop_test_panel.py`、`pt_voltage_check_panel.py`、`pt_phase_check_panel.py`、`pt_exam_panel.py`、`sync_test_panel.py`。
+  - `ui/test_panel.py` 已瘦身为 `677` 行协调器组件，仅保留测试模式生命周期、顶部栏/步骤点/底部操作条、step 分发、共享状态刷新与 assessment/random-fault/blackbox 对话框薄包装。
+  - `_build_step1~5`、`_refresh_tp_step1~5`、`_on_connect_psm` / `_on_disconnect_psm` / `_on_record_psm`、`_tp_s2_record`、以及 `_make_*` / `_tone_from_color` 这组共享构建方法已全部从 `ui/test_panel.py` 中移除。
+  - 5 个 Step 面板均改为只通过 `TestPanelAPI + 构造注入回调` 协作，子面板内 `self.ctrl`、service 穿透与 `parent()/window()` 反向寻址均为 0 命中。
+  - `_GenWiringWidget` / `_PTWiringWidget` 继续保留在 `ui/widgets/`，黑盒对话框与 wiring widget 交互通过 `_panel_builders.py` 的模块级 helper 复用，未改类名、未改构造签名、未改绘制逻辑。
+- 删除了哪些旧代码：
+  - 删除 `ui/test_panel.py` 中 Step1~5 的原地构建与刷新实现。
+  - 删除 `ui/test_panel.py` 中原有的组装辅助方法族（`_make_grp` / `_make_btn` / `_make_step_list` / `_make_gen_block` / `_make_gen_fap_block` 等）。
+- 接口变化：
+  - `TestPanelAPI` 签名未变；Round 30 既有主窗口装配与 controller 薄转发全部复用。
+  - 新增 5 个子面板统一对外接口：`refresh(rs, step)` / `reset()` / `on_enter()`。
+- 耦合度变化：
+  - `ui/test_panel.py` 行数 `2232 -> 677`。
+  - `TestPanelWidget` 从“大而全单文件”收敛为“协调器 + 5 个 Step 子面板 + 1 个共享构建器”。
+  - 仓库中 `Mixin` 只剩 `WidgetBuilderMixin` 1 个，符合 Phase 3 收尾目标。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PARTIAL（`py_compile`、导入冒烟、G1–G13 结构/扫描硬门通过；真实人工 GUI 冒烟待补）
+- 下一轮起点：Phase 3 — R31 验收收口（人工 GUI 冒烟 + 审计，不新开 R32）
 
 ### 第 30 轮 (2026-04-16)：Phase 3-8（TestPanelWidget 骨架拆分 + Wiring Widget 外提）
 - 本轮唯一主攻目标：只落地方案 A，将 `TestPanelMixin` 迁移为单体 `TestPanelWidget`，并先把 `_GenWiringWidget` / `_PTWiringWidget` 外提到 `ui/widgets/`；**明确禁止启动 Step1~5 子面板拆分**。
@@ -974,8 +1337,8 @@ class PowerSyncUI(QMainWindow):
 如果后续没有新的明确指令，默认按以下顺序继续：
 
 **Phase 3：**
-1. `Round 31：`按步骤子面板继续拆分 `TestPanelWidget`（Step1~Step5），收口兼容转发面与宿主残留调用
-2. `WidgetBuilderMixin` 暂保留为主窗口初始化辅助；待 `TestPanelWidget` 稳定后，再评估是否降级为 `ControlPanelBuilder / Facade`
+1. `R31 验收收口：`优先完成 `TestPanelWidget` 子面板解构后的人工 GUI 冒烟、代码审计与残余宿主调用复核；不新开 R32
+2. `WidgetBuilderMixin` 暂保留为主窗口初始化辅助；待 `TestPanelWidget` 审计闭环后，再评估是否长期保留或降级为 `ControlPanelBuilder / Facade`
 
 ---
 
