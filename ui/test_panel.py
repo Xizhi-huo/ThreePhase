@@ -1167,6 +1167,16 @@ class TestPanelWidget(QtWidgets.QWidget):
             for i, btn in enumerate(self.tp_step_btns):
                 btn.setChecked(i + 1 == step_num)
 
+    def _on_gen_mode(self, gen_id, val, checked):
+        if checked:
+            gen = self._api.sim_state.gen1 if gen_id == 1 else self._api.sim_state.gen2
+            gen.mode = val
+
+    def _on_brk_pos(self, gen_id, val, checked):
+        if checked:
+            gen = self._api.sim_state.gen1 if gen_id == 1 else self._api.sim_state.gen2
+            gen.breaker_position = val
+
     def _make_gen_fap_block(self, parent_lay, store_key, gen_id, read_only=False):
         """
         在 parent_lay 中插入 Gen-N 的 频率/幅值/相位 可调控件。
