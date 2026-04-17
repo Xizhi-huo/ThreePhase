@@ -1,453 +1,3 @@
-<!-- ─────────── 第 32 轮提示词 ─────────── -->
-
-# Phase 3 — Round 32：Mixin 收口决策（方案 B）+ `test_panel.py` 瘦身 + `_dialogs` 子包外提
-
-你是本仓库的资深重构实施 AI。本轮是 Phase 3 的收口轮：一次性完成三件事。完成后 Phase 3 即关闭，下一轮进入 Phase 4。严格范围锁定：不触碰服务层、不触碰主窗口装配、不触碰 `WidgetBuilderMixin` 本体。
-
-## §0 本轮完成后的全局状态
-
-- **Mixin 决策落地（方案 B）**：`WidgetBuilderMixin` 作为纯 UI 宿主构造层被正式允许保留；在 `MAINTENANCE_CHECKLIST.md` 中写入例外条款与长期守门扫描；Mixin 本体零代码改动。
-- **`ui/test_panel.py` 从 677 行降至 ≤ 500 行**：把协调器内的 chrome 构建（顶部栏 / 步骤点 / 滚动骨架 / 底部按钮条 / 母排与万用表状态区）、`_tp_dot_style` 纯函数、`_refresh_tp_gen_refs` / `_refresh_tp_bottom` 迁出到 `_panel_builders.py` 的 module-level 函数；step 动作映射表化以减少 if-elif 链。
-- **`_panel_builders.py` 770 行拆出 `_dialogs/` 子包**：4 个对话框函数（`show_assessment_result_dialog` / `show_random_fault_identification_dialog` / `show_blackbox_required_dialog` / `show_blackbox_dialog`）迁出到 `ui/widgets/step_panels/_dialogs/` 子包；`_panel_builders.py` 只保留 UI 构造器与共享 helper。
-- **Mixin 总数保持 1**（`WidgetBuilderMixin`），且在本轮建立的扫描门下现状即 compliant（已核验 12 处穿透全部落在 `self.ctrl.sim_state.*`，零 service 层穿透）。
-- **快照测试 `tests/`** 仍 13 passed。
-- **人工 GUI 冒烟覆盖**：启动 → 测试模式进入 → Step1~5 流转 → admin 跳步 → 4 个对话框（考核结果 / 随机故障识别 / 黑盒必修 / 黑盒检查）全部正常弹出与关闭。
-
-## §1 范围与硬红线
-
-### 1.1 允许修改
-- `MAINTENANCE_CHECKLIST.md`：§4 Phase 3 完成标准 L641 修订；§5 新增 §5.2 守门扫描；§7 新增 §7.5 纯构造层 Mixin 例外条款；§3 当前总体进度；§9 R32 条目；§10 下一轮默认起点。
-- `ui/test_panel.py`：协调器瘦身。
-- `ui/widgets/step_panels/_panel_builders.py`：接收新的 chrome 构建函数、删除 4 个对话框函数、修正 import。
-- 新增 `ui/widgets/step_panels/_dialogs/__init__.py`。
-- 新增 `ui/widgets/step_panels/_dialogs/assessment_result.py`。
-- 新增 `ui/widgets/step_panels/_dialogs/random_fault.py`。
-- 新增 `ui/widgets/step_panels/_dialogs/blackbox.py`。
-
-### 1.2 严格禁止（任一触碰 = 本轮失败）
-- `services/**`、`domain/**`、`adapters/**`、`tests/**`：**零改动**。
-- `ui/panels/control_panel.py`：**零字节改动**（方案 B 的核心前提——`WidgetBuilderMixin` 本轮不动）。
-- `ui/main_window.py`：零改动。
-- `app/main.py`：零改动。
-- `ui/tabs/**`（含 `_step_style.py`）：零改动。
-- `ui/widgets/gen_wiring_widget.py` / `pt_wiring_widget.py` / `phase_seq_meter.py` / `multimeter_widget.py`：零改动。
-- `ui/widgets/step_panels/loop_test_panel.py` / `pt_voltage_check_panel.py` / `pt_phase_check_panel.py` / `pt_exam_panel.py` / `sync_test_panel.py`：零改动（R31 5 个子面板接口与实现稳定）。
-- 禁止修改 `TestPanelAPI(Protocol)` 的任何签名。
-- 禁止在 `WidgetBuilderMixin` 中新增任何 service 层穿透（`self.ctrl.flow_mgr` / `loop_svc` / `pt_voltage_svc` / `pt_phase_svc` / `pt_exam_svc` / `sync_svc` / `assessment_coord` / `fault_mgr` / `blackbox_handler` / `hw`）。
-- 禁止在子面板或 `_panel_builders.py` 反向 import `_dialogs`——**只有 `ui/test_panel.py` 可以 import `_dialogs`**（对话框由协调器持有与派发）。
-
-### 1.3 指导原则
-- 所有迁出的函数必须是**模块级纯函数**或**纯视图构造**，禁止保留对 `self` 的依赖。
-- 所有刷新函数接受最小入参（e.g. `(widget_handles, api, rs, step)`），禁止从内部反向访问 `QWidget.parent()` / `QWidget.window()`。
-- 所有 `build_test_panel_*` 函数建议返回**命名元组或 `@dataclass(frozen=True)`** 仅含 widget 句柄，由协调器绑定到自身属性；若返回 tuple，字段顺序必须与本提示词 §3.1 一致。
-- `STEP_ACTION_TABLE` 必须是模块级 `Mapping`，严禁在协调器内用 if/elif 链重写。
-- 不加文档 / 不写 README：除 §1.1 列出的 `MAINTENANCE_CHECKLIST.md` 修订外，不产出任何 `.md` / `.rst` 新文件。
-- 注释节制：迁移过来的代码保留原中文注释；不要给搬过来的函数补 docstring / type hint / 多余注解。
-
-## §2 方案 B 落地——MAINTENANCE_CHECKLIST.md 编辑
-
-### 2.1 修订 §4 Phase 3 完成标准 L641
-找到：
-
-```
-- `PowerSyncUI` 不再使用 Mixin 多重继承，改为组合式装配。
-```
-
-替换为（保留周边上下文不动，只改此条）：
-
-```
-- `PowerSyncUI` 业务层面的 UI 不再使用 Mixin 多重继承，改为组合式装配。
-  允许保留 **至多 1 个纯 UI 宿主构造层 Mixin**（当前为 `WidgetBuilderMixin`），
-  但必须同时满足 §7.5 「纯构造层 Mixin 例外条款」全部项目，否则必须在下一轮
-  降级为独立 `QWidget` 或 `ControlPanelBuilder` facade。
-```
-
-§4 之外其它完成标准条目不动（R31 收口时已各自追加"R31 状态"）。
-
-### 2.2 §5 新增 §5.2「WidgetBuilderMixin 例外守门扫描」
-在 §5.1「组件化轮新增硬门禁：悬空宿主调用扫描」之后追加：
-
-```
-### 5.2 WidgetBuilderMixin 例外守门扫描
-
-每轮结束必须执行（基于仓库实际 `self.ctrl` 命名）：
-
-\`\`\`bash
-grep -nE "self\.ctrl\.(flow_mgr|loop_svc|pt_voltage_svc|pt_phase_svc|pt_exam_svc|sync_svc|assessment_coord|fault_mgr|blackbox_handler|hw)\b" \
-    ui/panels/control_panel.py
-\`\`\`
-
-结果必须**为空**。任何 service / coordinator / hardware 层直连 = §7.5 例外条款
-失效 = 下一轮必须把 `WidgetBuilderMixin` 降级为独立 `QWidget` 或
-`ControlPanelBuilder` facade。
-
-说明：
-- `self.ctrl.sim_state.*` 写入（如 `sim_state.multimeter_mode = checked`）与读取
-  是被允许的"UI 参数层同步"，不计入本扫描。
-- R32 建立此门时，现状 `ui/panels/control_panel.py` 结果 = 0，即 compliant。
-```
-
-### 2.3 §7 新增 §7.5「纯构造层 Mixin 例外条款」
-在 §7.4「过渡期规则」之后追加：
-
-```
-### 7.5 纯构造层 Mixin 例外条款
-
-`PowerSyncUI` 至多保留 1 个纯 UI 宿主构造层 Mixin（当前为 `WidgetBuilderMixin`），
-必须同时满足下列全部条款：
-
-1. **零 service 层穿透**：
-   - **允许**：通过 `self.ctrl.sim_state.*` 做 UI 参数同步（读/写），以及通过
-     构造出的 chrome 控件句柄让主窗口 / 其它组件消费。
-   - **禁止**：`self.ctrl.flow_mgr` / `loop_svc` / `pt_voltage_svc` /
-     `pt_phase_svc` / `pt_exam_svc` / `sync_svc` / `assessment_coord` /
-     `fault_mgr` / `blackbox_handler` / `hw` 等 service / coordinator /
-     hardware 层直连。
-   - 硬门：§5.2 扫描结果必须 = 0。
-2. **仅构造 chrome 级控件**：只构造主窗口右侧栏 / 状态标签 / 场景选择 /
-   万用表 checkbox 等 chrome 层控件，不得构造任何步骤测试流程相关 UI
-   （Step1~5 面板、测试模式生命周期控件等）。
-3. **不得被独立 Tab 反向依赖**：任何 `ui/tabs/*_tab.py` /
-   `ui/widgets/step_panels/*.py` 不得出现 `self.parent().multimeter_cb`
-   或类似的反向寻址；其需要消费的 host 属性必须通过主窗口装配时的构造期
-   回调或显式 `@property` 注入。
-4. **host 属性通过白名单暴露**：Mixin 构造出的共享属性（如
-   `multimeter_cb` / `bus_status_lbl` / `ctrl_container` 等）只能由主窗口
-   显式消费；主窗口不得把"宿主对象上有这个属性"作为隐式契约下放给子组件。
-5. **行数上限**：`ui/panels/control_panel.py` 行数 ≤ 900。超过时必须按职责再切。
-
-违反任一条 = 下一轮必须立即降级。
-```
-
-### 2.4 §3 / §9 / §10 同步
-- **§3 当前阶段文本**：R32 完成后改为 "Phase 3 已关闭，R32 收口完成：Mixin 决策方案 B 落地；`ui/test_panel.py` ≤ 500；`_dialogs` 子包外提。下一轮进入 Phase 4"。
-- **§3 "当前最大风险文件"**：移除 `ui/test_panel.py`；按 R32 实际结果更新 `_panel_builders.py` 的行数。
-- **§9 新增 R32 条目**（见模板 §11）。
-- **§10 "下一轮默认起点"**：改为 Phase 4 首轮（Qt Signal/Slot 引入）。
-
-## §3 `ui/test_panel.py` 677 → ≤ 500
-
-### 3.1 必须抽取到 `_panel_builders.py`（module-level 纯函数/构造器）
-以下 9 个抽取点按顺序落地，每完成一处都记录净省行数：
-
-| # | 目标函数名（新建于 `_panel_builders.py`） | 抽取源（`ui/test_panel.py` 当前位置） | 签名建议 |
-|---|---|---|---|
-| 1 | `build_test_panel_title_bar` | `_setup_test_panel` L160-182 | `(owner, *, on_reset, on_toggle_admin, on_exit) -> (top_widget, btn_reset, btn_admin)` |
-| 2 | `build_test_panel_step_dots` | `_setup_test_panel` L184-200 | `(owner, *, on_step_clicked) -> (step_bar, btns: list[QPushButton])` |
-| 3 | `build_test_panel_scroll_skeleton` | `_setup_test_panel` L202-209 | `() -> (scroll_area, scroll_content, content_layout)` |
-| 4 | `build_test_panel_status_area` | `_setup_test_panel` L211-234（fault banner + bus lbl + 万用表 btn + meter lbl） | `(owner, content_layout, *, on_toggle_multimeter) -> dict[str, QWidget]` |
-| 5 | `build_test_panel_bottom_bar` | `_setup_test_panel` L290-303 | `(owner, *, on_start, on_complete) -> (bottom_widget, btn_start, btn_complete)` |
-| 6 | `tp_dot_style` | `_tp_dot_style @staticmethod` L422 | `(state: str) -> str` —— 纯函数，无 `self` |
-| 7 | `refresh_tp_gen_refs` | `_refresh_tp_gen_refs` | `(gen_refs: dict, sim, step: int) -> None` —— 无 `self` |
-| 8 | `refresh_tp_bottom` | `_refresh_tp_bottom` | `(api, btn_start, btn_complete, step: int, sim) -> None` |
-| 9 | `STEP_ACTION_TABLE` + `dispatch_step_action(api, step, action)` | `_on_tp_reset_step` / `_on_tp_start_step` / `_on_tp_complete_step` 中的 if-elif 链 | 用字典表驱动，如 `{(step, "reset"): lambda a: a.reset_loop_test(), ...}`；协调器方法只保留查表调用 + 本地副作用 |
-
-### 3.2 `ui/test_panel.py` 保留职责
-抽取后协调器只保留：
-
-- `TestPanelAPI(Protocol)` 定义（不动）。
-- `class TestPanelWidget(QWidget)` + `__init__` + `set_pretest_config` + `is_test_mode_active`。
-- `_setup_test_panel`：瘦身为按顺序装配 5 个子面板 + 调用上述 builder 函数。
-- `enter_test_mode` / `exit_test_mode`。
-- `_on_tp_reset_step` / `start_step` / `complete_step`:改为调用 `dispatch_step_action` + 本地副作用（如 `_tp_forced_step` 清空）。
-- `_on_tp_toggle_admin` / `_on_tp_step_btn_clicked`。
-- `_current_test_step` / `_is_step_complete`。
-- `_on_toggle_multimeter` / `_on_force_multimeter_off` / `_on_connect_phase_seq_meter` / `_on_disconnect_phase_seq_meter` / `_get_phase_seq_meter_sequence`（回调入口，转调 R30 注入的 host 回调）。
-- `render` + `_render_test_panel` 顶层派发。
-- `_update_fault_banner`。
-- `_show_assessment_result_dialog` / `_show_random_fault_identification_dialog` / `_show_blackbox_required_dialog` / `_show_blackbox_dialog`：保留为薄 wrapper，内部改为 `return show_xxx(self, ...)` 一行，转调 `_dialogs` 模块函数（因为它们是 step panel 回调注入的路径，**函数身份不能变**）。
-
-### 3.3 目标行数
-- **Hard Gate**：`wc -l ui/test_panel.py` ≤ **500**。
-- 若 9 个抽取点全部落地后仍 > 500，必须在产出物报告中列出协调器内剩余方法行数 TOP 5，并说明为何不能再瘦身。允许放宽至 ≤ **540** 但必须附具名解释。
-
-## §4 `_panel_builders.py` 拆 `_dialogs/` 子包
-
-### 4.1 新建目录结构
-
-```
-ui/widgets/step_panels/_dialogs/
-├── __init__.py                  # 统一 re-export 4 个对话框函数
-├── assessment_result.py         # show_assessment_result_dialog（连同嵌套 _table_item/_color_row/_status_palette/_make_info_card）
-├── random_fault.py              # show_random_fault_identification_dialog
-└── blackbox.py                  # show_blackbox_required_dialog + show_blackbox_dialog
-```
-
-### 4.2 迁移规则
-- 4 个对话框函数**原样剪切**到对应新文件：
-  - `show_assessment_result_dialog` → `_dialogs/assessment_result.py`（含内部 `_table_item` / `_color_row` / `_status_palette` / `_make_info_card` 4 个嵌套 helper）
-  - `show_random_fault_identification_dialog` → `_dialogs/random_fault.py`
-  - `show_blackbox_required_dialog` → `_dialogs/blackbox.py`
-  - `show_blackbox_dialog` → `_dialogs/blackbox.py`
-- 每个新文件独立 import 所需的 PyQt5、`AssessmentEventType`、wiring widget 等依赖。
-- `_panel_builders.py` 中对应函数**必须删除**；`_panel_builders.py` **不再 import 任何 wiring widget**（`_GenWiringWidget` / `_PTWiringWidget` 的 import 与使用点随 `show_blackbox_dialog` 一同迁入 `_dialogs/blackbox.py`）。
-- `ui/widgets/step_panels/_dialogs/__init__.py` 写成：
-
-  ```python
-  from ui.widgets.step_panels._dialogs.assessment_result import show_assessment_result_dialog
-  from ui.widgets.step_panels._dialogs.random_fault import show_random_fault_identification_dialog
-  from ui.widgets.step_panels._dialogs.blackbox import show_blackbox_required_dialog, show_blackbox_dialog
-
-  __all__ = [
-      "show_assessment_result_dialog",
-      "show_random_fault_identification_dialog",
-      "show_blackbox_required_dialog",
-      "show_blackbox_dialog",
-  ]
-  ```
-
-- `ui/test_panel.py` 的 import 改为：
-
-  ```python
-  from ui.widgets.step_panels._dialogs import (
-      show_assessment_result_dialog,
-      show_random_fault_identification_dialog,
-      show_blackbox_required_dialog,
-      show_blackbox_dialog,
-  )
-  ```
-
-- `ui/widgets/step_panels/_panel_builders.py` 预期行数降到 ≤ **320**；`_dialogs/` 三文件分别 ≤ **300** 行（`assessment_result.py` 体量最大，约 270）。
-
-### 4.3 反向依赖禁令
-- `_panel_builders.py` **禁止**再 import `_dialogs`。
-- 5 个 Step 子面板（`loop_test_panel.py` 等）**禁止** import `_dialogs`；它们继续只接收注入的 `show_blackbox_dialog` 回调。
-- `ui/test_panel.py` 是**唯一**直接 import `_dialogs` 的源文件。
-
-## §5 装配变更示例（协调器瘦身后）
-
-```python
-# ui/test_panel.py（节选示意）
-
-from ui.widgets.step_panels._panel_builders import (
-    build_test_panel_title_bar,
-    build_test_panel_step_dots,
-    build_test_panel_scroll_skeleton,
-    build_test_panel_status_area,
-    build_test_panel_bottom_bar,
-    tp_dot_style,
-    refresh_tp_gen_refs,
-    refresh_tp_bottom,
-    dispatch_step_action,
-    STEP_ACTION_TABLE,
-)
-from ui.widgets.step_panels._dialogs import (
-    show_assessment_result_dialog,
-    show_random_fault_identification_dialog,
-    show_blackbox_required_dialog,
-    show_blackbox_dialog,
-)
-
-class TestPanelWidget(QtWidgets.QWidget):
-    def _setup_test_panel(self):
-        self._test_mode_active = False
-        self._tp_gen_refs = {}
-        self._tp_last_step = None
-        self.setFixedWidth(520)
-        # ... panel root 初始化 ...
-
-        top, self.tp_btn_reset, self.tp_btn_admin = build_test_panel_title_bar(
-            self, on_reset=self._on_tp_reset_step,
-            on_toggle_admin=self._on_tp_toggle_admin,
-            on_exit=self.exit_test_mode,
-        )
-        tl.addWidget(top)
-
-        step_bar, self.tp_step_btns = build_test_panel_step_dots(
-            self, on_step_clicked=self._on_tp_step_btn_clicked,
-        )
-        tl.addWidget(step_bar)
-
-        scroll, scroll_content, cl = build_test_panel_scroll_skeleton()
-        status = build_test_panel_status_area(
-            self, cl, on_toggle_multimeter=self._on_toggle_multimeter,
-        )
-        self._tp_fault_banner = status["fault_banner"]
-        self.tp_bus_lbl       = status["bus_lbl"]
-        self._tp_mm_btn       = status["mm_btn"]
-        self.tp_meter_lbl     = status["meter_lbl"]
-
-        # ... 5 个 Step 子面板装配（与 R31 一致）...
-
-        bottom, self.tp_btn_start, self.tp_btn_complete = build_test_panel_bottom_bar(
-            self, on_start=self._on_tp_start_step, on_complete=self._on_tp_complete_step,
-        )
-        tl.addWidget(bottom)
-
-    def _on_tp_reset_step(self):
-        step = self._current_test_step()
-        dispatch_step_action(self._api, step, "reset")
-        self._tp_forced_step = None
-
-    def _show_blackbox_dialog(self, target):
-        show_blackbox_dialog(self, api=self._api, step=self._current_test_step(), target=target)
-```
-
-## §6 验收硬门（Hard Gates）
-
-### G1 — `control_panel.py` 真零改动
-```bash
-git diff <BASE>..HEAD -- ui/panels/control_panel.py
-```
-必须空输出。
-
-### G2 — §5.2 扫描门（守门 + 现状 compliant）
-```bash
-grep -nE "self\.ctrl\.(flow_mgr|loop_svc|pt_voltage_svc|pt_phase_svc|pt_exam_svc|sync_svc|assessment_coord|fault_mgr|blackbox_handler|hw)\b" ui/panels/control_panel.py
-```
-必须 **0 匹配**。
-
-### G3 — Mixin 数仍为 1
-```bash
-grep -rn --include="*.py" "class.*Mixin" ui app
-```
-必须只命中 `ui/panels/control_panel.py: class WidgetBuilderMixin:`。
-
-### G4 — 主窗口 & Controller 零改动
-```bash
-git diff <BASE>..HEAD -- ui/main_window.py app/main.py
-```
-必须空输出。
-
-### G5 — 5 个 Step 子面板零改动
-```bash
-git diff <BASE>..HEAD -- ui/widgets/step_panels/loop_test_panel.py ui/widgets/step_panels/pt_voltage_check_panel.py ui/widgets/step_panels/pt_phase_check_panel.py ui/widgets/step_panels/pt_exam_panel.py ui/widgets/step_panels/sync_test_panel.py
-```
-必须空输出。
-
-### G6 — `TestPanelAPI` 签名稳定
-```bash
-diff <(git show <BASE>:ui/test_panel.py | awk '/^class TestPanelAPI\(Protocol\):/,/^class TestPanelWidget/' | grep "^\s*def " | awk '{print $2}' | sort -u) \
-     <(awk '/^class TestPanelAPI\(Protocol\):/,/^class TestPanelWidget/' ui/test_panel.py | grep "^\s*def " | awk '{print $2}' | sort -u)
-```
-必须空输出。
-
-### G7 — 协调器瘦身
-```bash
-wc -l ui/test_panel.py
-```
-必须 ≤ **500**（超出但 ≤ 540 时必须在产出物报告中逐条说明未再瘦身的剩余候选）。
-
-### G8 — `_panel_builders.py` 瘦身 & 对话框已迁出
-```bash
-wc -l ui/widgets/step_panels/_panel_builders.py
-grep -n "def show_assessment_result_dialog\|def show_random_fault_identification_dialog\|def show_blackbox_required_dialog\|def show_blackbox_dialog" ui/widgets/step_panels/_panel_builders.py
-```
-第一行必须 ≤ **350**；第二行必须 **0 匹配**。
-
-### G9 — `_dialogs` 子包落地
-```bash
-ls ui/widgets/step_panels/_dialogs/__init__.py \
-   ui/widgets/step_panels/_dialogs/assessment_result.py \
-   ui/widgets/step_panels/_dialogs/random_fault.py \
-   ui/widgets/step_panels/_dialogs/blackbox.py
-grep -n "def show_assessment_result_dialog\|def show_random_fault_identification_dialog\|def show_blackbox_required_dialog\|def show_blackbox_dialog" ui/widgets/step_panels/_dialogs/*.py
-wc -l ui/widgets/step_panels/_dialogs/*.py
-```
-4 个文件必须全部存在；4 个对话框函数必须恰好各命中 1 次；每个文件 ≤ **300** 行。
-
-### G10 — 反向依赖禁令
-```bash
-grep -n "from ui.widgets.step_panels._dialogs\|import.*_dialogs" \
-    ui/widgets/step_panels/_panel_builders.py \
-    ui/widgets/step_panels/loop_test_panel.py \
-    ui/widgets/step_panels/pt_voltage_check_panel.py \
-    ui/widgets/step_panels/pt_phase_check_panel.py \
-    ui/widgets/step_panels/pt_exam_panel.py \
-    ui/widgets/step_panels/sync_test_panel.py
-```
-必须 **0 匹配**（只有 `ui/test_panel.py` 可 import `_dialogs`）。
-
-### G11 — 协调器禁用方法仍零（R31 长期硬门延续）
-```bash
-grep -n "def _build_step\|def _refresh_tp_step\|def _on_connect_psm\|def _on_disconnect_psm\|def _on_record_psm\|def _tp_s2_record\|def _make_grp\|def _make_btn\|def _make_note_label\|def _make_inline_row\|def _make_feedback_label\|def _set_feedback_label\|def _set_step_list_label\|def _make_step_list\|def _make_gen_block\|def _make_gen_fap_block\|def _tone_from_color\|def _tp_dot_style" ui/test_panel.py
-```
-必须 **0 匹配**（本轮新增 `_tp_dot_style` 也已迁出）。
-
-### G12 — R26 悬空宿主调用扫描（长期硬门）
-```bash
-grep -n "self\.\(flow_mgr\|loop_svc\|pt_voltage_svc\|pt_phase_svc\|pt_exam_svc\|sync_svc\|assessment_coord\|fault_mgr\|blackbox_handler\|hw\)\b" ui/test_panel.py ui/widgets/step_panels/*.py ui/widgets/step_panels/_dialogs/*.py | grep -v "self\._api\."
-```
-必须 **0 匹配**。
-
-### G13 — 反向寻址零命中（§7.5 规则 3 配套守门）
-```bash
-grep -nE "self\.parent\(\)|self\.window\(\)" ui/test_panel.py ui/widgets/step_panels/ ui/widgets/step_panels/_dialogs/
-```
-必须 **0 匹配**（子面板 + 协调器 + `_dialogs` 内均不得反向寻址宿主）。
-
-### G14 — `py_compile` 与 offscreen 导入冒烟
-```bash
-PYTHONPYCACHEPREFIX=/tmp/pyc /Users/promise/opt/anaconda3/envs/power_gui/bin/python \
-    -m py_compile ui/test_panel.py ui/widgets/step_panels/*.py ui/widgets/step_panels/_dialogs/*.py
-
-XDG_CACHE_HOME=/tmp/xdg MPLCONFIGDIR=/tmp/mpl QT_QPA_PLATFORM=offscreen \
-    /Users/promise/opt/anaconda3/envs/power_gui/bin/python -c "\
-from ui.test_panel import TestPanelWidget, TestPanelAPI; \
-from ui.widgets.step_panels import LoopTestPanel, PtVoltageCheckPanel, PtPhaseCheckPanel, PtExamPanel, SyncTestPanel; \
-from ui.widgets.step_panels._dialogs import show_assessment_result_dialog, show_random_fault_identification_dialog, show_blackbox_required_dialog, show_blackbox_dialog; \
-print('OK')"
-```
-必须编译通过且打印 `OK`。
-
-### G15 — 快照回归
-```bash
-/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q
-```
-必须 **13 passed**。
-
-### G16 — `MAINTENANCE_CHECKLIST.md` 同步
-```bash
-grep -n "## 5.2\|## 7.5\|### 5.2\|### 7.5" MAINTENANCE_CHECKLIST.md
-grep -n "第 32 轮" MAINTENANCE_CHECKLIST.md
-grep -n "至多保留 1 个纯 UI 宿主构造层 Mixin" MAINTENANCE_CHECKLIST.md
-```
-必须命中 §5.2 / §7.5 锚点；必须命中第 32 轮条目；必须命中例外条款关键句。
-
-### G17 — 人工冒烟清单（用户执行，AI 不得代替宣告通过）
-1. `python -m app.main` 能启动到主窗口，无 traceback。
-2. 右侧控制台（`WidgetBuilderMixin` 构造的 chrome）显示正常：母排状态 / 万用表 checkbox / 场景选择均可用。
-3. 进入测试模式 → 5 个 Step 依次推进完成。
-4. 各 Step 的黑盒按钮触发 `show_blackbox_dialog`，弹窗内容与 R31 一致。
-5. 走到 Step4 完成点后尝试进入 Step5，触发 `show_blackbox_required_dialog`（若场景注入了接线类故障）。
-6. 完成全流程后触发 `show_assessment_result_dialog`，成绩单各项与 R31 一致。
-7. 随机故障识别场景触发 `show_random_fault_identification_dialog`，提交答案后流程继续。
-8. admin 模式跳步、万用表开关、相序仪接入/断开全部无回归。
-9. 退出测试模式并重入，所有状态正确重置。
-
-该项**由用户手动声明完成**后方可进入验收；AI 仅负责准备好 offscreen 冒烟与结构扫描，不得自行宣告 G17 PASS。
-
-## §7 产出物要求
-
-实施结束时请一次性回报（中文，分段）：
-
-1. **新增 / 修改 / 删除文件清单**（每个文件一行，附行数）。
-2. **`_panel_builders.py` 前后对比**：R31 结束时 770 行 → R32 结束时 ___ 行；列出新增的 9 个 chrome builder 函数签名 + 被删除的 4 个对话框函数。
-3. **`ui/test_panel.py` 前后对比**：R31 结束时 677 行 → R32 结束时 ___ 行；若 > 500，列出剩余方法行数 TOP 5 并说明。
-4. **`_dialogs/` 子包文件清单** + 每文件行数。
-5. **G1–G16 逐项执行结果**（命令原文 + 输出 + `PASS`/`FAIL` 标注）。
-6. **G17 手动冒烟**每条的通过 / 不通过（标注为 `PENDING-USER` 直至用户亲自确认）。
-7. **`MAINTENANCE_CHECKLIST.md` 修订 diff 摘要**：§4 L641 修订前后文本、§5.2 与 §7.5 新增锚点位置、§3 / §9 / §10 的更新要点。
-8. **任何被迫偏离**既定接口 / 命名 / 上限的位置与原因（无则写"无"）。
-9. **本轮是否有任何越界改动**（必须"无"）。
-
-## §8 执行纪律
-
-1. **先读后写**：动手前 `git log --oneline -5` 确认基线为 `68da6ef Round 31` 或之后；修改任何既有文件之前必须先 Read 该文件，不得基于 summary 的记忆假设文件内容未变。
-2. **最小增量**：文档修订、`test_panel.py` 瘦身、`_dialogs/` 子包外提可分别提交；但每个子任务必须在本轮内全部落地，不允许"下轮再补"。
-3. **不改 `WidgetBuilderMixin`**：本轮的核心政治前提是"它零改动"。任何在 `ui/panels/control_panel.py` 的字节级改动都会让方案 B 的承诺失效。
-4. **失败自愈**：若 G2 / G10 / G11 / G12 / G13 任何一项非零，立刻回去修正，不要先跑 G15；G15 绿灯但守门 grep 有残留 = 本轮失败。
-5. **冒烟覆盖对话框**：G17 的第 4–7 条是本轮最容易被漏测的路径（`_dialogs/` 迁移后 import 链路改变），用户冒烟时务必逐个触发。
-6. **不加文档 / 不写 README**：除 §1.1 列出的 `MAINTENANCE_CHECKLIST.md` 修订外，不产出任何 `.md` / `.rst` 新文件。
-7. **注释节制**：迁移过来的代码保留原中文注释；不要给搬过来的函数补 docstring / type hint / 多余注解。
-8. **严禁自动提交**：完成全部工作后只等待用户审阅，不得 `git add` 或 `git commit`。
-9. **严禁双通道保留**：迁出的函数必须在旧位置被删除；任何"兼容别名 + 原实现同时在两处"的双轨都视为不合格。
-10. **遇到任何架构分叉必须暂停并向用户请示**：例如发现某个 `_setup_test_panel` 片段跨越多个 chrome 分组、或 `_panel_builders.py` 的 dialog 嵌套 helper 存在跨 dialog 复用，不得擅自合并，必须先向用户报告。
-
-确认以上所有约束后，开始实施。实施完成再进入产出物回报环节。
-
-<!-- ─────────── 第 32 轮提示词 结束 ─────────── -->
-
 # 维护与重构清单 v2
 
 最后更新：`2026-04-16`
@@ -589,7 +139,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 | 当前阶段 | Phase 3 已关闭：R32 收口完成（Mixin 决策方案 B 落地；`ui/test_panel.py` 已压到 `478` 行；`ui/widgets/step_panels/_dialogs/` 子包已外提）。下一轮进入 Phase 4。 |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/styles.py`(1007)、`ui/panels/control_panel.py`(776)、`ui/widgets/step_panels/_panel_builders.py`(347) |
-| 下一轮默认起点 | Phase 4 — Round 33：引入 `ControllerSignals(QObject)`，把 UI 轮询刷新逐步切到 Signal/Slot 管道 |
+| 下一轮默认起点 | Phase 4 — Round 33：`phase_order_resolver.py` 显式依赖注入试点，建立 Phase 4 标准模式（详见 §10） |
 
 ---
 
@@ -993,7 +543,7 @@ class PowerSyncUI(QMainWindow):
   - `_panel_builders.py` 不再承担对话框职责；对话框 import 链现在只由 `ui/test_panel.py` 直连 `_dialogs/`，符合协调器持有与派发规则。
   - Phase 3 结束时仓库仅剩 1 个 Mixin：`WidgetBuilderMixin`，并已被例外条款与守门扫描锁定边界。
 - 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
-- 回归清单：PARTIAL（结构扫描、`py_compile`、offscreen 导入冒烟全部通过；真实 GUI 对话框路径与全流程冒烟需由用户在可交互环境确认）
+- 回归清单：PASS（结构扫描、`py_compile`、offscreen 导入冒烟全部通过；手动 GUI 冒烟已由用户确认完成）
 - 下一轮起点：Phase 4 — Round 33：引入 `ControllerSignals(QObject)`，把 UI 刷新从轮询逐步切到 Signal/Slot
 
 ### 第 31 轮 (2026-04-16)：Phase 3-9（TestPanelWidget 步骤子面板解构）
@@ -1505,14 +1055,133 @@ class PowerSyncUI(QMainWindow):
 
 ---
 
-## 10. 下一轮默认起点
+## 10. 下一轮默认起点 — Phase 4 扩展路线图
 
-如果后续没有新的明确指令，默认按以下顺序继续：
+### 总体目标
 
-**Phase 4（R33 起，2-3 轮）：**
-1. 引入 `ControllerSignals(QObject)`，核心三信号 `render_state_updated / step_state_changed / assessment_finished` 替代轮询式 `render_visuals(rs)`。
-2. 收口 `AssessmentCoordinator` / `BlackboxRepairHandler` / `PhaseOrderResolver` / `HardwareActions` 对 `self._ctrl` 的直接引用，改为显式参数 / State 注入。
-3. 清理旧键名兼容逻辑与 `pt_phase_orders` / `blackbox_order` 隐式同步；补 `domain/` / `services/` 类型标注。
+Phase 4 的目标不是"继续 UI 组件化"，而是：
+
+- 把各 service 内部的 `self._ctrl` / `self.ctrl` 依赖，逐步改成**显式构造注入**
+- 让 service 的输入边界变清晰：状态依赖、协作者依赖、副作用回调依赖
+- 最后在依赖边界已经显式化的前提下，引入 `ControllerSignals(QObject)`，把部分 `render_visuals` / UI 更新路径从 `_tick` 轮询迁移到 signal 驱动
+
+核心原则：
+
+1. **先建立标准注入模式，再逐轮复制**
+2. **每轮只打一个主战场**
+3. **先小后大，先纯 service 后编排器，再汇聚器**
+4. **Signal/Slot 放到所有 service 显式依赖化之后再做**
+5. **R43 之后不再碰"service 还依赖 controller 黑箱"这种旧模式**
+
+### 注入模式标准（Phase 4 全程适用）
+
+1. **默认风格：构造注入**
+   - 多方法 service（`loop_test_service.py` 等）一律用构造注入
+   - 极小无状态 helper（如 `phase_order_resolver.py`）也使用轻量构造注入，保持范式一致
+2. **可变叶子对象：注入容器或 accessor，不注入裸列表**
+   - 如 `g2_blackbox_order`（会被整体替换）→ 注入持有它的容器引用，或 accessor callback（`get_g2_blackbox_order()`）
+   - 如 `sim_state`（只被原地修改）→ 可直接注入引用
+3. **禁止把旧 `ctrl` 换名为别的"大黑箱对象"**
+   - 不允许创建 `ServiceDeps` / `ServiceContext` 之类的伪 controller 替身
+   - 依赖聚合对象仅在参数 > 5 时允许，且必须字段明确、冻结
+4. **`app/main.py` 构造区释放阀**
+   - 如果 `PowerSyncController.__init__` 中 service 构造区超过 50 行，允许提取为 `_build_services()` 私有工厂方法
+   - 暂不引入独立 factory 类/模块
+
+### 通用实施规则
+
+**每轮只允许改：**
+- 目标 service 文件
+- `app/main.py` 中该 service 的构造处
+- `MAINTENANCE_CHECKLIST.md`
+
+**默认禁止：**
+- `ui/**`
+- `services/**` 中与本轮无关的文件
+- `domain/**`、`adapters/**`、`tests/**`
+
+**每轮硬门统一保留：**
+- `pytest tests/ -q` 必须仍是 `13 passed`
+- 目标 service 中 `self._ctrl` / `self.ctrl` 的引用数 = 0
+- 不允许把旧 `ctrl` 直接换名为别的"大黑箱对象"
+- Checklist 必须记录"本轮建立/复用的注入模式"
+
+### 轮次计划
+
+| 轮次 | 目标文件 | `self._ctrl` 数 | 行数 | 定位 |
+|---|---|---:|---:|---|
+| R33 | `phase_order_resolver.py` | 8 | 61 | 模式建立（最小验证） |
+| R34 | `loop_test_service.py` | 21 | 216 | 小型 service + 首次副作用注入 |
+| R35 | `sync_test_service.py` | 27 | 224 | 小型 service（验证模式可复用） |
+| R36 | `pt_voltage_check_service.py` | 24 | 291 | 中型 service |
+| R37 | `blackbox_repair_handler.py` | 36 | 214 | 编排类 service 试点 |
+| R38 | `fault_manager.py` | 40 | 150 | 故障管理（依赖 R37 先完成） |
+| R39 | `hardware_actions.py` | 35 | 149 | 动作编排器（耦合面最杂，必须单独） |
+| R40 | `pt_phase_check_service.py` | 38 | 346 | 大型 step service |
+| R41 | `pt_exam_service.py` | 49 | 386 | 大型 step service |
+| R42 | `assessment_coordinator.py` | 61 | 250 | 最重汇聚器（Phase 4 service 收口） |
+| R43 | `ControllerSignals` + render 迁移 | — | — | Signal/Slot 分阶段落地 |
+
+### R33：模式建立（最小验证）
+
+**目标文件**：`services/phase_order_resolver.py`（8 处 `self._ctrl`，61 行）
+
+**任务**：
+- 把 `self._ctrl` 拆成显式构造注入（`sim_state`、`pt_phase_orders`、`get_g2_blackbox_order` 等）
+- 在 `app/main.py` 构造处适配
+- 在 Checklist 记录"Phase 4 标准注入模式"
+
+**验收**：`pytest 13 passed` + 该文件 `self._ctrl` = 0
+
+### R34–R36：小 → 中型 step service
+
+按 R33 建立的模式逐个改造。从 R34 开始正式验证三类注入（状态 + 协作者 + 副作用回调）能否稳定复用。
+
+### R37–R39：编排器 / 管理器 / 动作层
+
+- R37 先改 `blackbox_repair_handler`（作用域集中、业务边界明确）
+- R38 改 `fault_manager`（依赖 R37 先完成，因含 `blackbox_handler.sync_*` 交叉调用）
+- R39 单独改 `hardware_actions`（耦合面最杂：多 service 协作 + UI warning + `request_ui_tab` + physics + assessment）
+
+### R40–R42：大型 service + 汇聚器
+
+- R40、R41 各处理一个大型 step service，不并轮
+- R42 处理 `assessment_coordinator`（61 处引用，依赖最广），作为 Phase 4 service 显式化的收口点
+
+### R43：ControllerSignals 引入 + 分阶段 render 迁移
+
+前置条件：R33–R42 全部完成，所有 service 的 `self._ctrl` = 0。
+
+**阶段 1**：建立信号层
+- 新增 `ControllerSignals(QObject)`
+- controller 在关键状态变化点发出信号
+- 暂保留原 `_tick → render_visuals` 作为 fallback
+
+**阶段 2**：迁最清晰的消费者
+- 优先迁移文本状态标签、step 完成事件、局部 UI 更新点
+- 暂不动 waveform / phasor / circuit 全链路
+
+**阶段 3**：评估轮询压缩
+- 当 signals 已稳定覆盖主要 UI 变更后，决定是否保留 `_tick` 低频兜底或进一步压缩 `render_visuals`
+
+### 基线数据（Phase 4 启动时）
+
+`self._ctrl` 引用总量：**339** 处（10 个 service 文件）
+
+| 文件 | 引用数 |
+|---|---:|
+| `assessment_coordinator.py` | 61 |
+| `pt_exam_service.py` | 49 |
+| `fault_manager.py` | 40 |
+| `pt_phase_check_service.py` | 38 |
+| `blackbox_repair_handler.py` | 36 |
+| `hardware_actions.py` | 35 |
+| `sync_test_service.py` | 27 |
+| `pt_voltage_check_service.py` | 24 |
+| `loop_test_service.py` | 21 |
+| `phase_order_resolver.py` | 8 |
+
+已确认无需处理：`flow_mode_manager.py`（0 处）、`assessment_service.py`（0 处）
 
 ---
 
