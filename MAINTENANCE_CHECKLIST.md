@@ -136,10 +136,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 4 进行中：R38 已完成（`fault_manager.py` 显式依赖注入）；Phase 3 已关闭。 |
+| 当前阶段 | Phase 4 进行中：R39 已完成（`hardware_actions.py` 显式依赖注入）；Phase 3 已关闭。 |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/styles.py`(1007)、`ui/panels/control_panel.py`(776)、`ui/widgets/step_panels/_panel_builders.py`(347) |
-| 下一轮默认起点 | Phase 4 — Round 39：`hardware_actions.py` 显式依赖注入（详见 §10） |
+| 下一轮默认起点 | Phase 4 — Round 40：`pt_phase_check_service.py` 显式依赖注入（详见 §10） |
 
 ---
 
@@ -523,6 +523,27 @@ class PowerSyncUI(QMainWindow):
 ### 当前未完成但已明确方向
 - Phase 3：已关闭（R32 收口完成）。
 - Phase 4 主线（R33–R43）：Service 层 `self._ctrl` 显式依赖化（339 处 → 0）→ `ControllerSignals(QObject)` Signal/Slot 引入 → 旧键名与状态真值源清理、`domain/services` 类型标注补齐。详见 §10。
+
+### 第 39 轮 (2026-04-17)：Phase 4 第七轮（`hardware_actions.py` 显式依赖注入）
+- 本轮唯一主攻目标：将 `services/hardware_actions.py` 中的 `self._ctrl` 全部替换为显式构造注入，在 Phase 4 耦合面最杂的动作编排器上验证“直接注入 + accessor 回调 + 7 种 query 回调 + 7 种行为回调 + 私有方法内联”的极限组合。
+- 实际完成：
+  - `services/hardware_actions.py` 已改为 keyword-only 构造注入，不再持有 `ctrl`；当前依赖为 `sim_state`（直接注入）、`get_physics()`（accessor 回调）、7 个 query 回调（`is_loop_test_complete`、`is_pt_voltage_check_complete`、`is_pt_phase_check_complete`、`is_pt_exam_recorded`、`is_sync_test_complete`、`is_sync_test_active`、`is_pt_exam_started`）、7 个行为回调（`append_assessment_event`、`set_pt_exam_feedback`、`request_ui_tab`、`show_warning`、`show_e01_accident_dialog`、`show_e02_accident_dialog`、`show_e03_accident_dialog`）。
+  - `_get_generator_state(gen_id)` 不再经 controller 私有方法调用，已内联为 `HardwareActions` 自身的私有方法，仅依赖已注入的 `sim_state`。
+  - 所有 UI 交互（`show_warning`、3 个事故对话框）均改为行为回调，`HardwareActions` 不再持有或穿透 `self._ctrl.ui`。
+  - `is_sync_test_active()` 原为 controller 自身方法，已改为 query 回调注入；`pt_exam_states[gen_id].started` 状态读取已改为 `is_pt_exam_started(gen_id)` query 回调。
+  - `app/main.py` 已仅在 `HardwareActions(...)` 构造处完成适配；`tests/**`、`ui/**`、其他 `services/**` 均保持零改动。
+- 删除了哪些旧代码：
+  - 删除 `HardwareActions.__init__(self, ctrl)` 与 `self._ctrl = ctrl`。
+  - 删除 `hardware_actions.py` 内全部 35 处 `self._ctrl.*` 直接访问。
+- 接口变化：
+  - `HardwareActions` 的构造函数改为 keyword-only 显式依赖注入，当前共 16 个参数（Phase 4 最高记录）。
+  - 公开方法签名保持不变；controller 仍通过既有薄转发方法暴露硬件动作。
+- 耦合度变化：
+  - `services/hardware_actions.py` 的 `self._ctrl` 引用数 `35 -> 0`。
+  - Phase 4 service 层 `self._ctrl` 总量 `183 -> 148`。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PASS（范围检查、`py_compile`、offscreen 导入冒烟、伪黑箱扫描全部通过）
+- 下一轮起点：Phase 4 — Round 40：`pt_phase_check_service.py` 显式依赖注入
 
 ### 第 38 轮 (2026-04-17)：Phase 4 第六轮（`fault_manager.py` 显式依赖注入）
 - 本轮唯一主攻目标：将 `services/fault_manager.py` 中的 `self._ctrl` 全部替换为显式构造注入，在故障管理器上验证“直接注入 + 行为回调 + setter 回调 + accessor 回调 + 4 对 blackbox order accessor/setter + 内联 reset”组合。
@@ -1242,7 +1263,7 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 | R36 | `pt_voltage_check_service.py` | 24 | 291 | 中型 service（已完成） |
 | R37 | `blackbox_repair_handler.py` | 36 | 214 | 编排类 service 试点（已完成） |
 | R38 | `fault_manager.py` | 40 | 150 | 故障管理（已完成） |
-| R39 | `hardware_actions.py` | 35 | 149 | 动作编排器（耦合面最杂，必须单独） |
+| R39 | `hardware_actions.py` | 35 | 149 | 动作编排器（已完成） |
 | R40 | `pt_phase_check_service.py` | 38 | 346 | 大型 step service |
 | R41 | `pt_exam_service.py` | 49 | 386 | 大型 step service |
 | R42 | `assessment_coordinator.py` | 61 | 250 | 最重汇聚器（Phase 4 service 收口） |
@@ -1325,7 +1346,12 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 - `reset_blackbox_orders()` 已在 service 内部内联为 `_reset_blackbox_orders()`，不再经 controller 薄转发
 - 本轮回归：`pytest 13 passed`
 
-- R39 单独改 `hardware_actions`（耦合面最杂：多 service 协作 + UI warning + `request_ui_tab` + physics + assessment）
+**R39 结果**：
+- 已完成；`hardware_actions.py` 当前 `self._ctrl` = 0
+- Phase 4 参数数量最高（16 个），验证了在耦合面最杂的动作编排器上“1 直接注入 + 1 accessor + 7 query + 7 行为”组合仍可控
+- `_get_generator_state(gen_id)` 已在 service 内部内联为私有方法，不再经 controller 私有方法穿透
+- 所有 UI 交互（`show_warning`、3 个事故对话框）均改为延迟求值行为回调，因 `ui` 在 controller 初始化中晚于 `hw` 创建
+- 本轮回归：`pytest 13 passed`
 
 ### R40–R42：大型 service + 汇聚器
 

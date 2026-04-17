@@ -118,7 +118,24 @@ class PowerSyncController:
             get_pt_phase_orders=lambda: self.pt_phase_orders,
             get_g2_blackbox_order=lambda: self.g2_blackbox_order,
         )
-        self.hw                   = HardwareActions(self)
+        self.hw                   = HardwareActions(
+            sim_state=self.sim_state,
+            get_physics=lambda: self.physics,
+            is_loop_test_complete=lambda: self.loop_svc.is_loop_test_complete(),
+            is_pt_voltage_check_complete=lambda: self.pt_voltage_svc.is_pt_voltage_check_complete(),
+            is_pt_phase_check_complete=lambda: self.pt_phase_svc.is_pt_phase_check_complete(),
+            is_pt_exam_recorded=lambda gen_id: self.pt_exam_svc.is_pt_exam_recorded(gen_id),
+            is_sync_test_complete=lambda: self.sync_svc.is_sync_test_complete(),
+            is_sync_test_active=lambda: self.is_sync_test_active(),
+            is_pt_exam_started=lambda gen_id: self.pt_exam_states[gen_id].started,
+            append_assessment_event=self.assessment_coord.append_assessment_event,
+            set_pt_exam_feedback=lambda gen_id, msg, color: self.pt_exam_svc._set_pt_exam_feedback(gen_id, msg, color),
+            request_ui_tab=self.request_ui_tab,
+            show_warning=lambda title, msg: self.ui.show_warning(title, msg),
+            show_e01_accident_dialog=lambda: self.ui.show_e01_accident_dialog(),
+            show_e02_accident_dialog=lambda: self.ui.show_e02_accident_dialog(),
+            show_e03_accident_dialog=lambda: self.ui.show_e03_accident_dialog(),
+        )
         self.fault_mgr            = FaultManager(
             sim_state=self.sim_state,
             blackbox_handler=self.blackbox_handler,
