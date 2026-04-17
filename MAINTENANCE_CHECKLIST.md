@@ -297,7 +297,7 @@ R30/R31 实际落点为 `ui/widgets/step_panels/`（不是最初规划的 `ui/te
 - [x] `ui/widgets/step_panels/_panel_builders.py::show_blackbox_dialog` / `show_blackbox_required_dialog` — 黑盒弹窗逻辑（R31；可在 R32 继续拆成独立 `_dialogs` 子模块）
 - [x] `ui/widgets/step_panels/_panel_builders.py::show_assessment_result_dialog` / `show_random_fault_identification_dialog` — 成绩单与结果弹窗（R31；同上）
 - [x] `ui/widgets/step_panels/_panel_builders.py::make_group/make_button/make_note_label/...` — 公共按钮、提示、文本助手（R31）
-- [ ] 将步骤业务判断从 UI 中迁回状态/服务层，UI 只读取状态（**留给 Phase 4**：Signal/Slot + Service `self._ctrl` 收口同轮处理）
+- [ ] 将步骤业务判断从 UI 中迁回状态/服务层，UI 只读取状态（**留给 Phase 4**：R33–R42 先消除 Service `self._ctrl`，R43 再引入 Signal/Slot）
 
 完成标准：
 - `PowerSyncUI` 业务层面的 UI 不再使用 Mixin 多重继承，改为组合式装配。
@@ -312,17 +312,17 @@ R30/R31 实际落点为 `ui/widgets/step_panels/`（不是最初规划的 `ui/te
 - 新增 UI 逻辑落在拆出的子模块中，不回写主文件。
   - R32 状态：已达标；`_dialogs/` 子包已独立承接 4 个对话框函数。
 
-### Phase 4: 通信标准化与清理（2-3 轮）
+### Phase 4: Service 显式依赖化 + 通信标准化（R33–R43，共 11 轮）
 
-**目标：** 建立清晰的 Controller <-> UI 通信管道，完成最终清理。
+**目标：** 消除 service 层对 controller 的黑箱依赖，建立清晰的显式注入边界；最后引入 Signal/Slot 通信管道。
 
-- [ ] **引入 Qt Signal/Slot 通信**
-  - 定义 `ControllerSignals(QObject)` 信号集
+- [ ] **R33–R42：逐个 service 消除 `self._ctrl`**（339 处 → 0）
+  - 默认使用构造注入，按"先小后大、先纯 service 后编排器、再汇聚器"顺序
+  - 详细轮次计划见 §10
+- [ ] **R43：引入 `ControllerSignals(QObject)` + 分阶段 render 迁移**
+  - 前置条件：所有 service 的 `self._ctrl` = 0
   - 核心信号：`render_state_updated(RenderState)` / `step_state_changed(int, object)` / `assessment_finished(AssessmentResult)`
-  - 各 Tab 组件连接自己关心的信号，替代轮询式刷新
-- [ ] **收口 Service 对 ctrl 的剩余直接访问**
-  - 逐步将旧 Service 的 `self._ctrl` 改为显式参数/State 注入
-  - 目标：所有 Service 的 `self._ctrl` 引用数归零
+  - 分阶段迁移，不一次性全切
 - [ ] **收口旧键名兼容逻辑**
   - 清理历史命名债务
 - [ ] **收口状态真值源**
@@ -521,8 +521,8 @@ class PowerSyncUI(QMainWindow):
 - `H5`：死母线倒计时已改为使用真实 `frame_dt`，不再写死 `0.033`。
 
 ### 当前未完成但已明确方向
-- Phase 3 收口 R32：①Mixin 方案 A/B 决策；②`ui/test_panel.py` 从 677 → ≤ 500；③`_panel_builders.py`（770）拆出 `_dialogs` 子模块以进一步降低单文件体量。
-- Phase 4 主线：Qt Signal/Slot 通信、Service 对 `self._ctrl` 直连收口、旧键名与状态真值源清理、`domain/services` 类型标注补齐。
+- Phase 3：已关闭（R32 收口完成）。
+- Phase 4 主线（R33–R43）：Service 层 `self._ctrl` 显式依赖化（339 处 → 0）→ `ControllerSignals(QObject)` Signal/Slot 引入 → 旧键名与状态真值源清理、`domain/services` 类型标注补齐。详见 §10。
 
 ### 第 32 轮 (2026-04-16)：Phase 3 收口（方案 B + TestPanel 瘦身 + `_dialogs` 外提）
 - 本轮唯一主攻目标：正式拍板保留 `WidgetBuilderMixin` 作为“纯 UI 宿主构造层”例外，同时完成 `ui/test_panel.py` 二次瘦身与 `ui/widgets/step_panels/_dialogs/` 子包外提，关闭 Phase 3。
@@ -544,7 +544,7 @@ class PowerSyncUI(QMainWindow):
   - Phase 3 结束时仓库仅剩 1 个 Mixin：`WidgetBuilderMixin`，并已被例外条款与守门扫描锁定边界。
 - 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
 - 回归清单：PASS（结构扫描、`py_compile`、offscreen 导入冒烟全部通过；手动 GUI 冒烟已由用户确认完成）
-- 下一轮起点：Phase 4 — Round 33：引入 `ControllerSignals(QObject)`，把 UI 刷新从轮询逐步切到 Signal/Slot
+- 下一轮起点：Phase 4 — Round 33：`phase_order_resolver.py` 显式依赖注入试点，建立 Phase 4 标准模式（详见 §10）
 
 ### 第 31 轮 (2026-04-16)：Phase 3-9（TestPanelWidget 步骤子面板解构）
 - 本轮唯一主攻目标：按 Step1~5 将 `TestPanelWidget` 的 build + refresh 继续外提为独立 `QGroupBox` 子面板，保留 `ui/test_panel.py` 作为协调器，不改服务层、不改主窗口装配。
