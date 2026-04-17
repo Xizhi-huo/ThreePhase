@@ -136,10 +136,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 3 已关闭：R32 收口完成（Mixin 决策方案 B 落地；`ui/test_panel.py` 已压到 `478` 行；`ui/widgets/step_panels/_dialogs/` 子包已外提）。下一轮进入 Phase 4。 |
+| 当前阶段 | Phase 4 进行中：R35 已完成（`sync_test_service.py` 显式依赖注入）；Phase 3 已关闭。 |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/styles.py`(1007)、`ui/panels/control_panel.py`(776)、`ui/widgets/step_panels/_panel_builders.py`(347) |
-| 下一轮默认起点 | Phase 4 — Round 33：`phase_order_resolver.py` 显式依赖注入试点，建立 Phase 4 标准模式（详见 §10） |
+| 下一轮默认起点 | Phase 4 — Round 36：`pt_voltage_check_service.py` 显式依赖注入（详见 §10） |
 
 ---
 
@@ -523,6 +523,69 @@ class PowerSyncUI(QMainWindow):
 ### 当前未完成但已明确方向
 - Phase 3：已关闭（R32 收口完成）。
 - Phase 4 主线（R33–R43）：Service 层 `self._ctrl` 显式依赖化（339 处 → 0）→ `ControllerSignals(QObject)` Signal/Slot 引入 → 旧键名与状态真值源清理、`domain/services` 类型标注补齐。详见 §10。
+
+### 第 35 轮 (2026-04-17)：Phase 4 第三轮（`sync_test_service.py` 显式依赖注入）
+- 本轮唯一主攻目标：将 `services/sync_test_service.py` 中的 `self._ctrl` 全部替换为显式构造注入，继续验证 R34 的三类依赖拆分在另一类带状态门禁的 service 中可横向复用。
+- 实际完成：
+  - `services/sync_test_service.py` 已改为 keyword-only 构造注入，不再持有 `ctrl`；当前依赖为 `sim_state`、`flow_mgr`、`fault_mgr`、`get_physics()`、`get_sync_test_state()`、`set_sync_test_state()`、`is_loop_test_complete()`、`is_pt_voltage_check_complete()`、`is_pt_phase_check_complete()`、`is_pt_exam_recorded()`。
+  - `sync_test_state` 因会在 `reset_sync_test()` 中整体替换，已改为 accessor + setter callback 注入；`started`、`feedback`、`feedback_color`、`round1_done`、`round2_done`、`completed` 等状态写入均直接落到 `SyncTestState`。
+  - 四个前置步骤门禁查询已改为 query callback 注入，不再经 `self._ctrl.loop_svc` / `pt_voltage_svc` / `pt_phase_svc` / `pt_exam_svc` 穿透。
+  - `flow_mgr` 与 `fault_mgr` 已作为稳定协作者直接注入；`physics` 因 controller 初始化顺序约束，继续采用 accessor callback（`get_physics()`）延迟求值。
+  - `app/main.py` 已仅在 `SyncTestService(...)` 构造处完成适配；`tests/**`、`ui/**`、其他 `services/**` 均保持零改动。
+- 删除了哪些旧代码：
+  - 删除 `SyncTestService.__init__(self, ctrl)` 与 `self._ctrl = ctrl`。
+  - 删除 `sync_test_service.py` 内全部 27 处 `self._ctrl.*` 直接访问。
+- 接口变化：
+  - `SyncTestService` 的构造函数改为 keyword-only 显式依赖注入。
+  - 公开方法签名保持不变；controller 仍通过 `self.sync_svc.xxx()` 做薄转发。
+- 耦合度变化：
+  - `services/sync_test_service.py` 的 `self._ctrl` 引用数 `27 -> 0`。
+  - Phase 4 service 层 `self._ctrl` 总量 `310 -> 283`。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PASS（范围检查、`py_compile`、offscreen 导入冒烟、伪黑箱扫描全部通过）
+- 下一轮起点：Phase 4 — Round 36：`pt_voltage_check_service.py` 显式依赖注入
+
+### 第 34 轮 (2026-04-17)：Phase 4 第二轮（`loop_test_service.py` 显式依赖注入）
+- 本轮唯一主攻目标：将 `services/loop_test_service.py` 中的 `self._ctrl` 全部替换为显式构造注入，并在第一个带副作用的 service 上验证“状态注入 + 协作者注入 + 副作用回调注入”三类模式可复用。
+- 实际完成：
+  - `services/loop_test_service.py` 已改为 keyword-only 构造注入，不再持有 `ctrl`；当前依赖为 `sim_state`、`flow_mgr`、`get_physics()`、`get_loop_test_state()`、`set_loop_test_state()`、`append_assessment_event()`、`exit_loop_test_mode()`。
+  - `loop_test_state` 因会在 `reset_loop_test()` 中整体替换，已改为 accessor + setter callback 注入；`set_loop_test_feedback`、`record_loop_test_result`、`mark_loop_test_completed` 三个 controller 薄转发已直接内联为对 `loop_test_state` 的状态写入。
+  - `assessment_coord.append_assessment_event` 已改为 callback 注入；`flow_mgr` 改为直接注入稳定协作者引用。
+  - `physics` 本轮采用 accessor callback（`get_physics()`）而非直接引用注入，以延迟求值规避 controller 初始化顺序问题；业务读取路径保持不变。
+  - `app/main.py` 已仅在 `LoopTestService(...)` 构造处完成适配；`tests/**`、`ui/**`、其他 `services/**` 均保持零改动。
+- 删除了哪些旧代码：
+  - 删除 `LoopTestService.__init__(self, ctrl)` 与 `self._ctrl = ctrl`。
+  - 删除 `loop_test_service.py` 内全部 21 处 `self._ctrl.*` 直接访问。
+- 接口变化：
+  - `LoopTestService` 的构造函数改为 keyword-only 显式依赖注入。
+  - 公开方法签名保持不变；controller 仍通过 `self.loop_svc.xxx()` 做薄转发。
+- 耦合度变化：
+  - `services/loop_test_service.py` 的 `self._ctrl` 引用数 `21 -> 0`。
+  - Phase 4 service 层 `self._ctrl` 总量 `331 -> 310`。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PASS（范围检查、`py_compile`、offscreen 导入冒烟、伪黑箱扫描全部通过）
+- 下一轮起点：Phase 4 — Round 35：`sync_test_service.py` 显式依赖注入（继续验证 R34 的三类注入模式可横向复用）
+
+### 第 33 轮 (2026-04-17)：Phase 4 第一轮（`phase_order_resolver.py` 显式依赖注入试点）
+- 本轮唯一主攻目标：将 `services/phase_order_resolver.py` 中的 `self._ctrl` 全部替换为显式构造注入，建立 Phase 4 后续轮次复用的标准注入模式。
+- 实际完成：
+  - `services/phase_order_resolver.py` 已改为 keyword-only 构造注入，不再持有 `ctrl`；当前构造依赖为 `sim_state`、`get_pt_phase_orders()`、`get_g2_blackbox_order()`。
+  - `sim_state` 采用直接引用注入；`pt_phase_orders` 与 `g2_blackbox_order` 因运行期可能被整体替换，改为 accessor callback 注入，避免捕获过期裸引用。
+  - 公开方法 `resolve_pt_node_plot_key()`、`get_pt_phase_sequence()`、`resolve_loop_node_phase()` 的签名与调用方式保持不变，`services/_physics_measurement.py` 等现有调用链零改动。
+  - `app/main.py` 与 `tests/support/stubs.py` 已同步适配新的 `PhaseOrderResolver(...)` 构造签名，均改为显式依赖传入，不再传 `self`。
+  - 本轮标准模式已落地：**默认使用构造注入；稳定状态对象可直接注入；可变叶子对象使用 accessor callback；禁止伪 controller 替身。**
+- 删除了哪些旧代码：
+  - 删除 `PhaseOrderResolver.__init__(self, ctrl)` 与 `self._ctrl = ctrl`。
+  - 删除 `phase_order_resolver.py` 内全部 8 处 `self._ctrl.*` 直接访问。
+- 接口变化：
+  - `PhaseOrderResolver` 的构造函数改为 keyword-only 显式依赖注入。
+  - 3 个公开方法的方法名与参数签名保持不变；外部仍通过 `ctrl.phase_resolver.xxx()` 调用。
+- 耦合度变化：
+  - `services/phase_order_resolver.py` 的 `self._ctrl` 引用数 `8 -> 0`。
+  - Phase 4 service 层 `self._ctrl` 总量 `339 -> 331`。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PASS（范围检查、`py_compile`、offscreen 导入冒烟、伪黑箱扫描全部通过）
+- 下一轮起点：Phase 4 — Round 34：`loop_test_service.py` 显式依赖注入（验证状态 + 协作者 + 副作用回调三类注入可复用）
 
 ### 第 32 轮 (2026-04-16)：Phase 3 收口（方案 B + TestPanel 瘦身 + `_dialogs` 外提）
 - 本轮唯一主攻目标：正式拍板保留 `WidgetBuilderMixin` 作为“纯 UI 宿主构造层”例外，同时完成 `ui/test_panel.py` 二次瘦身与 `ui/widgets/step_panels/_dialogs/` 子包外提，关闭 Phase 3。
@@ -1110,9 +1173,9 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 
 | 轮次 | 目标文件 | `self._ctrl` 数 | 行数 | 定位 |
 |---|---|---:|---:|---|
-| R33 | `phase_order_resolver.py` | 8 | 61 | 模式建立（最小验证） |
-| R34 | `loop_test_service.py` | 21 | 216 | 小型 service + 首次副作用注入 |
-| R35 | `sync_test_service.py` | 27 | 224 | 小型 service（验证模式可复用） |
+| R33 | `phase_order_resolver.py` | 8 | 61 | 模式建立（最小验证，已完成） |
+| R34 | `loop_test_service.py` | 21 | 216 | 小型 service + 首次副作用注入（已完成） |
+| R35 | `sync_test_service.py` | 27 | 224 | 小型 service（验证模式可复用，已完成） |
 | R36 | `pt_voltage_check_service.py` | 24 | 291 | 中型 service |
 | R37 | `blackbox_repair_handler.py` | 36 | 214 | 编排类 service 试点 |
 | R38 | `fault_manager.py` | 40 | 150 | 故障管理（依赖 R37 先完成） |
@@ -1122,20 +1185,47 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 | R42 | `assessment_coordinator.py` | 61 | 250 | 最重汇聚器（Phase 4 service 收口） |
 | R43 | `ControllerSignals` + render 迁移 | — | — | Signal/Slot 分阶段落地 |
 
-### R33：模式建立（最小验证）
+### R33：模式建立（最小验证，已完成）
 
 **目标文件**：`services/phase_order_resolver.py`（8 处 `self._ctrl`，61 行）
 
 **任务**：
-- 把 `self._ctrl` 拆成显式构造注入（`sim_state`、`pt_phase_orders`、`get_g2_blackbox_order` 等）
+- 把 `self._ctrl` 拆成显式构造注入（`sim_state`、`get_pt_phase_orders`、`get_g2_blackbox_order`）
 - 在 `app/main.py` 构造处适配
 - 在 Checklist 记录"Phase 4 标准注入模式"
 
-**验收**：`pytest 13 passed` + 该文件 `self._ctrl` = 0
+**结果**：
+- 已完成；`phase_order_resolver.py` 当前 `self._ctrl` = 0
+- 标准模式已确认：
+  1. 默认使用 keyword-only 构造注入
+  2. 稳定状态对象（如 `sim_state`）可直接注入引用
+  3. 可变叶子对象（如会整体替换的 `dict/list`）使用 accessor callback
+  4. 禁止引入 `Deps/Context/Facade` 伪 controller 替身
+- 本轮回归：`pytest 13 passed`
 
 ### R34–R36：小 → 中型 step service
 
 按 R33 建立的模式逐个改造。从 R34 开始正式验证三类注入（状态 + 协作者 + 副作用回调）能否稳定复用。
+
+**R34 结果**：
+- 已完成；`loop_test_service.py` 当前 `self._ctrl` = 0
+- 已验证三类依赖拆分可在真实带副作用的 service 中共存：
+  1. 状态注入：`sim_state`
+  2. 稳定协作者注入：`flow_mgr`
+  3. accessor / setter 注入：`loop_test_state`
+  4. 副作用回调注入：`append_assessment_event()`、`exit_loop_test_mode()`
+- 构造顺序存在约束时，稳定对象允许使用 accessor callback 延迟求值；R34 中 `physics` 即按此规则处理
+- 本轮回归：`pytest 13 passed`
+
+**R35 结果**：
+- 已完成；`sync_test_service.py` 当前 `self._ctrl` = 0
+- 三类依赖拆分已在第二个带状态门禁的 service 中复用成功：
+  1. 状态注入：`sim_state`
+  2. 稳定协作者注入：`flow_mgr`、`fault_mgr`
+  3. accessor / setter 注入：`sync_test_state`
+  4. query callback 注入：四个前序步骤完成度检查
+- 受初始化顺序约束的稳定对象继续使用 accessor callback；R35 中 `physics` 仍按 `get_physics()` 处理
+- 本轮回归：`pytest 13 passed`
 
 ### R37–R39：编排器 / 管理器 / 动作层
 

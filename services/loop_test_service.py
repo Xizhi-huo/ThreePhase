@@ -3,6 +3,8 @@ services/loop_test_service.py
 回路连通性测试服务
 """
 
+from typing import Callable
+
 from domain.enums import BreakerPosition
 from domain.assessment import AssessmentEventType
 from domain.test_states import LoopTestState
@@ -14,18 +16,36 @@ class LoopTestService:
     状态以 LoopTestState dataclass 持有，避免裸字典的字段漂移。
     """
 
-    def __init__(self, ctrl):
-        self._ctrl = ctrl
+    def __init__(
+        self,
+        *,
+        sim_state,
+        flow_mgr,
+        get_physics: Callable[[], object],
+        get_loop_test_state: Callable[[], LoopTestState],
+        set_loop_test_state: Callable[[LoopTestState], None],
+        append_assessment_event: Callable,
+        exit_loop_test_mode: Callable[[], None],
+    ):
+        self._sim_state = sim_state
+        self._flow_mgr = flow_mgr
+        self._get_physics = get_physics
+        self._get_loop_test_state = get_loop_test_state
+        self._set_loop_test_state = set_loop_test_state
+        self._append_assessment_event = append_assessment_event
+        self._exit_loop_test_mode = exit_loop_test_mode
 
     # ── 状态工厂 ──────────────────────────────────────────────────────────────
     def create_loop_test_state(self) -> LoopTestState:
         return LoopTestState()
 
     def _set_loop_test_feedback(self, message, color='#444444'):
-        self._ctrl.set_loop_test_feedback(message, color)
+        state = self._get_loop_test_state()
+        state.feedback = message
+        state.feedback_color = color
 
     def _get_current_loop_phase_match(self):
-        sim = self._ctrl.sim_state
+        sim = self._sim_state
         n1, n2 = sim.probe1_node, sim.probe2_node
         if not n1 or not n2:
             return None
@@ -40,9 +60,9 @@ class LoopTestService:
         return None
 
     def get_loop_test_steps(self):
-        sim = self._ctrl.sim_state
+        sim = self._sim_state
         gen1, gen2 = sim.gen1, sim.gen2
-        state = self._ctrl.loop_test_state
+        state = self._get_loop_test_state()
         records = state.records
         all_rec = all(records[ph] is not None for ph in ('A', 'B', 'C'))
         steps = [
@@ -66,11 +86,11 @@ class LoopTestService:
         return steps
 
     def record_loop_measurement(self, phase):
-        sim = self._ctrl.sim_state
+        sim = self._sim_state
         gen1, gen2 = sim.gen1, sim.gen2
         phase = phase.upper()
         def _record_invalid(reason):
-            self._ctrl.assessment_coord.append_assessment_event(
+            self._append_assessment_event(
                 AssessmentEventType.MEASUREMENT_INVALID,
                 step=1,
                 target='loop',
@@ -116,26 +136,27 @@ class LoopTestService:
             self._set_loop_test_feedback(msg, "red")
             return
 
-        meter_status = getattr(self._ctrl.physics, 'meter_status', 'idle')
+        physics = self._get_physics()
+        meter_status = getattr(physics, 'meter_status', 'idle')
         if meter_status not in ('ok', 'danger'):
             _record_invalid("invalid_meter_status")
             self._set_loop_test_feedback("测量结果无效，请确认表笔放在 G1 与 G2 的同相回路测点上。", "red")
             return
 
         # 记录测量结果（导通/断路均可记录，故障分析在完成阶段进行）
-        self._ctrl.record_loop_test_result(
-            phase,
-            meter_status,
-            self._ctrl.physics.meter_reading,
-        )
-        self._ctrl.assessment_coord.append_assessment_event(
+        state = self._get_loop_test_state()
+        state.records[phase] = {
+            'status': meter_status,
+            'reading': physics.meter_reading,
+        }
+        self._append_assessment_event(
             AssessmentEventType.MEASUREMENT_RECORDED,
             step=1,
             target='loop',
             point=phase,
             value=meter_status,
         )
-        all_rec = all(self._ctrl.loop_test_state.records[ph] is not None for ph in ('A', 'B', 'C'))
+        all_rec = all(state.records[ph] is not None for ph in ('A', 'B', 'C'))
         if meter_status == 'ok':
             if all_rec:
                 self._set_loop_test_feedback(
@@ -154,15 +175,15 @@ class LoopTestService:
                     "#cc6600")
 
     def reset_loop_test(self):
-        self._ctrl.loop_test_state = self.create_loop_test_state()
+        self._set_loop_test_state(self.create_loop_test_state())
 
     def is_loop_test_complete(self):
         """流程门禁：只有用户点击"完成第一步测试"后才返回 True。"""
-        return self._ctrl.loop_test_state.completed
+        return self._get_loop_test_state().completed
 
     def _are_loop_records_complete(self):
         """内部辅助：三相记录是否齐全（用于 finalize 前置校验）。"""
-        records = self._ctrl.loop_test_state.records
+        records = self._get_loop_test_state().records
         return all(records[ph] is not None for ph in ('A', 'B', 'C'))
 
     def finalize_loop_test(self):
@@ -171,18 +192,19 @@ class LoopTestService:
                 '请先完成 A/B/C 三相回路连通性记录，再点击"完成第一步测试"。', "red")
             return
         # 检查是否存在断路故障相
-        records = self._ctrl.loop_test_state.records
+        state = self._get_loop_test_state()
+        records = state.records
         fault_phases = [ph for ph in ('A', 'B', 'C')
                         if records[ph] and records[ph]['status'] != 'ok']
-        fc = self._ctrl.sim_state.fault_config
+        fc = self._sim_state.fault_config
         fault_training = (
             fc.active and fc.detected and not fc.repaired
-            and self._ctrl.flow_mgr.can_advance_with_fault()
+            and self._flow_mgr.can_advance_with_fault()
         )
         if fault_phases and not fault_training:
             # 当前流程策略要求先纠正异常后再完成该步
             fault_str = '、'.join(fault_phases)
-            if self._ctrl.flow_mgr.should_show_diagnostic_hints():
+            if self._flow_mgr.should_show_diagnostic_hints():
                 msg = (
                     f"回路测试发现故障：{fault_str} 相断路 [∞Ω]，说明对应相接线错误。"
                     f"请检查并纠正接线后重置重测。"
@@ -194,8 +216,8 @@ class LoopTestService:
                 )
             self._set_loop_test_feedback(msg, "red")
             return
-        self._ctrl.exit_loop_test_mode()   # 退出回路检查模式，恢复断路器联锁
-        self._ctrl.mark_loop_test_completed()
+        self._exit_loop_test_mode()   # 退出回路检查模式，恢复断路器联锁
+        state.completed = True
         if fault_phases:
             # 当前流程策略允许带异常完成，提示继续后续步骤
             fault_str = '、'.join(fault_phases)

@@ -3,6 +3,8 @@ services/sync_test_service.py
 同步功能测试服务
 """
 
+from typing import Callable
+
 from domain.constants import GRID_FREQ, GRID_AMP
 from domain.enums import BreakerPosition
 from domain.test_states import SyncTestState
@@ -14,22 +16,45 @@ class SyncTestService:
     状态以 SyncTestState dataclass 持有，避免裸字典的字段漂移。
     """
 
-    def __init__(self, ctrl):
-        self._ctrl = ctrl
+    def __init__(
+        self,
+        *,
+        sim_state,
+        flow_mgr,
+        fault_mgr,
+        get_physics: Callable[[], object],
+        get_sync_test_state: Callable[[], SyncTestState],
+        set_sync_test_state: Callable[[SyncTestState], None],
+        is_loop_test_complete: Callable[[], bool],
+        is_pt_voltage_check_complete: Callable[[], bool],
+        is_pt_phase_check_complete: Callable[[], bool],
+        is_pt_exam_recorded: Callable[[int], bool],
+    ):
+        self._sim_state = sim_state
+        self._flow_mgr = flow_mgr
+        self._fault_mgr = fault_mgr
+        self._get_physics = get_physics
+        self._get_sync_test_state = get_sync_test_state
+        self._set_sync_test_state = set_sync_test_state
+        self._is_loop_test_complete = is_loop_test_complete
+        self._is_pt_voltage_check_complete = is_pt_voltage_check_complete
+        self._is_pt_phase_check_complete = is_pt_phase_check_complete
+        self._is_pt_exam_recorded = is_pt_exam_recorded
 
     # ── 状态工厂 ──────────────────────────────────────────────────────────────
     def create_sync_test_state(self) -> SyncTestState:
         return SyncTestState()
 
     def start_sync_test(self):
-        self._ctrl.sync_test_state.started = True
+        self._get_sync_test_state().started = True
 
     def stop_sync_test(self):
-        self._ctrl.sync_test_state.started = False
+        self._get_sync_test_state().started = False
 
     def _set_sync_test_feedback(self, message, color='#444444'):
-        self._ctrl.sync_test_state.feedback = message
-        self._ctrl.sync_test_state.feedback_color = color
+        state = self._get_sync_test_state()
+        state.feedback = message
+        state.feedback_color = color
 
     def _is_gen_synced(self, follower, master, freq_tol=0.5, amp_tol=500.0, phase_tol=15.0):
         """判断 follower 是否已同步到 master 的频率、幅值和相位（三个值均在容差内）。"""
@@ -41,7 +66,7 @@ class SyncTestService:
 
     def _are_both_synced(self, freq_tol=0.5, amp_tol=500.0, phase_tol=15.0):
         """判断两台发电机三个值（频率、幅值、相位）差值是否均在允许范围内。"""
-        gen1, gen2 = self._ctrl.sim_state.gen1, self._ctrl.sim_state.gen2
+        gen1, gen2 = self._sim_state.gen1, self._sim_state.gen2
         phase_diff = abs(gen1.phase_deg - gen2.phase_deg)
         phase_diff = min(phase_diff, 360.0 - phase_diff)
         return (abs(gen1.freq - gen2.freq) < freq_tol and
@@ -49,30 +74,30 @@ class SyncTestService:
                 phase_diff < phase_tol)
 
     def get_sync_test_steps(self):
-        sim = self._ctrl.sim_state
+        sim = self._sim_state
         gen1, gen2 = sim.gen1, sim.gen2
-        p = self._ctrl.physics
-        state = self._ctrl.sync_test_state
+        p = self._get_physics()
+        state = self._get_sync_test_state()
 
-        loop_done       = self._ctrl.loop_svc.is_loop_test_complete()
-        pt_voltage_done = self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete()
-        pt_phase_done   = self._ctrl.pt_phase_svc.is_pt_phase_check_complete()
-        pt_done         = self._ctrl.pt_exam_svc.is_pt_exam_recorded(1) and self._ctrl.pt_exam_svc.is_pt_exam_recorded(2)
+        loop_done = self._is_loop_test_complete()
+        pt_voltage_done = self._is_pt_voltage_check_complete()
+        pt_phase_done = self._is_pt_phase_check_complete()
+        pt_done = self._is_pt_exam_recorded(1) and self._is_pt_exam_recorded(2)
 
-        r1_master_ok    = (gen1.breaker_closed and
-                           gen1.breaker_position == BreakerPosition.WORKING and
-                           gen1.mode == "manual")
-        r1_follower_ok  = gen2.mode == "auto"
-        r1_synced       = (r1_master_ok and r1_follower_ok and
-                           self._is_gen_synced(gen2, gen1))
+        r1_master_ok = (gen1.breaker_closed and
+                        gen1.breaker_position == BreakerPosition.WORKING and
+                        gen1.mode == "manual")
+        r1_follower_ok = gen2.mode == "auto"
+        r1_synced = (r1_master_ok and r1_follower_ok and
+                     self._is_gen_synced(gen2, gen1))
 
-        r2_master_ok    = (gen2.breaker_closed and
-                           gen2.breaker_position == BreakerPosition.WORKING and
-                           gen2.mode == "manual" and
-                           getattr(p, 'bus_reference_gen', None) == 2)
-        r2_follower_ok  = gen1.mode == "auto"
-        r2_synced       = (r2_master_ok and r2_follower_ok and
-                           self._is_gen_synced(gen1, gen2))
+        r2_master_ok = (gen2.breaker_closed and
+                        gen2.breaker_position == BreakerPosition.WORKING and
+                        gen2.mode == "manual" and
+                        getattr(p, 'bus_reference_gen', None) == 2)
+        r2_follower_ok = gen1.mode == "auto"
+        r2_synced = (r2_master_ok and r2_follower_ok and
+                     self._is_gen_synced(gen1, gen2))
 
         steps = [
             ("1. 前提：第一步回路连通性测试已完成",
@@ -105,10 +130,10 @@ class SyncTestService:
         return steps
 
     def record_sync_round(self, round_num):
-        sim = self._ctrl.sim_state
+        sim = self._sim_state
         gen1, gen2 = sim.gen1, sim.gen2
-        p = self._ctrl.physics
-        state = self._ctrl.sync_test_state
+        p = self._get_physics()
+        state = self._get_sync_test_state()
 
         # ── 门禁：必须先点击"开始第五步测试" ──────────────────────────────
         if not state.started:
@@ -116,21 +141,21 @@ class SyncTestService:
                 '请先点击"开始第五步测试"，再进行同步功能记录。', "red")
             return
 
-        if not self._ctrl.loop_svc.is_loop_test_complete():
+        if not self._is_loop_test_complete():
             self._set_sync_test_feedback("请先完成第一步【回路连通性测试】。", "red")
             return
-        if not self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete():
+        if not self._is_pt_voltage_check_complete():
             self._set_sync_test_feedback("请先完成第二步【PT 单体线电压检查】。", "red")
             return
-        if not self._ctrl.pt_phase_svc.is_pt_phase_check_complete():
+        if not self._is_pt_phase_check_complete():
             self._set_sync_test_feedback("请先完成第三步【PT 相序检查】。", "red")
             return
-        if not (self._ctrl.pt_exam_svc.is_pt_exam_recorded(1) and self._ctrl.pt_exam_svc.is_pt_exam_recorded(2)):
+        if not (self._is_pt_exam_recorded(1) and self._is_pt_exam_recorded(2)):
             self._set_sync_test_feedback(
                 "请先完成第四步【PT 二次端子压差测试】（Gen1 和 Gen2 均需完成）。", "red")
             return
-        if (self._ctrl.flow_mgr.should_block_step5_until_blackbox_fixed()
-                and self._ctrl.fault_mgr.has_unrepaired_wiring_fault()):
+        if (self._flow_mgr.should_block_step5_until_blackbox_fixed()
+                and self._fault_mgr.has_unrepaired_wiring_fault()):
             self._set_sync_test_feedback(
                 "请先修复未恢复的黑盒接线故障，再进行第五步【同步功能测试】。", "red")
             return
@@ -193,29 +218,29 @@ class SyncTestService:
                 "#006600")
 
     def reset_sync_test(self):
-        self._ctrl.sync_test_state = self.create_sync_test_state()
+        self._set_sync_test_state(self.create_sync_test_state())
 
     def is_sync_test_complete(self):
         """用户已点击"完成第五步测试"才返回 True，用于解锁合闸约束。"""
-        return self._ctrl.sync_test_state.completed
+        return self._get_sync_test_state().completed
 
     def is_sync_test_rounds_done(self):
         """两轮记录均已完成（但用户可能尚未点击完成按钮）。"""
-        state = self._ctrl.sync_test_state
+        state = self._get_sync_test_state()
         return state.round1_done and state.round2_done
 
     def finalize_sync_test(self):
         if not self.is_sync_test_rounds_done():
             self._set_sync_test_feedback(
-                '请先完成并记录两轮同步测试，再点击\u201c完成第五步测试\u201d。', "red")
+                '请先完成并记录两轮同步测试，再点击“完成第五步测试”。', "red")
             return
         # 自动将两台发电机切至自动模式，并恢复额定参数（50 Hz / GRID_AMP / 相位 0°）
-        for gen in (self._ctrl.sim_state.gen1, self._ctrl.sim_state.gen2):
-            gen.mode      = "auto"
-            gen.freq      = GRID_FREQ
-            gen.amp       = GRID_AMP
+        for gen in (self._sim_state.gen1, self._sim_state.gen2):
+            gen.mode = "auto"
+            gen.freq = GRID_FREQ
+            gen.amp = GRID_AMP
             gen.phase_deg = 0.0
-        self._ctrl.sync_test_state.completed = True
+        self._get_sync_test_state().completed = True
         self._set_sync_test_feedback(
             "第五步【同步功能测试】已确认完成，两台发电机已自动切至 Auto 模式并恢复额定参数，"
             "系统恢复正常自动合闸逻辑。", "#006600")

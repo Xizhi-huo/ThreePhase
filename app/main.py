@@ -99,14 +99,37 @@ class PowerSyncController:
         self.assessment_svc       = AssessmentService()
         self.assessment_coord     = AssessmentCoordinator(self)
         self.blackbox_handler     = BlackboxRepairHandler(self)
-        self.phase_resolver       = PhaseOrderResolver(self)
+        self.phase_resolver       = PhaseOrderResolver(
+            sim_state=self.sim_state,
+            get_pt_phase_orders=lambda: self.pt_phase_orders,
+            get_g2_blackbox_order=lambda: self.g2_blackbox_order,
+        )
         self.hw                   = HardwareActions(self)
         self.fault_mgr            = FaultManager(self)
-        self.loop_svc             = LoopTestService(self)
+        self.loop_svc             = LoopTestService(
+            sim_state=self.sim_state,
+            flow_mgr=self.flow_mgr,
+            get_physics=lambda: self.physics,
+            get_loop_test_state=lambda: self.loop_test_state,
+            set_loop_test_state=lambda state: setattr(self, 'loop_test_state', state),
+            append_assessment_event=self.assessment_coord.append_assessment_event,
+            exit_loop_test_mode=self.exit_loop_test_mode,
+        )
         self.pt_voltage_svc       = PtVoltageCheckService(self)
         self.pt_phase_svc         = PtPhaseCheckService(self)
         self.pt_exam_svc          = PtExamService(self)
-        self.sync_svc             = SyncTestService(self)
+        self.sync_svc             = SyncTestService(
+            sim_state=self.sim_state,
+            flow_mgr=self.flow_mgr,
+            fault_mgr=self.fault_mgr,
+            get_physics=lambda: self.physics,
+            get_sync_test_state=lambda: self.sync_test_state,
+            set_sync_test_state=lambda state: setattr(self, 'sync_test_state', state),
+            is_loop_test_complete=lambda: self.loop_svc.is_loop_test_complete(),
+            is_pt_voltage_check_complete=lambda: self.pt_voltage_svc.is_pt_voltage_check_complete(),
+            is_pt_phase_check_complete=lambda: self.pt_phase_svc.is_pt_phase_check_complete(),
+            is_pt_exam_recorded=lambda gen_id: self.pt_exam_svc.is_pt_exam_recorded(gen_id),
+        )
 
         # ── 状态 dataclass（UI 直接读取属性，服务通过 ctrl 写入）────────
         self.loop_test_state         = self.loop_svc.create_loop_test_state()
