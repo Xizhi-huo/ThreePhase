@@ -136,10 +136,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 4 进行中：R36 已完成（`pt_voltage_check_service.py` 显式依赖注入）；Phase 3 已关闭。 |
+| 当前阶段 | Phase 4 进行中：R38 已完成（`fault_manager.py` 显式依赖注入）；Phase 3 已关闭。 |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/styles.py`(1007)、`ui/panels/control_panel.py`(776)、`ui/widgets/step_panels/_panel_builders.py`(347) |
-| 下一轮默认起点 | Phase 4 — Round 37：`blackbox_repair_handler.py` 显式依赖注入（详见 §10） |
+| 下一轮默认起点 | Phase 4 — Round 39：`hardware_actions.py` 显式依赖注入（详见 §10） |
 
 ---
 
@@ -523,6 +523,48 @@ class PowerSyncUI(QMainWindow):
 ### 当前未完成但已明确方向
 - Phase 3：已关闭（R32 收口完成）。
 - Phase 4 主线（R33–R43）：Service 层 `self._ctrl` 显式依赖化（339 处 → 0）→ `ControllerSignals(QObject)` Signal/Slot 引入 → 旧键名与状态真值源清理、`domain/services` 类型标注补齐。详见 §10。
+
+### 第 38 轮 (2026-04-17)：Phase 4 第六轮（`fault_manager.py` 显式依赖注入）
+- 本轮唯一主攻目标：将 `services/fault_manager.py` 中的 `self._ctrl` 全部替换为显式构造注入，在故障管理器上验证“直接注入 + 行为回调 + setter 回调 + accessor 回调 + 4 对 blackbox order accessor/setter + 内联 reset”组合。
+- 实际完成：
+  - `services/fault_manager.py` 已改为 keyword-only 构造注入，不再持有 `ctrl`；当前依赖为 `sim_state`、`blackbox_handler`、`append_assessment_event()`、`request_pt_ratio_row_update()`、`set_last_fault_detected()`、`get_pt_phase_orders()`、以及 4 组 blackbox order 的 accessor + setter callback。
+  - `blackbox_handler` 因 controller 初始化顺序正确（先于 `fault_mgr` 创建），已采用直接注入而非 accessor callback。
+  - `reset_blackbox_orders()` 不再经 controller 调用，已内联为 `_reset_blackbox_orders()` 私有方法，利用已注入的 4 个 setter 将列表重置为 `['A', 'B', 'C']`。
+  - `_last_fault_detected` 的写入已改为 setter callback（`set_last_fault_detected`），不再直接写 controller 私有属性。
+  - `assessment_coord.append_assessment_event` 已改为行为回调注入；`app/main.py` 已仅在 `FaultManager(...)` 构造处完成适配；`tests/**`、`ui/**`、其他 `services/**` 均保持零改动。
+- 删除了哪些旧代码：
+  - 删除 `FaultManager.__init__(self, ctrl)` 与 `self._ctrl = ctrl`。
+  - 删除 `fault_manager.py` 内全部 40 处 `self._ctrl.*` 直接访问。
+- 接口变化：
+  - `FaultManager` 的构造函数改为 keyword-only 显式依赖注入，当前共 14 个参数。
+  - 公开方法签名保持不变；controller 仍通过既有薄转发方法暴露故障管理动作。
+- 耦合度变化：
+  - `services/fault_manager.py` 的 `self._ctrl` 引用数 `40 -> 0`。
+  - Phase 4 service 层 `self._ctrl` 总量 `223 -> 183`。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PASS（范围检查、`py_compile`、offscreen 导入冒烟、伪黑箱扫描全部通过）
+- 下一轮起点：Phase 4 — Round 39：`hardware_actions.py` 显式依赖注入
+
+### 第 37 轮 (2026-04-17)：Phase 4 第五轮（`blackbox_repair_handler.py` 显式依赖注入）
+- 本轮唯一主攻目标：将 `services/blackbox_repair_handler.py` 中的 `self._ctrl` 全部替换为显式构造注入，在首个编排类 service 上验证“大量可变状态双向读写 + 行为回调 + 协作者 accessor”组合是否可控。
+- 实际完成：
+  - `services/blackbox_repair_handler.py` 已改为 keyword-only 构造注入，不再持有 `ctrl`；当前依赖为 `sim_state`、`flow_mgr`、`get_fault_mgr()`、`append_assessment_event()`、`get_pt_phase_orders()`、以及 4 组 blackbox order 的 accessor + setter callback。
+  - `fault_mgr` 因 controller 初始化顺序约束晚于 `blackbox_handler` 创建，已按 accessor callback（`get_fault_mgr()`）延迟求值；`repair_fault(...)` 不再经 controller 薄转发，而是通过 `self._get_fault_mgr().repair_fault(...)` 直接调用。
+  - `pt_phase_orders` 虽在 handler 创建前已存在，但运行期会在 reset 流程中整体替换，已改为 accessor callback；handler 通过 `self._get_pt_phase_orders()` 取得当前 dict 后直接更新 `PT1/PT2/PT3` 条目。
+  - `g1_blackbox_order`、`g2_blackbox_order`、`pt1_pri_blackbox_order`、`pt1_sec_blackbox_order` 四个列表已全部改为 accessor + setter callback，避免捕获会被整体替换的裸 list 引用。
+  - `app/main.py` 已仅在 `BlackboxRepairHandler(...)` 构造处完成适配；`tests/**`、`ui/**`、其他 `services/**` 均保持零改动。
+- 删除了哪些旧代码：
+  - 删除 `BlackboxRepairHandler.__init__(self, ctrl)` 与 `self._ctrl = ctrl`。
+  - 删除 `blackbox_repair_handler.py` 内全部 36 处 `self._ctrl.*` 直接访问。
+- 接口变化：
+  - `BlackboxRepairHandler` 的构造函数改为 keyword-only 显式依赖注入，当前共 13 个参数（为 Phase 4 迄今最多的一轮）。
+  - 公开方法签名保持不变；controller 仍通过既有薄转发方法暴露黑盒相关动作。
+- 耦合度变化：
+  - `services/blackbox_repair_handler.py` 的 `self._ctrl` 引用数 `36 -> 0`。
+  - Phase 4 service 层 `self._ctrl` 总量 `259 -> 223`。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PASS（范围检查、`py_compile`、offscreen 导入冒烟、伪黑箱扫描全部通过）
+- 下一轮起点：Phase 4 — Round 38：`fault_manager.py` 显式依赖注入
 
 ### 第 36 轮 (2026-04-17)：Phase 4 第四轮（`pt_voltage_check_service.py` 显式依赖注入）
 - 本轮唯一主攻目标：将 `services/pt_voltage_check_service.py` 中的 `self._ctrl` 全部替换为显式构造注入，在第一个中型 step service 上继续验证 R35 已稳定下来的状态/accessor/query callback 组合。
@@ -1198,8 +1240,8 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 | R34 | `loop_test_service.py` | 21 | 216 | 小型 service + 首次副作用注入（已完成） |
 | R35 | `sync_test_service.py` | 27 | 224 | 小型 service（验证模式可复用，已完成） |
 | R36 | `pt_voltage_check_service.py` | 24 | 291 | 中型 service（已完成） |
-| R37 | `blackbox_repair_handler.py` | 36 | 214 | 编排类 service 试点 |
-| R38 | `fault_manager.py` | 40 | 150 | 故障管理（依赖 R37 先完成） |
+| R37 | `blackbox_repair_handler.py` | 36 | 214 | 编排类 service 试点（已完成） |
+| R38 | `fault_manager.py` | 40 | 150 | 故障管理（已完成） |
 | R39 | `hardware_actions.py` | 35 | 149 | 动作编排器（耦合面最杂，必须单独） |
 | R40 | `pt_phase_check_service.py` | 38 | 346 | 大型 step service |
 | R41 | `pt_exam_service.py` | 49 | 386 | 大型 step service |
@@ -1259,10 +1301,30 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 - 受初始化顺序约束的稳定对象继续使用 accessor callback；R36 中 `physics` 仍按 `get_physics()` 处理
 - 本轮回归：`pytest 13 passed`
 
-### R37–R39：编排器 / 管理器 / 动作层
+**R37 结果**：
+- 已完成；`blackbox_repair_handler.py` 当前 `self._ctrl` = 0
+- Phase 4 首个编排类 service 已验证“稳定状态 + 稳定协作者 + accessor/setter + 行为回调”的高参数量组合仍然可控：
+  1. 稳定状态注入：`sim_state`
+  2. 稳定协作者注入：`flow_mgr`
+  3. accessor 回调：`get_fault_mgr()`、`get_pt_phase_orders()`
+  4. accessor / setter：4 组 blackbox order 列表
+  5. 行为回调：`append_assessment_event()`
+- 初始化顺序晚于 handler 的稳定对象继续使用 accessor callback；R37 中 `fault_mgr` 因此改为 `get_fault_mgr()`
+- 本轮回归：`pytest 13 passed`
 
-- R37 先改 `blackbox_repair_handler`（作用域集中、业务边界明确）
-- R38 改 `fault_manager`（依赖 R37 先完成，因含 `blackbox_handler.sync_*` 交叉调用）
+### R38–R39：编排器 / 管理器 / 动作层
+
+**R38 结果**：
+- 已完成；`fault_manager.py` 当前 `self._ctrl` = 0
+- 在故障管理器上验证了“直接注入 + 行为回调 + setter 回调 + accessor 回调 + 4 对 accessor/setter + 内联 reset”组合可控：
+  1. 直接注入：`sim_state`、`blackbox_handler`
+  2. 行为回调：`append_assessment_event()`、`request_pt_ratio_row_update()`
+  3. setter 回调：`set_last_fault_detected()`
+  4. accessor：`get_pt_phase_orders()`
+  5. accessor / setter：4 组 blackbox order 列表
+- `reset_blackbox_orders()` 已在 service 内部内联为 `_reset_blackbox_orders()`，不再经 controller 薄转发
+- 本轮回归：`pytest 13 passed`
+
 - R39 单独改 `hardware_actions`（耦合面最杂：多 service 协作 + UI warning + `request_ui_tab` + physics + assessment）
 
 ### R40–R42：大型 service + 汇聚器

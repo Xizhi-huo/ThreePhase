@@ -98,14 +98,43 @@ class PowerSyncController:
         # ── 业务服务（各服务通过 self._ctrl 回写状态 dataclass）─────────
         self.assessment_svc       = AssessmentService()
         self.assessment_coord     = AssessmentCoordinator(self)
-        self.blackbox_handler     = BlackboxRepairHandler(self)
+        self.blackbox_handler     = BlackboxRepairHandler(
+            sim_state=self.sim_state,
+            flow_mgr=self.flow_mgr,
+            get_fault_mgr=lambda: self.fault_mgr,
+            append_assessment_event=self.assessment_coord.append_assessment_event,
+            get_pt_phase_orders=lambda: self.pt_phase_orders,
+            get_g1_blackbox_order=lambda: self.g1_blackbox_order,
+            set_g1_blackbox_order=lambda val: setattr(self, 'g1_blackbox_order', val),
+            get_g2_blackbox_order=lambda: self.g2_blackbox_order,
+            set_g2_blackbox_order=lambda val: setattr(self, 'g2_blackbox_order', val),
+            get_pt1_pri_blackbox_order=lambda: self.pt1_pri_blackbox_order,
+            set_pt1_pri_blackbox_order=lambda val: setattr(self, 'pt1_pri_blackbox_order', val),
+            get_pt1_sec_blackbox_order=lambda: self.pt1_sec_blackbox_order,
+            set_pt1_sec_blackbox_order=lambda val: setattr(self, 'pt1_sec_blackbox_order', val),
+        )
         self.phase_resolver       = PhaseOrderResolver(
             sim_state=self.sim_state,
             get_pt_phase_orders=lambda: self.pt_phase_orders,
             get_g2_blackbox_order=lambda: self.g2_blackbox_order,
         )
         self.hw                   = HardwareActions(self)
-        self.fault_mgr            = FaultManager(self)
+        self.fault_mgr            = FaultManager(
+            sim_state=self.sim_state,
+            blackbox_handler=self.blackbox_handler,
+            append_assessment_event=self.assessment_coord.append_assessment_event,
+            request_pt_ratio_row_update=self.request_pt_ratio_row_update,
+            set_last_fault_detected=lambda v: setattr(self, '_last_fault_detected', v),
+            get_pt_phase_orders=lambda: self.pt_phase_orders,
+            get_g1_blackbox_order=lambda: self.g1_blackbox_order,
+            set_g1_blackbox_order=lambda val: setattr(self, 'g1_blackbox_order', val),
+            get_g2_blackbox_order=lambda: self.g2_blackbox_order,
+            set_g2_blackbox_order=lambda val: setattr(self, 'g2_blackbox_order', val),
+            get_pt1_pri_blackbox_order=lambda: self.pt1_pri_blackbox_order,
+            set_pt1_pri_blackbox_order=lambda val: setattr(self, 'pt1_pri_blackbox_order', val),
+            get_pt1_sec_blackbox_order=lambda: self.pt1_sec_blackbox_order,
+            set_pt1_sec_blackbox_order=lambda val: setattr(self, 'pt1_sec_blackbox_order', val),
+        )
         self.loop_svc             = LoopTestService(
             sim_state=self.sim_state,
             flow_mgr=self.flow_mgr,
