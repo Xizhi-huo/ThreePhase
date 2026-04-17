@@ -136,10 +136,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 4 进行中：R35 已完成（`sync_test_service.py` 显式依赖注入）；Phase 3 已关闭。 |
+| 当前阶段 | Phase 4 进行中：R36 已完成（`pt_voltage_check_service.py` 显式依赖注入）；Phase 3 已关闭。 |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/styles.py`(1007)、`ui/panels/control_panel.py`(776)、`ui/widgets/step_panels/_panel_builders.py`(347) |
-| 下一轮默认起点 | Phase 4 — Round 36：`pt_voltage_check_service.py` 显式依赖注入（详见 §10） |
+| 下一轮默认起点 | Phase 4 — Round 37：`blackbox_repair_handler.py` 显式依赖注入（详见 §10） |
 
 ---
 
@@ -523,6 +523,27 @@ class PowerSyncUI(QMainWindow):
 ### 当前未完成但已明确方向
 - Phase 3：已关闭（R32 收口完成）。
 - Phase 4 主线（R33–R43）：Service 层 `self._ctrl` 显式依赖化（339 处 → 0）→ `ControllerSignals(QObject)` Signal/Slot 引入 → 旧键名与状态真值源清理、`domain/services` 类型标注补齐。详见 §10。
+
+### 第 36 轮 (2026-04-17)：Phase 4 第四轮（`pt_voltage_check_service.py` 显式依赖注入）
+- 本轮唯一主攻目标：将 `services/pt_voltage_check_service.py` 中的 `self._ctrl` 全部替换为显式构造注入，在第一个中型 step service 上继续验证 R35 已稳定下来的状态/accessor/query callback 组合。
+- 实际完成：
+  - `services/pt_voltage_check_service.py` 已改为 keyword-only 构造注入，不再持有 `ctrl`；当前依赖为 `sim_state`、`flow_mgr`、`get_physics()`、`get_pt_voltage_check_state()`、`set_pt_voltage_check_state()`、`is_loop_test_complete()`、`append_assessment_event()`。
+  - `pt_voltage_check_state` 因会在 `reset_pt_voltage_check()` 中整体替换，已改为 accessor + setter callback 注入；`started`、`feedback`、`feedback_color`、`completed`、`records` 等状态读写均直接落到 `PtVoltageCheckState`。
+  - `physics` 因 controller 初始化顺序约束，继续采用 accessor callback（`get_physics()`）延迟求值；`meter_voltage`、`meter_status`、`meter_reading` 的读取路径保持原业务语义不变。
+  - 前置步骤门禁 `loop_svc.is_loop_test_complete()` 已改为 query callback；`flow_mgr` 作为稳定协作者直接注入；`assessment_coord.append_assessment_event` 已改为行为回调注入。
+  - `app/main.py` 已仅在 `PtVoltageCheckService(...)` 构造处完成适配；`tests/**`、`ui/**`、其他 `services/**` 均保持零改动。
+- 删除了哪些旧代码：
+  - 删除 `PtVoltageCheckService.__init__(self, ctrl)` 与 `self._ctrl = ctrl`。
+  - 删除 `pt_voltage_check_service.py` 内全部 24 处 `self._ctrl.*` 直接访问。
+- 接口变化：
+  - `PtVoltageCheckService` 的构造函数改为 keyword-only 显式依赖注入。
+  - 公开方法签名保持不变；controller 仍通过 `self.pt_voltage_svc.xxx()` 做薄转发。
+- 耦合度变化：
+  - `services/pt_voltage_check_service.py` 的 `self._ctrl` 引用数 `24 -> 0`。
+  - Phase 4 service 层 `self._ctrl` 总量 `283 -> 259`。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PASS（范围检查、`py_compile`、offscreen 导入冒烟、伪黑箱扫描全部通过）
+- 下一轮起点：Phase 4 — Round 37：`blackbox_repair_handler.py` 显式依赖注入
 
 ### 第 35 轮 (2026-04-17)：Phase 4 第三轮（`sync_test_service.py` 显式依赖注入）
 - 本轮唯一主攻目标：将 `services/sync_test_service.py` 中的 `self._ctrl` 全部替换为显式构造注入，继续验证 R34 的三类依赖拆分在另一类带状态门禁的 service 中可横向复用。
@@ -1176,7 +1197,7 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 | R33 | `phase_order_resolver.py` | 8 | 61 | 模式建立（最小验证，已完成） |
 | R34 | `loop_test_service.py` | 21 | 216 | 小型 service + 首次副作用注入（已完成） |
 | R35 | `sync_test_service.py` | 27 | 224 | 小型 service（验证模式可复用，已完成） |
-| R36 | `pt_voltage_check_service.py` | 24 | 291 | 中型 service |
+| R36 | `pt_voltage_check_service.py` | 24 | 291 | 中型 service（已完成） |
 | R37 | `blackbox_repair_handler.py` | 36 | 214 | 编排类 service 试点 |
 | R38 | `fault_manager.py` | 40 | 150 | 故障管理（依赖 R37 先完成） |
 | R39 | `hardware_actions.py` | 35 | 149 | 动作编排器（耦合面最杂，必须单独） |
@@ -1225,6 +1246,17 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
   3. accessor / setter 注入：`sync_test_state`
   4. query callback 注入：四个前序步骤完成度检查
 - 受初始化顺序约束的稳定对象继续使用 accessor callback；R35 中 `physics` 仍按 `get_physics()` 处理
+- 本轮回归：`pytest 13 passed`
+
+**R36 结果**：
+- 已完成；`pt_voltage_check_service.py` 当前 `self._ctrl` = 0
+- 在第一个中型 step service 上继续验证了 R35 已稳定下来的显式注入组合：
+  1. 状态注入：`sim_state`
+  2. 稳定协作者注入：`flow_mgr`
+  3. accessor / setter 注入：`pt_voltage_check_state`
+  4. query callback：`is_loop_test_complete()`
+  5. 行为回调：`append_assessment_event()`
+- 受初始化顺序约束的稳定对象继续使用 accessor callback；R36 中 `physics` 仍按 `get_physics()` 处理
 - 本轮回归：`pytest 13 passed`
 
 ### R37–R39：编排器 / 管理器 / 动作层
