@@ -31,6 +31,7 @@ from domain.assessment import AssessmentContext
 from domain.constants import GRID_AMP
 from domain.enums import SystemMode
 from domain.models import GeneratorState, SimulationState, FaultConfig
+from app.controller_signals import ControllerSignals
 from services.assessment_service import AssessmentService
 from services.assessment_coordinator import AssessmentCoordinator, StepProgressSnapshot
 from services.blackbox_repair_handler import BlackboxRepairHandler, BlackboxRepairOutcome
@@ -84,6 +85,8 @@ class PowerSyncController:
         self.pt1_pri_blackbox_order = ['A', 'B', 'C']
         self.pt1_sec_blackbox_order = ['A', 'B', 'C']
         self.flow_mgr = FlowModeManager()
+        self.signals = ControllerSignals()
+        self._last_reported_test_step = 1
         self.test_flow_mode = 'teaching'
         self.pt_blackbox_mode_val: bool = False
         self._pt_blackbox_mode_proxy = self._BoolProxy(self)
@@ -272,7 +275,18 @@ class PowerSyncController:
 
     @test_flow_mode.setter
     def test_flow_mode(self, value: str):
+        old_is_assessment = self.flow_mgr.is_assessment_mode()
         self.flow_mgr.test_flow_mode = value
+        new_is_assessment = self.flow_mgr.is_assessment_mode()
+        if old_is_assessment != new_is_assessment:
+            self.signals.assessment_mode_changed.emit(new_is_assessment)
+
+    def _emit_step_changed_if_needed(self, new_step: int):
+        old_step = self._last_reported_test_step
+        if new_step == old_step:
+            return
+        self._last_reported_test_step = new_step
+        self.signals.step_changed.emit(old_step, new_step)
 
     def update_pt_ratio(self, ratio_attr: str, ratio: float):
         if ratio_attr not in {'pt_gen_ratio', 'pt3_ratio', 'pt_bus_ratio'}:
@@ -319,6 +333,7 @@ class PowerSyncController:
         return self.assessment_coord.append_assessment_event(event_type, **kwargs)
 
     def get_test_progress_snapshot(self, step: int, pre_step5_repair_triggered: bool):
+        self._emit_step_changed_if_needed(step)
         return self.assessment_coord.get_test_progress_snapshot(step, pre_step5_repair_triggered)
 
     def finish_assessment_session_if_ready(self, step: int):

@@ -193,6 +193,8 @@ class PowerSyncUI(
             parent=self,
         )
         h_layout.addWidget(self._test_panel_widget)   # 加入主布局（初始隐藏）
+        self._init_signal_trial_status_widgets()
+        self._connect_controller_signals()
 
     # -- resize 防抖回调 -------------------------------------------------------
     def resizeEvent(self, event: QtGui.QResizeEvent):
@@ -202,6 +204,37 @@ class PowerSyncUI(
 
     def _on_resize_done(self):
         self._is_resizing = False
+
+    def _init_signal_trial_status_widgets(self):
+        status = self.statusBar()
+        self._step_status_chip = QtWidgets.QLabel("当前步骤：第 1 步")
+        self._mode_status_chip = QtWidgets.QLabel("流程模式：教学/工程")
+        for chip in (self._step_status_chip, self._mode_status_chip):
+            chip.setStyleSheet(
+                "padding:2px 8px; border:1px solid #cbd5e1; border-radius:10px; color:#334155;"
+            )
+            status.addPermanentWidget(chip)
+
+    def _connect_controller_signals(self):
+        self.ctrl.signals.step_changed.connect(self._on_step_changed)
+        self.ctrl.signals.assessment_mode_changed.connect(self._on_assessment_mode_changed)
+        self._on_step_changed(0, self._current_test_step())
+        self._on_assessment_mode_changed(self.ctrl.is_assessment_mode())
+
+    @QtCore.pyqtSlot(int, int)
+    def _on_step_changed(self, old_step: int, new_step: int):
+        del old_step
+        self._step_status_chip.setText(f"当前步骤：第 {new_step} 步")
+
+    @QtCore.pyqtSlot(bool)
+    def _on_assessment_mode_changed(self, is_assessment: bool):
+        text = "流程模式：考核" if is_assessment else "流程模式：教学/工程"
+        tone = "#92400e" if is_assessment else "#334155"
+        self._mode_status_chip.setText(text)
+        self._mode_status_chip.setStyleSheet(
+            "padding:2px 8px; border:1px solid #cbd5e1; border-radius:10px;"
+            f" color:{tone};"
+        )
 
     @property
     def test_panel(self):

@@ -1,6 +1,6 @@
 # 维护与重构清单 v2
 
-最后更新：`2026-04-16`
+最后更新：`2026-04-20`
 
 用途：
 - 给人看：明确当前项目的维护边界、阶段目标、已完成进度。
@@ -136,10 +136,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 4 进行中：R42 已完成（`assessment_coordinator.py` 显式依赖注入，Phase 4 service 层收口）；Phase 3 已关闭。 |
+| 当前阶段 | Phase 4 进行中：R43 已完成（`ControllerSignals(QObject)` 引入 + 阶段 2 最小试点落地），但最终收官点已推迟到 R44；Phase 3 已关闭。 |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/styles.py`(1007)、`ui/panels/control_panel.py`(776)、`ui/widgets/step_panels/_panel_builders.py`(347) |
-| 下一轮默认起点 | Phase 4 — Round 43：`ControllerSignals(QObject)` 引入 + 分阶段 render 迁移（详见 §10） |
+| 下一轮默认起点 | Phase 4 — Round 44：physics 层（`physics_engine.py` / `_physics_*.py`）`self.ctrl` 清理，完成真正收官（详见 §10）。 |
 
 ---
 
@@ -312,17 +312,20 @@ R30/R31 实际落点为 `ui/widgets/step_panels/`（不是最初规划的 `ui/te
 - 新增 UI 逻辑落在拆出的子模块中，不回写主文件。
   - R32 状态：已达标；`_dialogs/` 子包已独立承接 4 个对话框函数。
 
-### Phase 4: Service 显式依赖化 + 通信标准化（R33–R43，共 11 轮）
+### Phase 4: Service 显式依赖化 + 通信标准化（R33–R44，共 12 轮）
 
 **目标：** 消除 service 层对 controller 的黑箱依赖，建立清晰的显式注入边界；最后引入 Signal/Slot 通信管道。
 
 - [ ] **R33–R42：逐个 service 消除 `self._ctrl`**（339 处 → 0）
   - 默认使用构造注入，按"先小后大、先纯 service 后编排器、再汇聚器"顺序
   - 详细轮次计划见 §10
-- [ ] **R43：引入 `ControllerSignals(QObject)` + 分阶段 render 迁移**
+- [x] **R43：引入 `ControllerSignals(QObject)` + 分阶段 render 迁移（阶段 1 已完成；阶段 2 仅最小试点达成；阶段 3 未执行）**
   - 前置条件：所有 service 的 `self._ctrl` = 0
   - 核心信号：`render_state_updated(RenderState)` / `step_state_changed(int, object)` / `assessment_finished(AssessmentResult)`
   - 分阶段迁移，不一次性全切
+- [ ] **R44：physics 层 `self.ctrl` 清理，完成 Phase 4 真正收官**
+  - 目标文件：`services/physics_engine.py`、`services/_physics_measurement.py`、`services/_physics_arbitration.py`、`services/_physics_protection.py`
+  - 核心目标：将 repo 级 `grep -rn "self\._ctrl\|self\.ctrl" services/ | wc -l` 从当前残留值收口到 `0`
 - [ ] **收口旧键名兼容逻辑**
   - 清理历史命名债务
 - [ ] **收口状态真值源**
@@ -522,7 +525,31 @@ class PowerSyncUI(QMainWindow):
 
 ### 当前未完成但已明确方向
 - Phase 3：已关闭（R32 收口完成）。
-- Phase 4 主线（R33–R43）：Service 层 `self._ctrl` 显式依赖化（339 处 → 0）→ `ControllerSignals(QObject)` Signal/Slot 引入 → 旧键名与状态真值源清理、`domain/services` 类型标注补齐。详见 §10。
+- Phase 4 主线（R33–R44）：Service 层 `self._ctrl` 显式依赖化（339 处 → 0）→ `ControllerSignals(QObject)` Signal/Slot 引入 → physics 层 `self.ctrl` 收口 → 旧键名与状态真值源清理、`domain/services` 类型标注补齐。详见 §10。
+
+### 第 43 轮 (2026-04-20)：Phase 4 信号层骨架落地（`ControllerSignals(QObject)` 引入 + 阶段 2 最小试点）
+- 本轮唯一主攻目标：在不改动 `_tick -> render_visuals` 主路径的前提下，引入 controller → UI 信号骨架，并完成 2 个最小、纯文本/状态类 UI 消费者试点。
+- 实际完成：
+  - 新增 `app/controller_signals.py`，集中声明 2 个 controller → UI 信号：`step_changed(int, int)`、`assessment_mode_changed(bool)`。
+  - `PowerSyncController` 已在构造早期创建 `self.signals = ControllerSignals()`；UI 构造前即可完成信号暴露。
+  - `assessment_mode_changed` 已接入 controller `test_flow_mode` setter：当流程模式切换导致“是否为考核模式”发生变化时触发 emit。
+  - `step_changed` 已接入 controller `get_test_progress_snapshot(step, ...)` 这一单点观测入口：当测试面板推导出的当前步骤发生变化时，仅在新旧 step 不同的情况下 emit。
+  - `ui/main_window.py` 已接入两个 slot：`_on_step_changed(old_step, new_step)`、`_on_assessment_mode_changed(is_assessment)`，并将它们落地为主窗口底部状态栏的两个纯文本状态徽标。
+  - `render_visuals` 主渲染链保持原样，`_tick` 周期、`build_render_state()`、waveform / circuit / phasor / matplotlib canvas 相关逻辑均未改动。
+  - `app/main.py` 除 `ControllerSignals` 导入外，仅在 `PowerSyncController` 内补了最小构造适配与 emit 逻辑；`services/**`、`tests/**`、`domain/**`、`adapters/**` 均保持零改动。
+  - 阶段 3（`_tick` 压缩 / 轮询降频 / `render_visuals` 瘦身）本轮未执行，明确留待后续独立立项。
+- 删除了哪些旧代码：
+  - 无大规模删除；本轮目标是建立信号层骨架与最小试点，而非压缩 render 路径。
+- 接口变化：
+  - 新增 `app/controller_signals.py` 与 `PowerSyncController.signals`。
+  - 公开 Service API 保持不变；controller 仍保留现有主循环与 UI 入口。
+- 阶段结果：
+  - `ControllerSignals` 已成功落地；Phase 4 的 signal 骨架已建立，但阶段 2 仅完成“新增顶层状态徽标”的最小试点，尚未真正迁移既有 `render_visuals` 轮询消费者。
+  - Phase 4 service 层 `self._ctrl` 总量继续保持 `0`。
+  - repo 级 `grep -rn "self\._ctrl\|self\.ctrl" services/` 仍因 physics 相关模块保留 `31` 处 `self.ctrl` 命中，因此 Phase 4 最终收官点推迟到 R44。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PASS（范围检查、`py_compile`、offscreen 导入冒烟、service 层 `self._ctrl` 归零检查全部通过）
+- 下一轮起点：Phase 4 — Round 44：physics 层（`physics_engine.py` / `_physics_*.py`）`self.ctrl` 清理，完成真正收官
 
 ### 第 42 轮 (2026-04-20)：Phase 4 第十轮（`assessment_coordinator.py` 显式依赖注入，Phase 4 service 收口）
 - 本轮唯一主攻目标：将 `services/assessment_coordinator.py` 中的 61 处 `self._ctrl` 全部替换为显式构造注入；本轮是 Phase 4 service 层的收口点。
@@ -1333,7 +1360,8 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 | R40 | `pt_phase_check_service.py` | 38 | 346 | 大型 step service（已完成） |
 | R41 | `pt_exam_service.py` | 49 | 386 | 大型 step service（已完成） |
 | R42 | `assessment_coordinator.py` | 61 | 250 | 最重汇聚器（Phase 4 service 收口，已完成） |
-| R43 | `ControllerSignals` + render 迁移 | — | — | Signal/Slot 分阶段落地 |
+| R43 | `ControllerSignals` + render 迁移 | — | — | 已完成（阶段 1 + 阶段 2 试点；阶段 3 未执行） |
+| R44 | `physics_engine.py` + `_physics_*.py` | 31 | — | physics 层 `self.ctrl` 清理（Phase 4 真正收官） |
 
 ### R33：模式建立（最小验证，已完成）
 
@@ -1440,7 +1468,7 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 - Phase 4 service 层 `self._ctrl` 总量已从 `61 -> 0`，service 子阶段收口；下一轮进入 R43 信号层
 - 本轮回归：`pytest 13 passed`
 
-- R40、R41、R42 已完成；下一轮进入 R43 `ControllerSignals(QObject)` 引入 + 分阶段 render 迁移
+- R40、R41、R42、R43 已完成；Phase 4 的 signal 骨架已落地，但最终收官点推迟到 R44 physics 层 `self.ctrl` 清理
 
 ### R43：ControllerSignals 引入 + 分阶段 render 迁移
 
@@ -1457,6 +1485,23 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 
 **阶段 3**：评估轮询压缩
 - 当 signals 已稳定覆盖主要 UI 变更后，决定是否保留 `_tick` 低频兜底或进一步压缩 `render_visuals`
+
+**R43 结果**：
+- 已完成；新增 `app/controller_signals.py`，当前仅声明 `step_changed(int, int)`、`assessment_mode_changed(bool)` 两个信号
+- `PowerSyncController` 已在构造早期持有 `self.signals`；`assessment_mode_changed` 由 `test_flow_mode` setter 发出，`step_changed` 由 `get_test_progress_snapshot(step, ...)` 的单点观测入口发出
+- `ui/main_window.py` 已新增 `_on_step_changed()`、`_on_assessment_mode_changed()` 两个 slot，并将试点落在主窗口状态栏的两个纯文本状态徽标
+- `_tick` 周期、`render_visuals` 主路径、waveform / circuit / matplotlib canvas 相关逻辑均保持原样
+- 阶段 2 采用最小试点形态：本轮新增的是顶层状态徽标，并未真正迁移既有 `render_visuals` 轮询消费者
+- 阶段 3（轮询压缩）未执行；如后续 UX/性能反馈表明有必要，再独立立项推进
+
+### R44：physics 层 `self.ctrl` 清理
+
+前置条件：R43 已完成，controller → UI 信号骨架已落地，但 repo 级 `services/` 目录仍保留 physics 相关 `self.ctrl` 残留。
+
+**目标**：
+- 清理 `services/physics_engine.py`、`services/_physics_measurement.py`、`services/_physics_arbitration.py`、`services/_physics_protection.py` 中现存的 `self.ctrl`
+- 将 repo 级 `grep -rn "self\._ctrl\|self\.ctrl" services/ | wc -l` 从当前残留值收口到 `0`
+- 完成 Phase 4 的真正收官
 
 ### 基线数据（Phase 4 启动时）
 
