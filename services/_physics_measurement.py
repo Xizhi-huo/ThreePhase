@@ -101,10 +101,10 @@ class MeasurementMixin:
         if terminal not in ('A', 'B', 'C'):
             raise ValueError(f"Unsupported terminal label: {terminal}")
         idx = ('A', 'B', 'C').index(terminal)
-        phase = self.ctrl.pt_phase_orders[pt_name][idx]
+        phase = self._get_pt_phase_orders()[pt_name][idx]
         # fault_reverse_bc 物理上对调 Gen2 B/C 绕组；
         # PT3 端子的实际相需跟随修正（PT1/PT2 不受影响）
-        if self.ctrl.sim_state.fault_reverse_bc and pt_name == 'PT3':
+        if self._sim_state.fault_reverse_bc and pt_name == 'PT3':
             if phase == 'B':
                 phase = 'C'
             elif phase == 'C':
@@ -113,7 +113,7 @@ class MeasurementMixin:
     
     def _update_pt_measurements(self, bus_a, a1, a2):
         # a1/a2/bus_a 均为线电压 RMS，直接除以变比得 PT 二次侧线电压
-        sim = self.ctrl.sim_state
+        sim = self._sim_state
         fc = sim.fault_config
         self.pt1_v = a1    / sim.pt_gen_ratio
         self.pt2_v = bus_a / sim.pt_bus_ratio
@@ -124,7 +124,7 @@ class MeasurementMixin:
             self.pt3_v = a2 / sim.pt3_ratio
 
     def _handle_loop_measurement(self, sim, n1, n2, info1, info2):
-        loop_done = self.ctrl.loop_test_state.completed
+        loop_done = self._get_loop_test_state().completed
         if (sim.gen1.running or sim.gen2.running) and not loop_done:
             self.meter_status = "invalid"
             self.meter_color = "red"
@@ -141,8 +141,8 @@ class MeasurementMixin:
             self.meter_status = "invalid"
             self.meter_reading = "请分别选择 G1 与 G2 的三相回路测点进行比较"
         else:
-            phase1 = self.ctrl.phase_resolver.resolve_loop_node_phase(n1)
-            phase2 = self.ctrl.phase_resolver.resolve_loop_node_phase(n2)
+            phase1 = self._phase_resolver.resolve_loop_node_phase(n1)
+            phase2 = self._phase_resolver.resolve_loop_node_phase(n2)
             self.meter_nodes = (n1, n2)
             fc = sim.fault_config
             if phase1 == phase2:
@@ -153,7 +153,7 @@ class MeasurementMixin:
                 self.meter_status = "danger"
                 self.meter_color = "red"
                 hint = "（检测到接线异常）"
-                if self.ctrl.flow_mgr.should_show_diagnostic_hints():
+                if self._flow_mgr.should_show_diagnostic_hints():
                     hint = f"（疑似接线错误，请检查 {info2[4].split()[0]} 侧接线）"
                 self.meter_reading = (
                     f"断路 [∞Ω / 无蜂鸣] — {info1[4]} ↔ {info2[4]} 不通"
@@ -163,7 +163,7 @@ class MeasurementMixin:
                         and (fc.scenario_id in ('E01', 'E02')
                              or fc.params.get('g1_loop_swap')
                              or fc.params.get('g2_loop_swap'))):
-                    self.ctrl.assessment_coord.mark_fault_detected(
+                    self._mark_fault_detected(
                         step=1,
                         source='loop_measurement',
                         target='loop',
@@ -171,7 +171,7 @@ class MeasurementMixin:
                     )
 
     def _handle_intra_pt_measurement(self, sim, n1, n2, info1, info2, pt_name, ph1, ph2):
-        _sim_r = self.ctrl.sim_state
+        _sim_r = self._sim_state
         _pt_ratio = (_sim_r.pt_gen_ratio if pt_name == 'PT1'
                      else _sim_r.pt3_ratio if pt_name == 'PT3'
                      else _sim_r.pt_bus_ratio)
@@ -208,14 +208,14 @@ class MeasurementMixin:
                 and pt_name == 'PT3'
                 and self.meter_status == 'danger'):
             if fc.scenario_id == 'E04':
-                self.ctrl.assessment_coord.mark_fault_detected(
+                self._mark_fault_detected(
                     step=2,
                     source='pt_voltage_measurement',
                     target='PT3',
                     point=f'{ph1}{ph2}',
                 )
             elif fc.scenario_id == 'E03' and 'A' in (ph1, ph2):
-                self.ctrl.assessment_coord.mark_fault_detected(
+                self._mark_fault_detected(
                     step=2,
                     source='pt_voltage_measurement',
                     target='PT3',
@@ -266,14 +266,14 @@ class MeasurementMixin:
 
         if fc.active and not fc.repaired:
             if e03_active:
-                self.ctrl.assessment_coord.mark_fault_detected(
+                self._mark_fault_detected(
                     step=4,
                     source='pt_exam_measurement',
                     target=gen_pt_name,
                     point=f'{gen_term}-{bus_phase}',
                 )
             elif fc.scenario_id == 'E04' and gen_pt_name == 'PT3' and is_same_phase:
-                self.ctrl.assessment_coord.mark_fault_detected(
+                self._mark_fault_detected(
                     step=4,
                     source='pt_exam_measurement',
                     target=gen_pt_name,
@@ -282,7 +282,7 @@ class MeasurementMixin:
             elif (gen_pt_name == 'PT1'
                   and fc.params.get('pt1_phase_order') is not None
                   and not is_same_phase):
-                self.ctrl.assessment_coord.mark_fault_detected(
+                self._mark_fault_detected(
                     step=4,
                     source='pt_exam_measurement',
                     target=gen_pt_name,

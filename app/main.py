@@ -242,7 +242,18 @@ class PowerSyncController:
         self.sync_test_state         = self.sync_svc.create_sync_test_state()
 
         # ── 物理引擎 ──────────────────────────────────────────────────────
-        self.physics = PhysicsEngine(self)
+        self.physics = PhysicsEngine(
+            sim_state=self.sim_state,
+            flow_mgr=self.flow_mgr,
+            phase_resolver=self.phase_resolver,
+            sync_svc=self.sync_svc,
+            get_pt_phase_orders=lambda: self.pt_phase_orders,
+            get_loop_test_state=lambda: self.loop_test_state,
+            get_pt_voltage_check_state=lambda: self.pt_voltage_check_state,
+            is_sync_test_active=self.is_sync_test_active,
+            mark_fault_detected=self.assessment_coord.mark_fault_detected,
+            queue_accident_dialog=self.queue_accident_dialog,
+        )
 
         # ── UI 窗口 ───────────────────────────────────────────────────────
         self.ui = PowerSyncUI(self)

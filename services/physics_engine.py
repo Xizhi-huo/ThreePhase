@@ -25,8 +25,65 @@ from services._physics_measurement import MeasurementMixin
 
 
 class PhysicsEngine(WaveformMixin, ArbitrationMixin, ProtectionMixin, MeasurementMixin):
-    def __init__(self, ctrl):
-        self.ctrl = ctrl
+    def __init__(
+        self,
+        *legacy_source,
+        sim_state=None,
+        flow_mgr=None,
+        phase_resolver=None,
+        sync_svc=None,
+        get_pt_phase_orders=None,
+        get_loop_test_state=None,
+        get_pt_voltage_check_state=None,
+        is_sync_test_active=None,
+        mark_fault_detected=None,
+        queue_accident_dialog=None,
+    ):
+        if legacy_source:
+            if len(legacy_source) != 1:
+                raise TypeError("PhysicsEngine accepts at most one legacy positional source")
+            source = legacy_source[0]
+            sim_state = sim_state or source.sim_state
+            flow_mgr = flow_mgr or source.flow_mgr
+            phase_resolver = phase_resolver or source.phase_resolver
+            sync_svc = sync_svc or source.sync_svc
+            get_pt_phase_orders = get_pt_phase_orders or (lambda: source.pt_phase_orders)
+            get_loop_test_state = get_loop_test_state or (lambda: source.loop_test_state)
+            get_pt_voltage_check_state = get_pt_voltage_check_state or (
+                lambda: getattr(source, 'pt_voltage_check_state', None)
+            )
+            is_sync_test_active = is_sync_test_active or source.is_sync_test_active
+            mark_fault_detected = mark_fault_detected or source.assessment_coord.mark_fault_detected
+            queue_accident_dialog = queue_accident_dialog or source.queue_accident_dialog
+
+        missing = [
+            name for name, value in (
+                ('sim_state', sim_state),
+                ('flow_mgr', flow_mgr),
+                ('phase_resolver', phase_resolver),
+                ('sync_svc', sync_svc),
+                ('get_pt_phase_orders', get_pt_phase_orders),
+                ('get_loop_test_state', get_loop_test_state),
+                ('get_pt_voltage_check_state', get_pt_voltage_check_state),
+                ('is_sync_test_active', is_sync_test_active),
+                ('mark_fault_detected', mark_fault_detected),
+                ('queue_accident_dialog', queue_accident_dialog),
+            )
+            if value is None
+        ]
+        if missing:
+            raise TypeError(f"PhysicsEngine missing required dependencies: {', '.join(missing)}")
+
+        self._sim_state = sim_state
+        self._flow_mgr = flow_mgr
+        self._phase_resolver = phase_resolver
+        self._sync_svc = sync_svc
+        self._get_pt_phase_orders = get_pt_phase_orders
+        self._get_loop_test_state = get_loop_test_state
+        self._get_pt_voltage_check_state = get_pt_voltage_check_state
+        self._is_sync_test_active = is_sync_test_active
+        self._mark_fault_detected = mark_fault_detected
+        self._queue_accident_dialog = queue_accident_dialog
         self.animation_time = 0.0
         self.fixed_t = np.linspace(0, 0.06, MAX_POINTS)
         self.fixed_deg = self.fixed_t * 50 * 360
@@ -76,7 +133,7 @@ class PhysicsEngine(WaveformMixin, ArbitrationMixin, ProtectionMixin, Measuremen
 
     # ── 每帧主调度 ─────────────────────────────────────────────────────────
     def update_physics(self):
-        sim = self.ctrl.sim_state
+        sim = self._sim_state
         is_isolated = sim.system_mode == SystemMode.ISOLATED_BUS
 
         # 仲裁前先计算一次母线参考，供仲裁器判断当前接入关系；

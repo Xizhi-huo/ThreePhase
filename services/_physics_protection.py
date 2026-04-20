@@ -166,7 +166,7 @@ class ProtectionMixin:
             generator.breaker_closed = False
             generator.cmd_close = False
         elif generator.mode == "auto":
-            sync_test_active = self.ctrl.is_sync_test_active()
+            sync_test_active = self._is_sync_test_active()
             if is_isolated and not self.bus_live:
                 if (not sync_test_active and
                         abs(generator.freq - GRID_FREQ) < 0.1 and
@@ -174,23 +174,23 @@ class ProtectionMixin:
                         not generator.breaker_closed):
                     generator.breaker_closed = True
             else:
-                if (self.ctrl.sync_svc.is_sync_test_complete()
+                if (self._sync_svc.is_sync_test_complete()
                         and abs(generator.freq - ref_freq) < 0.1
                         and abs(ref_amp - a_value) <= 185.0
                         and abs(diff_deg) <= 1.5
                         and not generator.breaker_closed):
                     # E01/E02/E03 故障：Gen2 工作位自动合闸到带电母线时触发事故弹窗
                     # 注：此处 else 分支已保证 bus_live=True；is_sync_test_complete() 保证非第一步
-                    fc = self.ctrl.sim_state.fault_config
+                    fc = self._sim_state.fault_config
                     if (gen_id == 2
                             and generator.breaker_position == BreakerPosition.WORKING
                             and fc.active and not fc.repaired):
                         if fc.scenario_id == 'E01':
-                            self.ctrl.queue_accident_dialog('E01')
+                            self._queue_accident_dialog('E01')
                         elif fc.scenario_id == 'E02':
-                            self.ctrl.queue_accident_dialog('E02')
+                            self._queue_accident_dialog('E02')
                         elif fc.scenario_id == 'E03':
-                            self.ctrl.queue_accident_dialog('E03')
+                            self._queue_accident_dialog('E03')
                         else:
                             generator.breaker_closed = True
                     else:
@@ -199,35 +199,35 @@ class ProtectionMixin:
         elif generator.mode == "manual" and generator.cmd_close:
             generator.cmd_close = False
             if not generator.breaker_closed:
-                test_mode = getattr(self.ctrl.sim_state, 'loop_test_mode', False)
+                test_mode = getattr(self._sim_state, 'loop_test_mode', False)
                 if generator.breaker_position != BreakerPosition.WORKING or sync_ok or test_mode:
                     # E01/E02/E03 故障：Gen2 工作位手动合闸到带电母线时触发事故弹窗
-                    fc = self.ctrl.sim_state.fault_config
+                    fc = self._sim_state.fault_config
                     if (gen_id == 2
                             and generator.breaker_position == BreakerPosition.WORKING
                             and fc.active and not fc.repaired
                             and self.bus_live
                             and not test_mode):
                         if fc.scenario_id == 'E01':
-                            self.ctrl.queue_accident_dialog('E01')
+                            self._queue_accident_dialog('E01')
                         elif fc.scenario_id == 'E02':
-                            self.ctrl.queue_accident_dialog('E02')
+                            self._queue_accident_dialog('E02')
                         elif fc.scenario_id == 'E03':
-                            self.ctrl.queue_accident_dialog('E03')
+                            self._queue_accident_dialog('E03')
                         else:
                             generator.breaker_closed = True
                     else:
                         generator.breaker_closed = True
                 else:
                     # E03 故障：sync_ok=False（180° 相位差），强行合闸触发事故弹窗
-                    fc = self.ctrl.sim_state.fault_config
+                    fc = self._sim_state.fault_config
                     if (gen_id == 2
                             and generator.breaker_position == BreakerPosition.WORKING
                             and fc.active and not fc.repaired
                             and fc.scenario_id == 'E03'
                             and self.bus_live
                             and not test_mode):
-                        self.ctrl.queue_accident_dialog('E03')
+                        self._queue_accident_dialog('E03')
                     else:
                         self.relay_msg, self.relay_color = (
                             f"非同期合闸爆炸！频差:{abs(generator.freq-ref_freq):.1f}Hz, "

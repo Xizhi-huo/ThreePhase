@@ -215,7 +215,7 @@ class ArbitrationMixin:
 
         if sim.remote_start_signal:
             if not (g1_on_bus or g2_on_bus):
-                if not self.ctrl.is_sync_test_active():
+                if not self._is_sync_test_active():
                     self._handle_dead_bus_selection(sim, mode1, mode2, g1_ready, g2_ready)
                 else:
                     self.dead_bus_timer = 0.0
@@ -234,8 +234,8 @@ class ArbitrationMixin:
         _TRK_F  = 0.01     # Hz/帧
         _TRK_A  = 0.5      # V/帧
         _TRK_P  = 0.02     # °/帧
-        pvc_active = getattr(self.ctrl, 'pt_voltage_check_state', None)
-        pvc_active = pvc_active is not None and pvc_active.started
+        pt_voltage_check_state = self._get_pt_voltage_check_state()
+        pvc_active = pt_voltage_check_state is not None and pt_voltage_check_state.started
         if pvc_active and not sim.paused:
             # Gen1 有界随机游走，模拟真实发电机微小波动
             if sim.gen1.running:
