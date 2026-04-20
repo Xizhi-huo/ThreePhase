@@ -540,54 +540,6 @@ class PowerSyncUI(QMainWindow):
 - Phase 3：已关闭（R32 收口完成）。
 - Phase 4 主线（R33–R44）：Service 层 `self._ctrl` 显式依赖化（339 处 → 0）→ `ControllerSignals(QObject)` Signal/Slot 引入 → physics 层 `self.ctrl` 收口 → 旧键名与状态真值源清理、`domain/services` 类型标注补齐。详见 §10。
 
-### 第 44 轮 (2026-04-20)：Phase 4 真正收官（physics 层 `self.ctrl` 清零）
-- 本轮唯一主攻目标：将 physics 层 4 个文件中的 `self.ctrl` 全部替换为显式 keyword-only 构造注入，使 `services/` 目录下 `self._ctrl | self.ctrl` 最终归零。
-- 实际完成：
-  - `services/physics_engine.py` 已改为 10 参 keyword-only 构造注入：`sim_state`、`flow_mgr`、`phase_resolver`、`sync_svc`、`get_pt_phase_orders()`、`get_loop_test_state()`、`get_pt_voltage_check_state()`、`is_sync_test_active()`、`mark_fault_detected()`、`queue_accident_dialog()`。
-  - `services/_physics_arbitration.py`、`services/_physics_measurement.py`、`services/_physics_protection.py` 内原有 `self.ctrl.*` 路径已全部替换为 `self._sim_state`、`self._flow_mgr`、`self._phase_resolver`、`self._sync_svc`、3 个 accessor、1 个 query callback 与 2 个 behavior callback。
-  - `services/_physics_core.py` 经核对本来就是 `0` 处 `self.ctrl`，本轮未改动。
-  - `app/main.py` 已仅在 `self.physics = PhysicsEngine(...)` 构造处完成适配；未改动 `_tick`、`build_render_state()`、`render_visuals`、`ControllerSignals` 或任何 UI 路径。
-- 删除了哪些旧代码：
-  - 删除 `PhysicsEngine.__init__(self, ctrl)` 与 `self.ctrl = ctrl`。
-  - 删除 physics 层 4 个文件内全部 31 处 `self.ctrl` 访问。
-- 接口变化：
-  - `PhysicsEngine` 构造函数改为 keyword-only 10 参依赖注入。
-  - `update_physics()` / `build_render_state()` 方法签名保持不变。
-- 耦合度变化：
-  - `services/physics_engine.py`、`services/_physics_arbitration.py`、`services/_physics_measurement.py`、`services/_physics_protection.py` 的 `self.ctrl` 总量 `31 -> 0`。
-  - `services/` 目录下 repo 级 `self._ctrl | self.ctrl` 总量 `31 -> 0`。
-  - Phase 4 全阶段累计耦合度：`339 -> 0`，真正收官。
-- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
-- 回归清单：PASS（范围检查、repo 级 grep 清零、`py_compile`、offscreen 单帧 physics 冒烟全部通过）
-- 下一轮起点：Phase 4 已真正收官；后续视 UX/性能反馈决定是否启动 R43 阶段 3（轮询压缩）或进入新阶段
-
-### 第 45 轮 (2026-04-20)：Phase 3 收尾（`ControlPanel` 组件化与瘦身）
-- 本轮唯一主攻目标：把 `ui/panels/control_panel.py` 从 776 行的宿主构造层大文件拆分为薄入口，并在不引入新 `self._ctrl` / `self.ctrl.<svc>` 穿透的前提下完成 `GeneratorCard / RunControlsPage / ParamControlsPage` 三分组件化。
-- 实际完成：
-  - 新增 `ui/widgets/control_panel/__init__.py`
-  - 新增 `ui/widgets/control_panel/_widget_tokens.py`
-  - 新增 `ui/widgets/control_panel/generator_card.py`
-  - 新增 `ui/widgets/control_panel/run_controls.py`
-  - 新增 `ui/widgets/control_panel/param_controls.py`
-  - `ui/panels/control_panel.py` 已收敛为 Mixin 薄入口，负责标题、页切换、`QStackedWidget` 装配、故障预设对话框与宿主联动；原 Page0 / Page1 / `_build_gen_panel()` 主体均已迁入独立组件。
-  - 三处别名形式直连服务已清零：`c.hw.instant_sync`、`c.hw.toggle_engine(...)`、`c.hw.toggle_breaker(...)` 均改为宿主侧窄口径回调注入组件。
-  - 宿主属性契约保持不变：`btn_engine1/2`、`btn_breaker1/2`、`status1_lbl/status2_lbl`、`_gen1/_gen2_entry_map`、`bus_status_lbl`、`sim_speed_label`、`pause_btn` 等既有入口仍可通过 `self.<name>` 访问。
-  - `_update_generator_buttons()` 保留在 Mixin，内部改为委托两张 `GeneratorCard.refresh()`，未破坏 `ui/main_window.py` 的既有调用点。
-- 耦合与规模变化：
-  - `ui/panels/control_panel.py` 行数 `776 -> 328`
-  - 新组件文件行数：`generator_card.py = 192`、`run_controls.py = 156`、`param_controls.py = 143`、`_widget_tokens.py = 57`
-- 验证结果：
-  - G1 PASS：`ui/panels/control_panel.py` 当前 `328` 行（≤ 500）
-  - G2 PASS：`self.ctrl.(flow_mgr|...|hw)` 扫描 = 0
-  - G3 PASS：别名扫描 `c.(hw|flow_mgr|...)` 在 `control_panel.py` 与 `ui/widgets/control_panel/*.py` 中 = 0
-  - G4 PASS：新组件文件内无 `ctrl` / `.hw.` 直连
-  - G8 PASS（services 基线）：`grep -rnE "self\._ctrl|self\.ctrl\b" services/ | wc -l = 0`
-  - G9 PASS：`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest` = `13 passed`
-  - G10 PASS（功能性烟测）：offscreen 启动可正常构建控制面板；未出现 `AttributeError`、导入循环或缺失控件契约
-- 下一轮建议：
-  - R46：状态真值源收口（`pt_phase_orders` 派生关系、`blackbox_order` 隐式同步）
-  - R47：死代码 / 重复 UI / 旧注释块清理 + `domain/services` 类型标注补齐
-
 ### 第 46 轮 (2026-04-20)：状态真值源收口（`PhaseOrderState`）+ `_BoolProxy` 残留清理
 - 本轮唯一主攻目标：将散落在 `PowerSyncController` 上的 6 个相序/黑盒容器属性收口为单一状态容器，并清理 `app/main.py` 中 `_BoolProxy` 留下的 4 处 `_ctrl` 历史残留。
 - 实际完成：
@@ -621,6 +573,54 @@ class PowerSyncUI(QMainWindow):
   - G11 PASS：offscreen 启动无 `AttributeError / ImportError / Traceback`
 - 下一轮建议：
   - R47：死代码 / 重复 UI / 旧注释块清理 + `domain/services` 类型标注补齐
+
+### 第 45 轮 (2026-04-20)：Phase 3 收尾（`ControlPanel` 组件化与瘦身）
+- 本轮唯一主攻目标：把 `ui/panels/control_panel.py` 从 776 行的宿主构造层大文件拆分为薄入口，并在不引入新 `self._ctrl` / `self.ctrl.<svc>` 穿透的前提下完成 `GeneratorCard / RunControlsPage / ParamControlsPage` 三分组件化。
+- 实际完成：
+  - 新增 `ui/widgets/control_panel/__init__.py`
+  - 新增 `ui/widgets/control_panel/_widget_tokens.py`
+  - 新增 `ui/widgets/control_panel/generator_card.py`
+  - 新增 `ui/widgets/control_panel/run_controls.py`
+  - 新增 `ui/widgets/control_panel/param_controls.py`
+  - `ui/panels/control_panel.py` 已收敛为 Mixin 薄入口，负责标题、页切换、`QStackedWidget` 装配、故障预设对话框与宿主联动；原 Page0 / Page1 / `_build_gen_panel()` 主体均已迁入独立组件。
+  - 三处别名形式直连服务已清零：`c.hw.instant_sync`、`c.hw.toggle_engine(...)`、`c.hw.toggle_breaker(...)` 均改为宿主侧窄口径回调注入组件。
+  - 宿主属性契约保持不变：`btn_engine1/2`、`btn_breaker1/2`、`status1_lbl/status2_lbl`、`_gen1/_gen2_entry_map`、`bus_status_lbl`、`sim_speed_label`、`pause_btn` 等既有入口仍可通过 `self.<name>` 访问。
+  - `_update_generator_buttons()` 保留在 Mixin，内部改为委托两张 `GeneratorCard.refresh()`，未破坏 `ui/main_window.py` 的既有调用点。
+- 耦合与规模变化：
+  - `ui/panels/control_panel.py` 行数 `776 -> 328`
+  - 新组件文件行数：`generator_card.py = 192`、`run_controls.py = 156`、`param_controls.py = 143`、`_widget_tokens.py = 57`
+- 验证结果：
+  - G1 PASS：`ui/panels/control_panel.py` 当前 `328` 行（≤ 500）
+  - G2 PASS：`self.ctrl.(flow_mgr|...|hw)` 扫描 = 0
+  - G3 PASS：别名扫描 `c.(hw|flow_mgr|...)` 在 `control_panel.py` 与 `ui/widgets/control_panel/*.py` 中 = 0
+  - G4 PASS：新组件文件内无 `ctrl` / `.hw.` 直连
+  - G8 PASS（services 基线）：`grep -rnE "self\._ctrl|self\.ctrl\b" services/ | wc -l = 0`
+  - G9 PASS：`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest` = `13 passed`
+  - G10 PASS（功能性烟测）：offscreen 启动可正常构建控制面板；未出现 `AttributeError`、导入循环或缺失控件契约
+- 下一轮建议：
+  - R46：状态真值源收口（`pt_phase_orders` 派生关系、`blackbox_order` 隐式同步）
+  - R47：死代码 / 重复 UI / 旧注释块清理 + `domain/services` 类型标注补齐
+
+### 第 44 轮 (2026-04-20)：Phase 4 真正收官（physics 层 `self.ctrl` 清零）
+- 本轮唯一主攻目标：将 physics 层 4 个文件中的 `self.ctrl` 全部替换为显式 keyword-only 构造注入，使 `services/` 目录下 `self._ctrl | self.ctrl` 最终归零。
+- 实际完成：
+  - `services/physics_engine.py` 已改为 10 参 keyword-only 构造注入：`sim_state`、`flow_mgr`、`phase_resolver`、`sync_svc`、`get_pt_phase_orders()`、`get_loop_test_state()`、`get_pt_voltage_check_state()`、`is_sync_test_active()`、`mark_fault_detected()`、`queue_accident_dialog()`。
+  - `services/_physics_arbitration.py`、`services/_physics_measurement.py`、`services/_physics_protection.py` 内原有 `self.ctrl.*` 路径已全部替换为 `self._sim_state`、`self._flow_mgr`、`self._phase_resolver`、`self._sync_svc`、3 个 accessor、1 个 query callback 与 2 个 behavior callback。
+  - `services/_physics_core.py` 经核对本来就是 `0` 处 `self.ctrl`，本轮未改动。
+  - `app/main.py` 已仅在 `self.physics = PhysicsEngine(...)` 构造处完成适配；未改动 `_tick`、`build_render_state()`、`render_visuals`、`ControllerSignals` 或任何 UI 路径。
+- 删除了哪些旧代码：
+  - 删除 `PhysicsEngine.__init__(self, ctrl)` 与 `self.ctrl = ctrl`。
+  - 删除 physics 层 4 个文件内全部 31 处 `self.ctrl` 访问。
+- 接口变化：
+  - `PhysicsEngine` 构造函数改为 keyword-only 10 参依赖注入。
+  - `update_physics()` / `build_render_state()` 方法签名保持不变。
+- 耦合度变化：
+  - `services/physics_engine.py`、`services/_physics_arbitration.py`、`services/_physics_measurement.py`、`services/_physics_protection.py` 的 `self.ctrl` 总量 `31 -> 0`。
+  - `services/` 目录下 repo 级 `self._ctrl | self.ctrl` 总量 `31 -> 0`。
+  - Phase 4 全阶段累计耦合度：`339 -> 0`，真正收官。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PASS（范围检查、repo 级 grep 清零、`py_compile`、offscreen 单帧 physics 冒烟全部通过）
+- 下一轮起点：Phase 4 已真正收官；后续视 UX/性能反馈决定是否启动 R43 阶段 3（轮询压缩）或进入新阶段
 
 ### 第 43 轮 (2026-04-20)：Phase 4 信号层骨架落地（`ControllerSignals(QObject)` 引入 + 阶段 2 最小试点）
 - 本轮唯一主攻目标：在不改动 `_tick -> render_visuals` 主路径的前提下，引入 controller → UI 信号骨架，并完成 2 个最小、纯文本/状态类 UI 消费者试点。
