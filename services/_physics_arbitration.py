@@ -8,7 +8,7 @@ import random
 import numpy as np
 
 from domain.constants import GRID_FREQ, GRID_AMP
-from domain.enums import BreakerPosition, SystemMode
+from domain.enums import BreakerPosition
 
 
 class ArbitrationMixin:

@@ -12,7 +12,7 @@ from typing import Callable
 
 from domain.enums import BreakerPosition
 from domain.assessment import AssessmentEventType
-from domain.test_states import PtVoltageCheckState, _PHASE_PAIR_LABEL
+from domain.test_states import PtVoltageCheckState
 
 _ALL_KEYS = (
     'PT1_AB', 'PT1_BC', 'PT1_CA',

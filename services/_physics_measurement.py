@@ -6,7 +6,6 @@ services/_physics_measurement.py
 import numpy as np
 
 from domain.constants import NEUTRAL_RESISTOR_OHMS
-from domain.enums import BreakerPosition
 from domain.node_map import NODES
 
 # 三相标准相位角：A=0°, B=-120°, C=+120°

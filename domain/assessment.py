@@ -1,5 +1,54 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol
+
+
+class _RecordStateLike(Protocol):
+    records: Dict[str, Any]
+
+
+class _PtExamStateLike(Protocol):
+    records: Dict[str, Any]
+    completed: bool
+
+
+class _LoopServiceLike(Protocol):
+    def is_loop_test_complete(self) -> bool:
+        ...
+
+
+class _VoltageServiceLike(Protocol):
+    def is_pt_voltage_check_complete(self) -> bool:
+        ...
+
+
+class _PhaseServiceLike(Protocol):
+    def is_pt_phase_check_complete(self) -> bool:
+        ...
+
+
+class _AssessmentCoordinatorLike(Protocol):
+    def is_assessment_closed_loop_ready(self) -> bool:
+        ...
+
+
+class _FaultConfigLike(Protocol):
+    repaired: bool
+
+
+class _SimulationStateLike(Protocol):
+    fault_config: _FaultConfigLike
+
+
+class _AssessmentControllerLike(Protocol):
+    loop_test_state: _RecordStateLike
+    pt_voltage_check_state: _RecordStateLike
+    pt_phase_check_state: _RecordStateLike
+    pt_exam_states: Dict[int, _PtExamStateLike]
+    loop_svc: _LoopServiceLike
+    pt_voltage_svc: _VoltageServiceLike
+    pt_phase_svc: _PhaseServiceLike
+    assessment_coord: _AssessmentCoordinatorLike
+    sim_state: _SimulationStateLike
 
 
 class AssessmentEventType:
@@ -102,7 +151,11 @@ class AssessmentContext:
     fault_repaired: bool
 
     @classmethod
-    def from_snapshot_and_ctrl(cls, snapshot: Dict[str, Any], ctrl) -> "AssessmentContext":
+    def from_snapshot_and_ctrl(
+        cls,
+        snapshot: Dict[str, Any],
+        ctrl: _AssessmentControllerLike,
+    ) -> "AssessmentContext":
         snapshot = snapshot or {}
         pt_exam_records = snapshot.get("pt_exam_records", {})
         completed = snapshot.get("completed", {})

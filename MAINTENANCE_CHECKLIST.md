@@ -136,10 +136,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 4 已真正收官；R46 已完成（`PhaseOrderState` 收口 + `_BoolProxy` 清理，全仓 `self._ctrl` = 0）。 |
+| 当前阶段 | R47 已完成（死 import 清理 + `domain/` 类型标注补齐 + 历史注释整理；`services/` 全量类型标注留给独立专项轮）。 |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/styles.py`(1007)、`ui/widgets/step_panels/_panel_builders.py`(347)；`ui/panels/control_panel.py` 已于 R45 从 `776` 行收敛到 `328` 行 |
-| 下一轮默认起点 | R47：死代码 / 重复 UI / 旧注释块清理 + `domain/services` 类型标注补齐 |
+| 下一轮默认起点 | 后续按需立项：候选为 `services/` 类型标注专项、`ui/styles.py` 拆分、`ui/widgets/step_panels/_panel_builders.py` 拆分 |
 
 ---
 
@@ -299,7 +299,8 @@ R30/R31 实际落点为 `ui/widgets/step_panels/`（不是最初规划的 `ui/te
 - [x] `ui/widgets/step_panels/_panel_builders.py::show_blackbox_dialog` / `show_blackbox_required_dialog` — 黑盒弹窗逻辑（R31；可在 R32 继续拆成独立 `_dialogs` 子模块）
 - [x] `ui/widgets/step_panels/_panel_builders.py::show_assessment_result_dialog` / `show_random_fault_identification_dialog` — 成绩单与结果弹窗（R31；同上）
 - [x] `ui/widgets/step_panels/_panel_builders.py::make_group/make_button/make_note_label/...` — 公共按钮、提示、文本助手（R31）
-- [ ] 将步骤业务判断从 UI 中迁回状态/服务层，UI 只读取状态（**留给 Phase 4**：R33–R42 先消除 Service `self._ctrl`，R43 再引入 Signal/Slot）
+- [x] 将步骤业务判断从 UI 中迁回状态/服务层，UI 只读取状态
+  - 已由 Phase 4 主线收口：R33–R44 完成 service/physics 显式依赖化与状态回写边界梳理，R43 落地最小信号试点，R45–R47 继续完成控制面板组件化、状态真值源收口与清理轮。
 
 完成标准：
 - `PowerSyncUI` 业务层面的 UI 不再使用 Mixin 多重继承，改为组合式装配。
@@ -318,7 +319,7 @@ R30/R31 实际落点为 `ui/widgets/step_panels/`（不是最初规划的 `ui/te
 
 **目标：** 消除 service 层对 controller 的黑箱依赖，建立清晰的显式注入边界；最后引入 Signal/Slot 通信管道。
 
-- [ ] **R33–R42：逐个 service 消除 `self._ctrl`**（339 处 → 0）
+- [x] **R33–R42：逐个 service 消除 `self._ctrl`**（339 处 → 0）
   - 默认使用构造注入，按"先小后大、先纯 service 后编排器、再汇聚器"顺序
   - 详细轮次计划见 §10
 - [x] **R43：引入 `ControllerSignals(QObject)` + 分阶段 render 迁移（阶段 1 已完成；阶段 2 仅最小试点达成；阶段 3 未执行）**
@@ -335,10 +336,13 @@ R30/R31 实际落点为 `ui/widgets/step_panels/`（不是最初规划的 `ui/te
   - `PT3 ← g2_blackbox_order`、`PT1/PT2 ← PT1 黑盒 + g1_blackbox_order` 已以 `apply_*` 具名派生方法显式化
 - [x] **`_BoolProxy` / 4 处 `_ctrl` 历史残留清理**
   - R46 已完成：删除 `app/main.py` 中 `_BoolProxy`、`_pt_blackbox_mode_proxy` 与 `pt_blackbox_mode` 兼容壳，仓内 `self._ctrl` 基线归零
-- [ ] **清理死代码、重复 UI、旧注释块**
-- [ ] **补核心 `domain/services` 类型标注**
-  - 从 `domain/` 开始，逐步覆盖 `services/`
-  - 不急着覆盖 UI 层
+- [x] **死 import / 死代码清理**
+  - R47 已完成：`app/main.py` 与 3 个 service 文件中已确认未使用的 import 已清理；疑似私有 dead code 仅登记为候选，未在本轮物理删除
+- [x] **`domain/` 类型标注补齐**
+  - R47 已完成：`domain/` 当前函数/方法返回标注已全覆盖；`AssessmentContext.from_snapshot_and_ctrl(...)` 的 controller 形参已补到具名 Protocol
+  - `services/` 全量类型标注仍留给独立专项轮，不在本轮范围内
+- [x] **历史注释整理**
+  - R47 已完成：清理 `app/main.py` 中与旧 `ctrl` 访问路径不符的历史性说明，保留仍解释“为什么这样写”的注释
 
 完成标准：
 - UI 与 Controller 之间通过 Signal/Slot 通信，无直接属性访问。
@@ -539,6 +543,32 @@ class PowerSyncUI(QMainWindow):
 ### 当前未完成但已明确方向
 - Phase 3：已关闭（R32 收口完成）。
 - Phase 4 主线（R33–R44）：Service 层 `self._ctrl` 显式依赖化（339 处 → 0）→ `ControllerSignals(QObject)` Signal/Slot 引入 → physics 层 `self.ctrl` 收口 → 旧键名与状态真值源清理、`domain/services` 类型标注补齐。详见 §10。
+
+### 第 47 轮 (2026-04-20)：死 import 清理 + `domain/` 类型标注补齐 + 历史注释整理
+- 本轮唯一主攻目标：在不改动任何业务逻辑、签名与 UI 行为的前提下，完成一轮低风险机械清理，收口未使用 import、补齐 `domain/` 类型标注、清理已不成立的历史注释。
+- 实际完成：
+  - `app/main.py` 已删除未使用 import：`Any`、`Dict`、`Optional`、`SystemMode`、`StepProgressSnapshot`、`BlackboxRepairOutcome`、`FlowModePolicy`。
+  - `services/_physics_arbitration.py` 已删除未使用 `SystemMode`；`services/_physics_measurement.py` 已删除未使用 `BreakerPosition`；`services/pt_voltage_check_service.py` 已删除未使用 `_PHASE_PAIR_LABEL`。
+  - `domain/assessment.py` 已补齐唯一缺失的参数类型入口：为 `AssessmentContext.from_snapshot_and_ctrl(...)` 引入具名 `Protocol`，将 `ctrl` 形参标注为 `_AssessmentControllerLike`。
+  - `domain/` 当前函数/方法返回标注已保持全覆盖；本轮未对 `domain/phase_order_state.py` 的业务接口做任何改动。
+  - `app/main.py` 顶部架构说明、controller 类说明与状态区块注释已更新为与 R44–R46 之后的真实结构一致，不再保留“physics 通过 ctrl 读写”这类旧表述。
+- 范围与边界：
+  - 本轮未触碰 `ui/**`、`adapters/**`、`tests/**` 既有用例，也未改动除 3 个白名单文件外的其他 `services/**`。
+  - 疑似私有 dead code 仅登记为候选，未在本轮物理删除，以避免误删风险。
+- 验证结果：
+  - G1 PASS：`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest -q` = `16 passed`
+  - G2 PASS：`py_compile app/main.py domain/*.py services/_physics_arbitration.py services/_physics_measurement.py services/pt_voltage_check_service.py` 通过
+  - G3 PASS：参考清单中的死 import 已清理完毕
+  - G4 PASS：`from __future__ import annotations` 现存语义指令未被误删
+  - G5 PASS：`domain/` 当前函数/方法返回标注覆盖率维持全覆盖（`assessment.py 5/5`、`phase_order_state.py 12/12`，其余文件无函数定义）
+  - G6 PASS：R45 / R46 基线未退化（`control_panel.py = 328`，全仓 `self._ctrl = 0`，`services/` 下 `self._ctrl | self.ctrl = 0`）
+  - G7 PASS：`PhaseOrderState` 接口数量与命名保持不变
+  - G8 PASS：diff 仅集中在 `app/main.py`、3 个白名单 service、`domain/assessment.py` 与 checklist；无函数体业务逻辑改动
+  - G9 PASS：offscreen 启动无 `AttributeError / ImportError / Traceback`
+  - G10 PASS：未越权文件扫描通过
+- 后续建议：
+  - 本轮完成后，“耦合清理 + UI 组件化 + 状态真值源收口 + 清理轮”这条主线已经收尾。
+  - 后续若继续推进，优先级建议为：`services/` 类型标注专项、`ui/styles.py` 拆分、`ui/widgets/step_panels/_panel_builders.py` 拆分。
 
 ### 第 46 轮 (2026-04-20)：状态真值源收口（`PhaseOrderState`）+ `_BoolProxy` 残留清理
 - 本轮唯一主攻目标：将散落在 `PowerSyncController` 上的 6 个相序/黑盒容器属性收口为单一状态容器，并清理 `app/main.py` 中 `_BoolProxy` 留下的 4 处 `_ctrl` 历史残留。
@@ -1459,6 +1489,7 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 | R44 | `physics_engine.py` + `_physics_*.py` | 31 | — | 已完成（physics 层 `self.ctrl` 清理，Phase 4 真正收官） |
 | R45 | `ui/panels/control_panel.py` + `ui/widgets/control_panel/*` | 12 + 3 别名直连 | 776 | 已完成（Phase 3 收尾，组件化与瘦身） |
 | R46 | `domain/phase_order_state.py` + `app/main.py` + `services/blackbox_repair_handler.py` | 状态真值源收口 + `_BoolProxy` 清理 | — | 已完成 |
+| R47 | `app/main.py` + `domain/assessment.py` + 3 个白名单 service | cleanup round | — | 已完成（死 import 清理 + `domain/` 类型标注补齐 + 历史注释整理） |
 
 ### R33：模式建立（最小验证，已完成）
 
@@ -1566,7 +1597,7 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 - 本轮回归：`pytest 13 passed`
 
 - R40、R41、R42、R43、R44 已完成；Phase 4 已真正收官
-- R45、R46 已完成；下一轮默认起点为 R47：死代码 / 重复 UI / 旧注释块清理 + `domain/services` 类型标注补齐
+- R45、R46、R47 已完成；后续轮次不再预先排期，按需立项
 
 ### R43：ControllerSignals 引入 + 分阶段 render 迁移
 

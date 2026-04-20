@@ -10,7 +10,7 @@ PowerSyncController   唯一数据源 (SimulationState) + 编排层
   ├─ PtPhaseCheckService      第三步：PT 相序检查业务逻辑
   ├─ PtExamService            第四步：PT 二次端子压差考核业务逻辑
   └─ SyncTestService          第五步：同步功能测试业务逻辑
-PhysicsEngine         物理计算，通过 ctrl.sim_state 读写，build_render_state() 输出快照
+PhysicsEngine         物理计算，通过显式注入依赖读写状态，build_render_state() 输出快照
 PowerSyncUI           视图，通过 ctrl 引用读写状态，render_visuals(rs) 消费 RenderState
 QTimer                每 33ms 驱动主循环
 """
@@ -20,7 +20,6 @@ import os
 import random
 import traceback
 import time
-from typing import Any, Dict, Optional
 
 # 将项目根目录加入 sys.path，确保 domain/services/ui 包可以被找到
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,13 +28,12 @@ from PyQt5 import QtWidgets, QtCore
 
 from domain.assessment import AssessmentContext
 from domain.constants import GRID_AMP
-from domain.enums import SystemMode
 from domain.models import GeneratorState, SimulationState, FaultConfig
 from domain.phase_order_state import PhaseOrderState
 from app.controller_signals import ControllerSignals
 from services.assessment_service import AssessmentService
-from services.assessment_coordinator import AssessmentCoordinator, StepProgressSnapshot
-from services.blackbox_repair_handler import BlackboxRepairHandler, BlackboxRepairOutcome
+from services.assessment_coordinator import AssessmentCoordinator
+from services.blackbox_repair_handler import BlackboxRepairHandler
 from services.fault_manager import FaultManager
 from services.hardware_actions import HardwareActions
 from services.physics_engine import PhysicsEngine
@@ -44,7 +42,7 @@ from services.pt_voltage_check_service import PtVoltageCheckService
 from services.pt_phase_check_service import PtPhaseCheckService
 from services.pt_exam_service import PtExamService
 from services.sync_test_service import SyncTestService
-from services.flow_mode_manager import FlowModeManager, FlowModePolicy
+from services.flow_mode_manager import FlowModeManager
 from services.phase_order_resolver import PhaseOrderResolver
 from ui.main_window import PowerSyncUI
 
@@ -55,7 +53,7 @@ class PowerSyncController:
     持有 sim_state（唯一数据源）、四个业务服务、physics 和 ui。
     所有测试业务逻辑委托给对应 Service；控制器只保留：
       · 状态字典的所有权（供 UI 直接读取）
-      · PT 节点解析辅助（physics_engine 通过 ctrl 调用）
+      · PT 节点解析辅助（供 physics 与 UI 侧桥接调用）
       · 硬件控制动作（toggle_engine / toggle_breaker 等）
       · loop_test_mode 开关（跨步骤共用）
     """
@@ -223,7 +221,7 @@ class PowerSyncController:
             is_pt_exam_recorded=lambda gen_id: self.pt_exam_svc.is_pt_exam_recorded(gen_id),
         )
 
-        # ── 状态 dataclass（UI 直接读取属性，服务通过 ctrl 写入）────────
+        # ── 状态 dataclass（UI 直接读取，服务通过显式注入回写）──────────
         self.loop_test_state         = self.loop_svc.create_loop_test_state()
         self.pt_voltage_check_state  = self.pt_voltage_svc.create_pt_voltage_check_state()
         self.pt_phase_check_state    = self.pt_phase_svc.create_pt_phase_check_state()
@@ -416,7 +414,7 @@ class PowerSyncController:
         return updates
 
     # ════════════════════════════════════════════════════════════════════════
-    # PT 节点解析辅助（physics_engine.py 通过 self.ctrl 调用）
+    # PT 节点解析辅助（供 physics 与 UI 侧桥接调用）
     # ════════════════════════════════════════════════════════════════════════
     # ════════════════════════════════════════════════════════════════════════
     # 小型辅助（被 UI 或多个服务直接调用）
