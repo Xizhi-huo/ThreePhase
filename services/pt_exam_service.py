@@ -3,6 +3,10 @@ services/pt_exam_service.py
 PT 二次端子压差考核服务
 """
 
+from __future__ import annotations
+
+from typing import Callable
+
 import numpy as np
 
 from domain.assessment import AssessmentEventType
@@ -16,51 +20,73 @@ class PtExamService:
     gen_id 由调用方（UI/Controller）显式传入，服务层不再直接读取任何 UI 控件状态。
     """
 
-    def __init__(self, ctrl):
-        self._ctrl = ctrl
+    def __init__(
+        self,
+        *,
+        sim_state,
+        flow_mgr,
+        get_physics: Callable[[], object],
+        get_pt_exam_states: Callable[[], dict],
+        is_loop_test_complete: Callable[[], bool],
+        is_pt_voltage_check_complete: Callable[[], bool],
+        is_pt_phase_check_complete: Callable[[], bool],
+        append_assessment_event: Callable,
+    ):
+        self._sim_state = sim_state
+        self._flow_mgr = flow_mgr
+        self._get_physics = get_physics
+        self._get_pt_exam_states = get_pt_exam_states
+        self._is_loop_test_complete = is_loop_test_complete
+        self._is_pt_voltage_check_complete = is_pt_voltage_check_complete
+        self._is_pt_phase_check_complete = is_pt_phase_check_complete
+        self._append_assessment_event = append_assessment_event
 
     # ── 状态工厂 ──────────────────────────────────────────────────────────────
     def create_pt_exam_state(self) -> PtExamState:
         return PtExamState()
 
     def start_pt_exam(self, gen_id):
-        self._ctrl.pt_exam_states[gen_id].started = True
+        self._get_pt_exam_states()[gen_id].started = True
 
     def stop_pt_exam(self, gen_id):
-        self._ctrl.pt_exam_states[gen_id].started = False
+        self._get_pt_exam_states()[gen_id].started = False
 
     def _set_pt_exam_feedback(self, gen_id, message, color='#444444'):
-        self._ctrl.pt_exam_states[gen_id].feedback = message
-        self._ctrl.pt_exam_states[gen_id].feedback_color = color
+        state = self._get_pt_exam_states()[gen_id]
+        state.feedback = message
+        state.feedback_color = color
 
     def _expected_pt_probe_pair(self, gen_id, gen_phase, bus_phase):
         return {f"PT{'1' if gen_id == 1 else '3'}_{gen_phase}", f"PT2_{bus_phase}"}
 
     def _get_current_pt_phase_match(self, gen_id):
         """返回 (gen_phase, bus_phase) 元组，或 None（表笔未对准有效 PT 端子）。"""
-        sim = self._ctrl.sim_state
+        sim = self._sim_state
         if not sim.probe1_node or not sim.probe2_node:
             return None
         gen_prefix = 'PT1_' if gen_id == 1 else 'PT3_'
-        for a, b in [(sim.probe1_node, sim.probe2_node),
-                     (sim.probe2_node, sim.probe1_node)]:
+        for a, b in [
+            (sim.probe1_node, sim.probe2_node),
+            (sim.probe2_node, sim.probe1_node),
+        ]:
             if a.startswith(gen_prefix) and b.startswith('PT2_'):
-                return (a[-1], b[-1])   # (gen_phase, bus_phase)
+                return (a[-1], b[-1])  # (gen_phase, bus_phase)
         return None
 
     def reset_pt_exam(self, gen_id=None):
         target_ids = (gen_id,) if gen_id in (1, 2) else (1, 2)
+        states = self._get_pt_exam_states()
         for gid in target_ids:
-            self._ctrl.pt_exam_states[gid] = self.create_pt_exam_state()
+            states[gid] = self.create_pt_exam_state()
 
     def _is_pt_exam_setup_ready(self, gen_id):
-        gen1, gen2 = self._ctrl.sim_state.gen1, self._ctrl.sim_state.gen2
-        gnd_ok     = self._ctrl.sim_state.grounding_mode == "小电阻接地"
-        gen1_on    = gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed
+        sim = self._sim_state
+        gen1, gen2 = sim.gen1, sim.gen2
+        gnd_ok = sim.grounding_mode == "小电阻接地"
+        gen1_on = gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed
         if gen_id == 1:
             return gnd_ok and gen1_on and not gen2.breaker_closed
-        else:
-            return gnd_ok and gen1_on and gen2.running and not gen2.breaker_closed
+        return gnd_ok and gen1_on and gen2.running and not gen2.breaker_closed
 
     def record_pt_measurement(self, gen_phase, bus_phase, gen_id):
         """
@@ -76,10 +102,14 @@ class PtExamService:
             gen_id = 1
         gen_phase = gen_phase.upper()
         bus_phase = bus_phase.upper()
-        key = f"{gen_phase}{bus_phase}"   # 'AA'/'AB'/.../'CC'
-        gen1, gen2 = self._ctrl.sim_state.gen1, self._ctrl.sim_state.gen2
+        key = f"{gen_phase}{bus_phase}"  # 'AA'/'AB'/.../'CC'
+        sim = self._sim_state
+        states = self._get_pt_exam_states()
+        state = states[gen_id]
+        gen1, gen2 = sim.gen1, sim.gen2
+
         def _record_invalid(reason):
-            self._ctrl.assessment_coord.append_assessment_event(
+            self._append_assessment_event(
                 AssessmentEventType.MEASUREMENT_INVALID,
                 step=4,
                 target=f'Gen{gen_id}',
@@ -88,66 +118,107 @@ class PtExamService:
             )
 
         # ── 门禁：必须先点击"开始第四步测试" ──────────────────────────────
-        if not self._ctrl.pt_exam_states[gen_id].started:
+        if not state.started:
             _record_invalid("step_not_started")
             self._set_pt_exam_feedback(
                 gen_id,
                 f'请先点击"开始第四步测试 Gen{gen_id}"，再进行 PT 二次端子压差测量。',
-                "red")
+                "red",
+            )
             return
 
-        if not self._ctrl.loop_svc.is_loop_test_complete():
+        if not self._is_loop_test_complete():
             _record_invalid("loop_test_incomplete")
             self._set_pt_exam_feedback(
-                gen_id, "请先完成第一步【回路连通性测试】，再进行 PT 二次端子压差测量。", "red")
+                gen_id,
+                "请先完成第一步【回路连通性测试】，再进行 PT 二次端子压差测量。",
+                "red",
+            )
             return
-        if not self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete():
+        if not self._is_pt_voltage_check_complete():
             _record_invalid("pt_voltage_incomplete")
             self._set_pt_exam_feedback(
-                gen_id, "请先完成第二步【PT 单体线电压检查】，再进行 PT 二次端子压差测量。", "red")
+                gen_id,
+                "请先完成第二步【PT 单体线电压检查】，再进行 PT 二次端子压差测量。",
+                "red",
+            )
             return
-        if not self._ctrl.pt_phase_svc.is_pt_phase_check_complete():
+        if not self._is_pt_phase_check_complete():
             _record_invalid("pt_phase_incomplete")
             self._set_pt_exam_feedback(
                 gen_id,
-                "请先完成第三步【PT 相序检查】，确认 PT1/PT3 各相连线正确后，再进行压差测量。", "red")
+                "请先完成第三步【PT 相序检查】，确认 PT1/PT3 各相连线正确后，再进行压差测量。",
+                "red",
+            )
             return
 
-        if self._ctrl.sim_state.grounding_mode != "小电阻接地":
+        if sim.grounding_mode != "小电阻接地":
             _record_invalid("grounding_not_ready")
-            self._set_pt_exam_feedback(gen_id, "请先恢复中性点小电阻接地，再进行 PT 二次端子压差测量。", "red")
+            self._set_pt_exam_feedback(
+                gen_id,
+                "请先恢复中性点小电阻接地，再进行 PT 二次端子压差测量。",
+                "red",
+            )
             return
 
         if gen_id == 1:
             if gen1.breaker_position != BreakerPosition.WORKING or not gen1.breaker_closed:
                 _record_invalid("gen1_not_on_bus")
-                self._set_pt_exam_feedback(1, "请将 Gen1 切至工作位置并合闸，建立母排参考电压。", "red")
+                self._set_pt_exam_feedback(
+                    1,
+                    "请将 Gen1 切至工作位置并合闸，建立母排参考电压。",
+                    "red",
+                )
                 return
             if gen2.breaker_closed:
                 _record_invalid("gen2_breaker_closed")
-                self._set_pt_exam_feedback(1, "测试 Gen1 时请先断开 Gen2 断路器，Gen2 不应并入母排。", "red")
+                self._set_pt_exam_feedback(
+                    1,
+                    "测试 Gen1 时请先断开 Gen2 断路器，Gen2 不应并入母排。",
+                    "red",
+                )
                 return
         else:
             if gen1.breaker_position != BreakerPosition.WORKING or not gen1.breaker_closed:
                 _record_invalid("gen1_not_on_bus")
-                self._set_pt_exam_feedback(2, "请先确保 Gen1 已并入母排，作为母排参考电压来源。", "red")
+                self._set_pt_exam_feedback(
+                    2,
+                    "请先确保 Gen1 已并入母排，作为母排参考电压来源。",
+                    "red",
+                )
                 return
             if not gen2.running:
                 _record_invalid("gen2_not_running")
-                self._set_pt_exam_feedback(2, "请先启动 Gen2，再进行 PT 二次端子压差测量。", "red")
+                self._set_pt_exam_feedback(
+                    2,
+                    "请先启动 Gen2，再进行 PT 二次端子压差测量。",
+                    "red",
+                )
                 return
             if gen2.breaker_closed:
                 _record_invalid("gen2_breaker_closed")
-                self._set_pt_exam_feedback(2, "Gen2 断路器应保持断开，并入前才能测量有效压差。", "red")
+                self._set_pt_exam_feedback(
+                    2,
+                    "Gen2 断路器应保持断开，并入前才能测量有效压差。",
+                    "red",
+                )
                 return
 
-        if not self._ctrl.sim_state.multimeter_mode:
+        if not sim.multimeter_mode:
             _record_invalid("multimeter_disabled")
-            self._set_pt_exam_feedback(gen_id, "请先开启万用表，再到母排拓扑页放置表笔。", "red")
+            self._set_pt_exam_feedback(
+                gen_id,
+                "请先开启万用表，再到母排拓扑页放置表笔。",
+                "red",
+            )
             return
-        if not self._ctrl.sim_state.probe1_node or not self._ctrl.sim_state.probe2_node:
+        if not sim.probe1_node or not sim.probe2_node:
             _record_invalid("probe_missing")
-            self._set_pt_exam_feedback(gen_id, "表笔尚未放置完成，请在母排拓扑页连接对应 PT 端子。", "red")
+            self._set_pt_exam_feedback(
+                gen_id,
+                "表笔尚未放置完成，请在母排拓扑页连接对应 PT 端子。",
+                "red",
+            )
             return
 
         matched = self._get_current_pt_phase_match(gen_id)
@@ -161,29 +232,30 @@ class PtExamService:
             self._set_pt_exam_feedback(gen_id, msg, "red")
             return
 
-        meter_v_sec  = getattr(self._ctrl.physics, 'meter_voltage', None)
-        meter_status = getattr(self._ctrl.physics, 'meter_status', 'idle')
+        physics = self._get_physics()
+        meter_v_sec = getattr(physics, 'meter_voltage', None)
+        meter_status = getattr(physics, 'meter_status', 'idle')
         if meter_v_sec is None or meter_status != 'ok':
             _record_invalid("invalid_meter_status")
-            self._set_pt_exam_feedback(gen_id, "当前测量结果无效，请确认表笔接在有效 PT 端子上。", "red")
+            self._set_pt_exam_feedback(
+                gen_id,
+                "当前测量结果无效，请确认表笔接在有效 PT 端子上。",
+                "red",
+            )
             return
 
-        # 存储矢量压差结果
-        self._ctrl.pt_exam_states[gen_id].records[key] = {
+        state.records[key] = {
             'voltage_sec': meter_v_sec,
-            'reading': self._ctrl.physics.meter_reading,
+            'reading': physics.meter_reading,
         }
-        self._ctrl.assessment_coord.append_assessment_event(
+        self._append_assessment_event(
             AssessmentEventType.MEASUREMENT_RECORDED,
             step=4,
             target=f'Gen{gen_id}',
             point=key,
             value=round(meter_v_sec, 4),
         )
-        done_count = sum(
-            1 for v in self._ctrl.pt_exam_states[gen_id].records.values()
-            if v is not None
-        )
+        done_count = sum(1 for value in state.records.values() if value is not None)
         if done_count == 9:
             msg = f"Gen {gen_id} 全部 9 组 PT 端子矢量压差已记录完成。"
         else:
@@ -191,20 +263,20 @@ class PtExamService:
         self._set_pt_exam_feedback(gen_id, msg, "#006600")
 
     def get_pt_exam_steps(self, gen_id):
-        state   = self._ctrl.pt_exam_states[gen_id]
+        state = self._get_pt_exam_states()[gen_id]
         records = state.records
-        gen1, gen2 = self._ctrl.sim_state.gen1, self._ctrl.sim_state.gen2
-        gnd_ok = self._ctrl.sim_state.grounding_mode == "小电阻接地"
-        gen1_on_bus = (gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed)
-        all_9_done = all(v is not None for v in records.values())
+        sim = self._sim_state
+        gen1, gen2 = sim.gen1, sim.gen2
+        gnd_ok = sim.grounding_mode == "小电阻接地"
+        gen1_on_bus = gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed
+        all_9_done = all(value is not None for value in records.values())
 
         if gen_id == 1:
             steps = [
                 ("1. 恢复中性点小电阻接地", gnd_ok),
                 ("2. 将 Gen1 切至工作位置并合闸（建立母排参考）", gen1_on_bus),
                 ("3. 确认 Gen2 断路器处于断开状态", not gen2.breaker_closed),
-                ("4. 开启万用表并依次测量 PT1/PT2 各端子组合",
-                 self._ctrl.sim_state.multimeter_mode),
+                ("4. 开启万用表并依次测量 PT1/PT2 各端子组合", sim.multimeter_mode),
                 ("5. 记录全部 9 组矢量压差（AA/AB/AC/BA/BB/BC/CA/CB/CC）", all_9_done),
             ]
         else:
@@ -213,8 +285,7 @@ class PtExamService:
                 ("1. 恢复中性点小电阻接地", gnd_ok),
                 ("2. 确认 Gen1 已并入母排（作为母排参考）", gen1_on_bus),
                 ("3. 启动 Gen2，保持断路器断开", gen2_running_not_closed),
-                ("4. 开启万用表并依次测量 PT3/PT2 各端子组合",
-                 self._ctrl.sim_state.multimeter_mode),
+                ("4. 开启万用表并依次测量 PT3/PT2 各端子组合", sim.multimeter_mode),
                 ("5. 记录全部 9 组矢量压差（AA/AB/AC/BA/BB/BC/CA/CB/CC）", all_9_done),
             ]
         if state.completed:
@@ -222,15 +293,16 @@ class PtExamService:
         return steps
 
     def get_pt_exam_close_blockers(self, gen_id):
-        generator = self._ctrl._get_generator_state(gen_id)
-        records   = self._ctrl.pt_exam_states[gen_id].records
-        blockers  = []
-        if not any(v is not None for v in records.values()):
-            if self._ctrl.sim_state.grounding_mode != "小电阻接地":
+        generator = self._get_generator_state(gen_id)
+        records = self._get_pt_exam_states()[gen_id].records
+        sim = self._sim_state
+        blockers = []
+        if not any(value is not None for value in records.values()):
+            if sim.grounding_mode != "小电阻接地":
                 blockers.append("未恢复中性点小电阻接地")
             if generator.breaker_position != BreakerPosition.WORKING or not generator.breaker_closed:
                 blockers.append("未在工作位置并入母排完成 PT 二次端子测量")
-            if not self._ctrl.sim_state.multimeter_mode:
+            if not sim.multimeter_mode:
                 blockers.append("未开启万用表")
         for key in (f'{g}{b}' for g in 'ABC' for b in 'ABC'):
             if records[key] is None:
@@ -238,129 +310,131 @@ class PtExamService:
         return blockers
 
     def is_pt_exam_ready(self, gen_id):
-        return self._ctrl.pt_exam_states[gen_id].completed
+        return self._get_pt_exam_states()[gen_id].completed
 
     def finalize_pt_exam(self, gen_id):
-        state = self._ctrl.pt_exam_states[gen_id]
+        state = self._get_pt_exam_states()[gen_id]
         if not self._are_pt_exam_records_complete(gen_id):
             self._set_pt_exam_feedback(
                 gen_id,
-                '请先完成全部 9 组 PT 矢量压差记录（AA~CC），再点击\u201c完成第四步测试\u201d。',
-                "red")
+                '请先完成全部 9 组 PT 矢量压差记录（AA~CC），再点击“完成第四步测试”。',
+                "red",
+            )
             return
         state.completed = True
         self._set_pt_exam_feedback(
             gen_id,
             f"第四步【Gen{gen_id} PT 二次端子压差测试】已确认完成，后续操作将不再影响该步骤状态。",
-            "#006600")
+            "#006600",
+        )
 
     def finalize_all_pt_exams(self):
         """完成第四步：Gen1 和 Gen2 均须完成三相记录，才能锁定结果。"""
         gen1_ok = self._are_pt_exam_records_complete(1)
         gen2_ok = self._are_pt_exam_records_complete(2)
-        if self._ctrl.flow_mgr.is_assessment_mode() and not (gen1_ok and gen2_ok):
+        if self._flow_mgr.is_assessment_mode() and not (gen1_ok and gen2_ok):
             self._set_pt_exam_feedback(1, "", "#444444")
             self._set_pt_exam_feedback(2, "", "#444444")
             return
         if not gen1_ok:
             self._set_pt_exam_feedback(
                 1,
-                'Gen1 尚未完成三相 PT 二次端子压差记录，请先切换至 Gen1 完成测量，'
-                '再点击\u201c完成第四步测试\u201d。',
-                'red')
+                'Gen1 尚未完成三相 PT 二次端子压差记录，请先切换至 Gen1 完成测量，再点击“完成第四步测试”。',
+                'red',
+            )
             if not gen2_ok:
                 self._set_pt_exam_feedback(
                     2,
                     'Gen1 和 Gen2 均尚未完成三相 PT 二次端子压差记录。',
-                    'red')
+                    'red',
+                )
             else:
                 self._set_pt_exam_feedback(
                     2,
                     'Gen2 已完成，但 Gen1 尚未完成测量，请切换至 Gen1 完成后再点击完成。',
-                    '#cc6600')
+                    '#cc6600',
+                )
             return
         if not gen2_ok:
             self._set_pt_exam_feedback(
                 2,
-                'Gen2 尚未完成三相 PT 二次端子压差记录，请先切换至 Gen2 完成测量，'
-                '再点击\u201c完成第四步测试\u201d。',
-                'red')
+                'Gen2 尚未完成三相 PT 二次端子压差记录，请先切换至 Gen2 完成测量，再点击“完成第四步测试”。',
+                'red',
+            )
             self._set_pt_exam_feedback(
                 1,
                 'Gen1 已完成，但 Gen2 尚未完成测量，请切换至 Gen2 完成后再点击完成。',
-                '#cc6600')
+                '#cc6600',
+            )
             return
+        states = self._get_pt_exam_states()
         for gid in (1, 2):
-            self._ctrl.pt_exam_states[gid].completed = True
+            states[gid].completed = True
             self._set_pt_exam_feedback(
                 gid,
-                '第四步【PT 二次端子压差测试】Gen1 和 Gen2 均已确认完成，'
-                '后续操作将不再影响该步骤状态。',
-                '#006600')
+                '第四步【PT 二次端子压差测试】Gen1 和 Gen2 均已确认完成，后续操作将不再影响该步骤状态。',
+                '#006600',
+            )
 
     def record_all_pt_measurements_quick(self):
         """
         快捷记录：跳过表笔放置检查，直接从物理引擎当前 PT 二次电压
         计算 Gen1 和 Gen2 全部 18 组压差并一次性写入记录。
         """
-        if not (self._ctrl.pt_exam_states[1].started and
-                self._ctrl.pt_exam_states[2].started):
-            self._set_pt_exam_feedback(
-                1, '请先点击"开始第四步测试"。', 'red')
+        states = self._get_pt_exam_states()
+        if not (states[1].started and states[2].started):
+            self._set_pt_exam_feedback(1, '请先点击"开始第四步测试"。', 'red')
             return
-        if not self._ctrl.loop_svc.is_loop_test_complete():
-            self._set_pt_exam_feedback(
-                1, '请先完成第一步【回路连通性测试】。', 'red')
+        if not self._is_loop_test_complete():
+            self._set_pt_exam_feedback(1, '请先完成第一步【回路连通性测试】。', 'red')
             return
-        if not self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete():
-            self._set_pt_exam_feedback(
-                1, '请先完成第二步【PT 单体线电压检查】。', 'red')
+        if not self._is_pt_voltage_check_complete():
+            self._set_pt_exam_feedback(1, '请先完成第二步【PT 单体线电压检查】。', 'red')
             return
-        if not self._ctrl.pt_phase_svc.is_pt_phase_check_complete():
-            self._set_pt_exam_feedback(
-                1, '请先完成第三步【PT 相序检查】。', 'red')
+        if not self._is_pt_phase_check_complete():
+            self._set_pt_exam_feedback(1, '请先完成第三步【PT 相序检查】。', 'red')
             return
 
-        _SQRT3 = np.sqrt(3)
-        p  = self._ctrl.physics
-        fc = self._ctrl.sim_state.fault_config
+        sqrt3 = np.sqrt(3)
+        physics = self._get_physics()
+        fc = self._sim_state.fault_config
 
         for gen_id in (1, 2):
-            pt_name  = 'PT1' if gen_id == 1 else 'PT3'
-            gen_line = p.pt1_v if gen_id == 1 else p.pt3_v
-            bus_line = p.pt2_v
-            gen_ph   = gen_line / _SQRT3
-            bus_ph   = bus_line / _SQRT3
+            pt_name = 'PT1' if gen_id == 1 else 'PT3'
+            gen_line = physics.pt1_v if gen_id == 1 else physics.pt3_v
+            bus_line = physics.pt2_v
+            gen_ph = gen_line / sqrt3
+            bus_ph = bus_line / sqrt3
 
             for gen_term in ('A', 'B', 'C'):
                 for bus_phase in ('A', 'B', 'C'):
                     key = f"{gen_term}{bus_phase}"
 
-                    gen_phase_actual = p._resolve_terminal_actual_phase(pt_name, gen_term)
-                    bus_phase_actual = p._resolve_terminal_actual_phase('PT2', bus_phase)
-                    is_same_phase    = (gen_phase_actual == bus_phase_actual)
+                    gen_phase_actual = physics._resolve_terminal_actual_phase(pt_name, gen_term)
+                    bus_phase_actual = physics._resolve_terminal_actual_phase('PT2', bus_phase)
+                    is_same_phase = gen_phase_actual == bus_phase_actual
 
-                    _e03 = (fc.active and not fc.repaired
-                            and fc.scenario_id == 'E03'
-                            and gen_id == 2 and gen_term == 'A')
+                    e03_fault = (
+                        fc.active and not fc.repaired
+                        and fc.scenario_id == 'E03'
+                        and gen_id == 2 and gen_term == 'A'
+                    )
 
-                    if _e03:
+                    if e03_fault:
                         if is_same_phase:
                             meter_v = gen_ph + bus_ph
                         else:
-                            meter_v = np.sqrt(max(0.0,
-                                gen_ph**2 + bus_ph**2 - gen_ph * bus_ph))
+                            meter_v = np.sqrt(max(0.0, gen_ph**2 + bus_ph**2 - gen_ph * bus_ph))
                     elif is_same_phase:
                         meter_v = abs(gen_ph - bus_ph)
                     else:
-                        meter_v = np.sqrt(max(0.0,
-                            gen_ph**2 + bus_ph**2 + gen_ph * bus_ph))
+                        meter_v = np.sqrt(max(0.0, gen_ph**2 + bus_ph**2 + gen_ph * bus_ph))
 
-                    self._ctrl.pt_exam_states[gen_id].records[key] = {
+                    states[gen_id].records[key] = {
                         'voltage_sec': round(meter_v, 4),
                         'reading': f"快捷记录 {pt_name}_{gen_term}↔PT2_{bus_phase}: {meter_v:.2f} V",
                     }
-                    self._ctrl.assessment_coord.append_assessment_event(
+                    self._append_assessment_event(
                         AssessmentEventType.MEASUREMENT_RECORDED,
                         step=4,
                         target=f'Gen{gen_id}',
@@ -371,16 +445,20 @@ class PtExamService:
             self._set_pt_exam_feedback(
                 gen_id,
                 f"✅ Gen{gen_id} 快捷记录完成，全部 9 组压差已写入。",
-                "#006600")
+                "#006600",
+            )
 
     def _should_enforce_pt_exam_before_close(self):
-        return self._ctrl.sim_state.grounding_mode != "断开"
+        return self._sim_state.grounding_mode != "断开"
 
     def is_pt_exam_recorded(self, gen_id):
         """流程门禁：只有用户点击"完成第四步测试"后才返回 True。"""
-        return self._ctrl.pt_exam_states[gen_id].completed
+        return self._get_pt_exam_states()[gen_id].completed
 
     def _are_pt_exam_records_complete(self, gen_id):
         """内部辅助：全部 9 组是否已记录（用于 finalize 前置校验）。"""
-        records = self._ctrl.pt_exam_states[gen_id].records
-        return all(records[k] is not None for k in (f'{g}{b}' for g in 'ABC' for b in 'ABC'))
+        records = self._get_pt_exam_states()[gen_id].records
+        return all(records[key] is not None for key in (f'{g}{b}' for g in 'ABC' for b in 'ABC'))
+
+    def _get_generator_state(self, gen_id):
+        return self._sim_state.gen1 if gen_id == 1 else self._sim_state.gen2

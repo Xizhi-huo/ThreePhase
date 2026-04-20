@@ -184,7 +184,16 @@ class PowerSyncController:
             record_pt_phase_check_result=self.record_pt_phase_check_result,
             mark_pt_phase_check_completed=self.mark_pt_phase_check_completed,
         )
-        self.pt_exam_svc          = PtExamService(self)
+        self.pt_exam_svc          = PtExamService(
+            sim_state=self.sim_state,
+            flow_mgr=self.flow_mgr,
+            get_physics=lambda: self.physics,
+            get_pt_exam_states=lambda: self.pt_exam_states,
+            is_loop_test_complete=lambda: self.loop_svc.is_loop_test_complete(),
+            is_pt_voltage_check_complete=lambda: self.pt_voltage_svc.is_pt_voltage_check_complete(),
+            is_pt_phase_check_complete=lambda: self.pt_phase_svc.is_pt_phase_check_complete(),
+            append_assessment_event=self.assessment_coord.append_assessment_event,
+        )
         self.sync_svc             = SyncTestService(
             sim_state=self.sim_state,
             flow_mgr=self.flow_mgr,
