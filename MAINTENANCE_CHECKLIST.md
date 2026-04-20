@@ -136,10 +136,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 4 已真正收官：R44 已完成（physics 层 `self.ctrl` 清零，`services/` 下 `self._ctrl | self.ctrl` = 0）；Phase 3 已关闭。 |
+| 当前阶段 | Phase 4 已真正收官；R45 已完成（`ControlPanel` 组件化与瘦身，Phase 3 收尾）。 |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
-| 当前最大风险文件 | `ui/styles.py`(1007)、`ui/panels/control_panel.py`(776)、`ui/widgets/step_panels/_panel_builders.py`(347) |
-| 下一轮默认起点 | Phase 4 已真正收官；后续视 UX/性能反馈决定是否启动 R43 阶段 3（轮询压缩）或进入新阶段。 |
+| 当前最大风险文件 | `ui/styles.py`(1007)、`ui/widgets/step_panels/_panel_builders.py`(347)；`ui/panels/control_panel.py` 已于 R45 从 `776` 行收敛到 `328` 行 |
+| 下一轮默认起点 | R46：状态真值源收口（`pt_phase_orders` 派生关系、`blackbox_order` 隐式同步） |
 
 ---
 
@@ -278,7 +278,9 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 - [x] **`PtExamTab`（20 处 ctrl 引用）**
 - [x] **`WaveformTab`（5 处 ctrl 引用，注意 matplotlib canvas 生命周期）**
 - [x] **`CircuitTab`（10 处 ctrl 引用）**
-- [ ] **`ControlPanel`（12 处 ctrl 引用）**
+- [x] **`ControlPanel`（12 处 ctrl 引用）**
+  - R45 已完成组件化与瘦身：`ui/panels/control_panel.py` 从 `776` 行降到 `328` 行，新增 `ui/widgets/control_panel/` 子包承接 `GeneratorCard / RunControlsPage / ParamControlsPage`
+  - 12 处 `self.ctrl.sim_state.*` 读写按 §5.2 例外条款保留；3 处 `c.hw.*` 直连已改为宿主回调注入组件
 - [x] **`TestPanel`（111 处 ctrl 引用）— 最后做，最复杂**
   - R30 已把骨架迁移为单体 `TestPanelWidget(QWidget)`，`_GenWiringWidget` / `_PTWiringWidget` 外提到 `ui/widgets/`
   - R31 按 Step1~5 继续把 `_build_step*` / `_refresh_tp_step*` 外提为 5 个独立 `QGroupBox` 子面板，`ui/test_panel.py` 收敛为 677 行的协调器
@@ -380,6 +382,15 @@ grep -nE "self\.ctrl\.(flow_mgr|loop_svc|pt_voltage_svc|pt_phase_svc|pt_exam_svc
 ```
 
 结果必须**为空**。任何 service / coordinator / hardware 层直连 = §7.5 例外条款失效 = 下一轮必须把 `WidgetBuilderMixin` 降级为独立 `QWidget` 或 `ControlPanelBuilder` facade。
+
+别名直连也必须执行（封堵 `c = self.ctrl` 后再 `c.hw.*` / `c.flow_mgr.*` 等路径）：
+
+```bash
+grep -nE "\bc\.(hw|flow_mgr|loop_svc|pt_voltage_svc|pt_phase_svc|pt_exam_svc|sync_svc|assessment_coord|fault_mgr|blackbox_handler)\b" \
+    ui/panels/control_panel.py ui/widgets/control_panel/*.py
+```
+
+结果同样必须**为空**。
 
 说明：
 - `self.ctrl.sim_state.*` 写入（如 `sim_state.multimeter_mode = checked`）与读取是被允许的“UI 参数层同步”，不计入本扫描。
@@ -547,6 +558,33 @@ class PowerSyncUI(QMainWindow):
 - 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
 - 回归清单：PASS（范围检查、repo 级 grep 清零、`py_compile`、offscreen 单帧 physics 冒烟全部通过）
 - 下一轮起点：Phase 4 已真正收官；后续视 UX/性能反馈决定是否启动 R43 阶段 3（轮询压缩）或进入新阶段
+
+### 第 45 轮 (2026-04-20)：Phase 3 收尾（`ControlPanel` 组件化与瘦身）
+- 本轮唯一主攻目标：把 `ui/panels/control_panel.py` 从 776 行的宿主构造层大文件拆分为薄入口，并在不引入新 `self._ctrl` / `self.ctrl.<svc>` 穿透的前提下完成 `GeneratorCard / RunControlsPage / ParamControlsPage` 三分组件化。
+- 实际完成：
+  - 新增 `ui/widgets/control_panel/__init__.py`
+  - 新增 `ui/widgets/control_panel/_widget_tokens.py`
+  - 新增 `ui/widgets/control_panel/generator_card.py`
+  - 新增 `ui/widgets/control_panel/run_controls.py`
+  - 新增 `ui/widgets/control_panel/param_controls.py`
+  - `ui/panels/control_panel.py` 已收敛为 Mixin 薄入口，负责标题、页切换、`QStackedWidget` 装配、故障预设对话框与宿主联动；原 Page0 / Page1 / `_build_gen_panel()` 主体均已迁入独立组件。
+  - 三处别名形式直连服务已清零：`c.hw.instant_sync`、`c.hw.toggle_engine(...)`、`c.hw.toggle_breaker(...)` 均改为宿主侧窄口径回调注入组件。
+  - 宿主属性契约保持不变：`btn_engine1/2`、`btn_breaker1/2`、`status1_lbl/status2_lbl`、`_gen1/_gen2_entry_map`、`bus_status_lbl`、`sim_speed_label`、`pause_btn` 等既有入口仍可通过 `self.<name>` 访问。
+  - `_update_generator_buttons()` 保留在 Mixin，内部改为委托两张 `GeneratorCard.refresh()`，未破坏 `ui/main_window.py` 的既有调用点。
+- 耦合与规模变化：
+  - `ui/panels/control_panel.py` 行数 `776 -> 328`
+  - 新组件文件行数：`generator_card.py = 192`、`run_controls.py = 156`、`param_controls.py = 143`、`_widget_tokens.py = 57`
+- 验证结果：
+  - G1 PASS：`ui/panels/control_panel.py` 当前 `328` 行（≤ 500）
+  - G2 PASS：`self.ctrl.(flow_mgr|...|hw)` 扫描 = 0
+  - G3 PASS：别名扫描 `c.(hw|flow_mgr|...)` 在 `control_panel.py` 与 `ui/widgets/control_panel/*.py` 中 = 0
+  - G4 PASS：新组件文件内无 `ctrl` / `.hw.` 直连
+  - G8 PASS（services 基线）：`grep -rnE "self\._ctrl|self\.ctrl\b" services/ | wc -l = 0`
+  - G9 PASS：`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest` = `13 passed`
+  - G10 PASS（功能性烟测）：offscreen 启动可正常构建控制面板；未出现 `AttributeError`、导入循环或缺失控件契约
+- 下一轮建议：
+  - R46：状态真值源收口（`pt_phase_orders` 派生关系、`blackbox_order` 隐式同步）
+  - R47：死代码 / 重复 UI / 旧注释块清理 + `domain/services` 类型标注补齐
 
 ### 第 43 轮 (2026-04-20)：Phase 4 信号层骨架落地（`ControllerSignals(QObject)` 引入 + 阶段 2 最小试点）
 - 本轮唯一主攻目标：在不改动 `_tick -> render_visuals` 主路径的前提下，引入 controller → UI 信号骨架，并完成 2 个最小、纯文本/状态类 UI 消费者试点。
@@ -1316,7 +1354,7 @@ class PowerSyncUI(QMainWindow):
 
 ---
 
-## 10. 下一轮默认起点 — Phase 4 扩展路线图
+## 10. 下一轮默认起点 — 后续收口路线图
 
 ### 总体目标
 
@@ -1383,6 +1421,7 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 | R42 | `assessment_coordinator.py` | 61 | 250 | 最重汇聚器（Phase 4 service 收口，已完成） |
 | R43 | `ControllerSignals` + render 迁移 | — | — | 已完成（阶段 1 + 阶段 2 试点；阶段 3 未执行） |
 | R44 | `physics_engine.py` + `_physics_*.py` | 31 | — | 已完成（physics 层 `self.ctrl` 清理，Phase 4 真正收官） |
+| R45 | `ui/panels/control_panel.py` + `ui/widgets/control_panel/*` | 12 + 3 别名直连 | 776 | 已完成（Phase 3 收尾，组件化与瘦身） |
 
 ### R33：模式建立（最小验证，已完成）
 
@@ -1490,6 +1529,7 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 - 本轮回归：`pytest 13 passed`
 
 - R40、R41、R42、R43、R44 已完成；Phase 4 已真正收官
+- R45 已完成；`ControlPanel` 组件化与瘦身收口，下一轮默认起点为 R46 状态真值源收口
 
 ### R43：ControllerSignals 引入 + 分阶段 render 迁移
 
@@ -1523,6 +1563,15 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 - `_physics_core.py` 经核对仍为 `0` 处 `self.ctrl`，本轮未涉及
 - repo 级 `grep -rn "self\._ctrl\|self\.ctrl" services/ | wc -l` 已从上一轮残留值 `31` 收口到 `0`
 - `app/main.py` 仅在 `PhysicsEngine(...)` 构造处完成适配；`tests/**`、`ui/**`、`domain/**`、`adapters/**` 均保持零改动
+
+### R45：ControlPanel 组件化与瘦身
+
+**R45 结果**：
+- 已完成；`ui/panels/control_panel.py` 当前 `328` 行，已低于 §1.2 健康阈值
+- 新增 `ui/widgets/control_panel/` 子包，`GeneratorCard / RunControlsPage / ParamControlsPage` 已承接原 Page0 / Page1 / 发电机子面板主体
+- `WidgetBuilderMixin` 已收敛为薄入口：保留页切换装配、故障预设、宿主属性回绑与少量跨区联动
+- `self.ctrl.sim_state.*` 读写仍按 §5.2 例外条款保留；`c.hw.*` 三处直连已全部改为宿主回调注入
+- `pytest 13 passed`；`services/` 层 `self._ctrl | self.ctrl` 继续保持 `0`
 
 ### 基线数据（Phase 4 启动时）
 
