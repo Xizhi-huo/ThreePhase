@@ -35,7 +35,8 @@ python -m pytest tests/
 ```
 ThreePhase/
 ├── app/
-│   └── main.py                      # 应用入口 & PowerSyncController（总控制器）
+│   ├── main.py                      # 应用入口 & PowerSyncController（总控制器）
+│   └── controller_signals.py        # Controller → UI 信号总线（R43）
 ├── domain/                          # 领域模型与常量
 │   ├── constants.py                 # 物理参数（电压、频率、阻抗等）
 │   ├── enums.py                     # 系统模式、断路器状态枚举
@@ -56,6 +57,9 @@ ThreePhase/
 │   ├── pt_exam_service.py           # 第 4 步：PT 压差考核
 │   ├── sync_test_service.py         # 第 5 步：同期功能测试
 │   ├── fault_manager.py             # 故障注入/修复与可修复接线目标管理
+│   ├── blackbox_repair_handler.py   # 黑盒修复编排器
+│   ├── hardware_actions.py          # 启停机/合闸等硬件动作编排
+│   ├── assessment_coordinator.py    # 考核会话汇聚与闭环判定
 │   └── assessment_service.py        # 考核模式自动评分与成绩汇总
 ├── ui/                              # PyQt5 用户界面（Mixin 拼装）
 │   ├── main_window.py               # PowerSyncUI 主窗口
@@ -88,11 +92,13 @@ ThreePhase/
 ```
 PowerSyncUI  (View — 多 Mixin)
       ↑  render_visuals(RenderState)
+      ↑  ControllerSignals (R43 最小试点)
       ↓  用户操作事件
 PowerSyncController  (app/main.py)
   ├─ SimulationState  — 唯一数据源
   ├─ PhysicsEngine    — 33ms 定时器驱动
   ├─ FaultManager     — 故障注入/修复、接线目标判断
+  ├─ AssessmentCoordinator — 考核会话、事件与闭环状态汇聚
   └─ 5 个测试服务实例
       ↑  build_render_state()
       ↓  update_physics()
@@ -102,6 +108,14 @@ PhysicsEngine  (4 个 Mixin 组合)
   ├─ ProtectionMixin    — 继电保护 & 断路器联锁
   └─ MeasurementMixin   — PT 二次侧电压 & 万用表读数
 ```
+
+## 当前维护状态（截至 R44）
+
+- **Phase 4 已真正收官。** R33–R44 已完成；`services/` 目录下 repo 级 `self._ctrl | self.ctrl` 计数已归零。
+- Service/physics 层已完成显式依赖注入收口：业务 service 不再持有 `self._ctrl`，physics 不再持有 `self.ctrl`。
+- R43 已引入 `ControllerSignals(QObject)` 骨架，并落地了 2 个顶层轻量文本状态试点；`_tick -> render_visuals` 仍保留为默认渲染路径，阶段 3（轮询压缩）尚未执行。
+- R44 已把 physics 事故链路收口为 `queue_accident_dialog(...)` 行为回调，物理层不再直接弹 UI 模态对话框。
+- **注意**：Phase 4 收官不等于整份维护清单全部完成；旧键名兼容、状态真值源收口、死代码/重复 UI 清理、类型标注等后续项仍在清单中。
 
 ## Phase 0 安全网
 
@@ -113,7 +127,7 @@ PhysicsEngine  (4 个 Mixin 组合)
   - `tests/snapshots/physics_fault_E01.json`
   - `tests/snapshots/assessment_normal.json`
   - `tests/snapshots/assessment_fault_random.json`
-- 下一步默认起点：`docs/mixin_dependency_map.md`
+- Phase 0 已闭环；当前维护主线已推进并完成到 Phase 4（R44）。
 
 ---
 
@@ -549,7 +563,7 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 
 * **Mixin 组合 (物理引擎):** `PhysicsEngine` 继承自 4 个 mixin (`WaveformMixin`, `ArbitrationMixin`, `ProtectionMixin`, `MeasurementMixin`)。每个 mixin 都在独立的文件中。
 * **Mixin 组合 (UI):** `PowerSyncUI` 继承自 8 个以上的 mixin 以及 `QMainWindow`。每个选项卡和面板都是一个 mixin。
-* **中介者/控制器 (Mediator/Controller):** `PowerSyncController` 充当中央中介者。所有服务、物理引擎和 UI 都引用 `ctrl`。服务将跨领域操作委托给控制器。
+* **中介者/控制器 (Mediator/Controller):** `PowerSyncController` 仍是中央中介者。UI 仍直接持有 controller；service 与 physics 已改为显式依赖注入和细粒度回调，不再整体持有 `ctrl`。
 * **快照/DTO (Snapshot/DTO):** `RenderState` 数据类提供从物理引擎到 UI 的不可变帧快照。边界清晰。
 * **策略对象 (Policy Object):** `FlowModePolicy` 冻结数据类参数化了教学/工程/评估行为。
 
@@ -557,9 +571,9 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 
 ```
 QTimer (33ms) → ctrl._tick()
-  → physics.update_physics()    [读取/写入 ctrl.sim_state]
+  → physics.update_physics()    [读取/写入注入的 sim_state]
   → physics.build_render_state() → RenderState
-  → ui.render_visuals(rs)       [直接读取 RenderState + ctrl.*]
+  → ui.render_visuals(rs)       [主路径：读取 RenderState + 少量 ctrl/UI 状态]
 ```
 
 ---
@@ -587,9 +601,9 @@ QTimer (33ms) → ctrl._tick()
 
 | 严重程度 | 位置 | 问题 |
 | :--- | :--- | :--- |
-| HIGH | `app/main.py` `PowerSyncController` | 上帝类 (God Class)：约 1270 行。它拥有 sim_state，委托给 6 个服务，管理故障注入/修复，评估会话生命周期，黑盒接线修复，PT 相位解析，断路器门控以及 UI 回调。这是可维护性的最大风险。 |
+| HIGH | `app/main.py` `PowerSyncController` | 上帝类 (God Class)：主控制器仍集中持有 sim_state、physics、多个 service、信号总线和部分 UI 桥接逻辑。这是当前最大的可维护性风险。 |
 | HIGH | `services/assessment_service.py:19-597` | `build_result()` 是一个 560 多行的单一方法。极难测试或修改。所有 30 个评分项、惩罚计算和总结生成都在一个函数中。 |
-| MEDIUM | `ui/main_window.py` `show_e01/e02/e03_accident_dialog` | 三个几乎相同、各 100 多行的对话框方法（总计约 390 行）。它们仅在故障描述文本上有所不同。应参数化为一个单一方法。 |
+| INFO | `ui/main_window.py` 事故对话框 | **已在近期收口。** 事故弹窗已统一到 `_show_accident_dialog(scenario_id)` 公共壳层，旧的三套 legacy 对话框实现已删除。 |
 | MEDIUM | `services/_physics_measurement.py` `_update_multimeter` | 65 行的方法，包含深度嵌套的条件分支，用于处理回路/跨PT/无效状态等。 |
 
 #### 2.4 缺失 / 不充分的错误处理
@@ -615,30 +629,30 @@ QTimer (33ms) → ctrl._tick()
 
 | 严重程度 | 位置 | 问题 |
 | :--- | :--- | :--- |
-| CRITICAL | `services/_physics_protection.py:189-231` | **物理引擎直接调用 UI**：`self.ctrl.ui.show_e01_accident_dialog()` 是从物理引擎的断路器逻辑内部调用的。这意味着物理帧更新可能会在模态对话框上阻塞。物理引擎应该触发一个事件/标志；UI 应该轮询它。 |
+| INFO | `services/_physics_protection.py` | **已在 R43/R44 收口。** physics 层不再直接调用 UI，对事故只通过 `queue_accident_dialog(...)` 行为回调排队；控制器在帧末统一消费并弹窗。 |
 | HIGH | `app/main.py:1059` | 控制器直接操作 UI：`self.ui.tab_widget.setCurrentIndex(5)`。控制器不应该知道选项卡的索引。 |
 | HIGH | `app/main.py:1260-1263` | 针对 E04 的 `inject_fault` 直接触及 UI 数字框控件：`_rows['pt3_ratio']` → `sec_spin.setValue(93)`。控制器不应该接触 UI 控件。 |
-| MEDIUM | 所有服务 | 每个服务都持有 `self._ctrl`，并通过回调控制器来完成所有操作（例如 `self._ctrl.physics.meter_status`）。服务层不是真正独立的 —— 它与控制器内部结构紧密耦合。 |
+| INFO | `services/` 全目录 | **已在 R33–R44 收口。** service/physics 层的 `self._ctrl | self.ctrl` 已清零；当前剩余耦合主要集中在 controller ↔ UI 的直接属性访问。 |
 
 #### 3.2 上帝类
 
 | 严重程度 | 位置 | 问题 |
 | :--- | :--- | :--- |
-| CRITICAL | `app/main.py` `PowerSyncController` | 处理：模拟状态的所有权，6 个服务的编排，故障注入/修复，黑盒修复，评估会话管理，PT 相位解析，流程策略评估，断路器门控，硬件操作，UI 通知。约有 85+ 个公共方法。 |
+| CRITICAL | `app/main.py` `PowerSyncController` | 处理：模拟状态的所有权、多个 service/manager 的编排、故障注入/修复、黑盒修复、评估会话管理、PT 相位解析、流程策略评估、断路器门控、硬件操作、UI 通知。约有 85+ 个公共方法。 |
 | HIGH | `ui/main_window.py` `PowerSyncUI` | 继承自 9 个 mixin。MRO（方法解析顺序）很复杂。mixin 之间的任何方法名冲突都是静默错误。 |
 
 #### 3.3 循环依赖风险
 
 | 严重程度 | 位置 | 问题 |
 | :--- | :--- | :--- |
-| MEDIUM | controller ↔ UI ↔ physics | `ctrl` 持有 `physics` 和 `ui`。`physics` 持有 `ctrl` (用于 `ctrl.sim_state`, `ctrl.pt_phase_orders`, `ctrl.ui.show_*`)。`ui` 持有 `ctrl`。这个三角形是一个循环引用图。Python 的垃圾回收器会处理它，但这使得隔离测试变得不可能。 |
+| MEDIUM | controller ↔ UI / controller → physics | 旧的 controller ↔ UI ↔ physics 三角已在 R44 打破：physics 不再持有 controller。当前仍存在 controller ↔ UI 直接引用，以及 `_tick -> render_visuals` 轮询主路径。 |
 | LOW | `domain/node_map.py:1-4` | 注释写着 "独立为单独模块，避免 physics ↔ ui 循环导入" — 证明团队已经遇到过循环导入问题。 |
 
 #### 3.4 关注点混合
 
 | 严重程度 | 位置 | 问题 |
 | :--- | :--- | :--- |
-| CRITICAL | `services/_physics_protection.py:189-231` | 物理引擎直接显示 UI 对话框 (`self.ctrl.ui.show_e01_accident_dialog()`)。物理计算绝对不应该触发模态 UI。 |
+| INFO | `services/_physics_protection.py` | **已在 R43/R44 收口。** 物理层只排队事故，不再直接显示模态 UI；关注点混合已从“physics → ui 直连”降级为“controller 仍承担部分 UI 桥接”。 |
 | HIGH | `app/main.py:1260-1263` | 控制器在故障注入期间操作 UI 数字框值。业务逻辑应该更新模型；UI 应该观察模型变化。 |
 | MEDIUM | `ui/panels/control_panel.py:253-254` | UI 直接设置模型状态：`lambda v: setattr(c.sim_state, 'remote_start_signal', v)`。没有验证边界。 |
 
@@ -652,7 +666,7 @@ QTimer (33ms) → ctrl._tick()
 | :--- | :--- | :--- |
 | HIGH | `app/main.py:1384-1392` | 主 `_tick()` 将整个物理+渲染包裹在 `try/except` 中。任何子步骤（波形，仲裁，保护，测量）的崩溃都会静默导致**整帧失败**，包括渲染。屏幕上会显示旧的状态。如果错误是持续的，模拟器在视觉上冻结，但实际上仍“活着”。 |
 | MEDIUM | `services/_physics_core.py:60-64` | `_advance_time` 将 `animation_time` 增加 `0.002 * sim.sim_speed`。在最大速度（10x，滑块最大值 1000/100）下，这相当于每 33ms 帧 0.02s。波形历史使用 `np.linspace` 进行插值，但是高速会为 50Hz 信号产生每帧 1 个以上的样本 —— 当 `sim_speed > ~5x` 时可能会产生混叠。 |
-| LOW | `services/_physics_arbitration.py:127` | `self.dead_bus_timer += 0.033 * sim.sim_speed` — 硬编码的 0.033s 假定恰好为 30fps。如果定时器触发较晚（系统负载重），死母线倒计时就会漂移。应该使用实际消耗的时间。 |
+| INFO | `services/_physics_arbitration.py` | **已在近期修复。** 死母线倒计时已改为使用控制器注入的真实 `frame_dt`，不再硬编码 `0.033`。 |
 
 #### 4.2 故障注入的边缘情况
 
@@ -683,7 +697,7 @@ QTimer (33ms) → ctrl._tick()
 
 | 严重程度 | 位置 | 问题 |
 | :--- | :--- | :--- |
-| CRITICAL | `services/_physics_protection.py:189` | `self.ctrl.ui.show_e01_accident_dialog()` 从 `_update_breaker_state()` 调用，后者运行在 `update_physics()` 内，后者又运行在 `_tick()` 内，而 `_tick()` 是一个 QTimer 槽。调用 `.exec_()` (模态对话框) 会阻塞定时器回调。在对话框打开期间，**没有物理帧被计算**，没有 UI 更新发生，所有 QTimer 事件排队。关闭对话框后，排队的定时器会快速连续触发。 |
+| MEDIUM | `app/controller_signals.py` / `ui/main_window.py` | R43 引入的 Qt 信号采用主线程同步 `AutoConnection`。当前 slot 只更新轻量文本状态，风险可控；后续若扩大迁移范围，必须继续保持 slot 轻量，避免同步重入。 |
 | MEDIUM | `ui/panels/control_panel.py:409-429` | 滑块的 `valueChanged` 和 LineEdit 的 `editingFinished` 都会更新同一个模型属性。`_update_generator_buttons` 中的 `blockSignals(True/False)` 保护措施可防止无限循环，但 LineEdit 的 `editingFinished` + `returnPressed` 都连接了 —— 按 Enter 会触发两次，导致重复写入。 |
 | LOW | `ui/panels/control_panel.py:158` | `rb.toggled` 在选中和取消选中时都会触发。处理程序检查是否被选中 (`if checked`)，这没错，但会产生不必要的调用。 |
 
@@ -715,9 +729,9 @@ QTimer (33ms) → ctrl._tick()
 1.  **故障注入/修复链 — `app/main.py:1231-1336`**
     * **原因:** `inject_fault` 和 `repair_fault` 在每个场景下手动设置/重置 8 个以上的状态变量 (`pt_phase_orders`, `g1_blackbox_order`, `pt1_pri_blackbox_order`, `fault_reverse_bc`, UI 数字框值)。添加 E15 需要修改此方法并确保 `repair_fault` 中所有的清理路径都更新。
     * **缺失保障:** 无自动化测试。无声明式注入系统 —— 所有逻辑都是过程化的 if/elif 链。在 `repair_fault` 中遗漏一个清理步骤，就会在“修复”后留下幽灵故障效果。
-2.  **物理 → UI 对话框耦合 — `services/_physics_protection.py:185-231`**
-    * **原因:** 物理断路器逻辑直接调用 `self.ctrl.ui.show_e0X_accident_dialog()`。UI 的任何重构（重命名方法、更改对话框流程）都会静默破坏物理行为。模态对话框冻结模拟循环。
-    * **缺失保障:** 物理层与 UI 层之间没有接口/协议。没有事件总线或回调注册。
+2.  **controller ↔ UI 直连仍偏多 — `app/main.py` / `ui/main_window.py`**
+    * **原因:** R43 只完成了信号骨架和两个顶层轻量试点，`_tick -> render_visuals` 仍是主路径；controller 仍直接持有 UI，并在少数场景下直接驱动 tab 或控件。
+    * **缺失保障:** 既有轮询消费者尚未系统迁出，Signal/Slot 还没有覆盖主要 UI 刷新路径。
 3.  **PowerSyncUI 中的 Mixin 命名冲突 — `ui/main_window.py:54-65`**
     * **原因:** 9 个 mixin 共享一个命名空间。如果两个 mixin 定义了同名的方法，Python 的 MRO 会静默选择一个。没有 `__init_subclass__` 保护或命名约定来防止这种情况。
     * **缺失保障:** 跨 mixin 无检测方法名冲突的 Lint 规则或测试。
@@ -736,18 +750,18 @@ QTimer (33ms) → ctrl._tick()
 
 | # | 发现点 | 具体修复建议 |
 | :--- | :--- | :--- |
-| C1 | 物理层调用 UI 对话框 (`_physics_protection.py:189-231`) | 将 `self.ctrl.ui.show_e0X_accident_dialog()` 替换为设置一个标志：`self.ctrl.pending_accident = 'E01'`。在 `render_visuals()` 或 `_tick()` 中，检查该标志并在物理计算**完成后**显示对话框。这将解耦物理与 UI 并防止定时器阻塞。 |
-| C2 | 上帝控制器 (`app/main.py:143`, 1270+ 行) | 将故障管理提取到一个 `FaultManager` 类中 (注入/修复/黑盒/接线顺序)。将评估生命周期提取到一个独立的协调器中。控制器应仅负责将服务连接起来，而不应包含业务逻辑。 |
+| C1 | controller ↔ UI 仍有直接属性访问与索引耦合 | 继续把 tab index 跳转、部分 UI 控件直达更新收口到信号或状态驱动；避免 `PowerSyncController` 继续触碰具体 QWidget 细节。 |
+| C2 | `PowerSyncController` 仍过大 | 在不回退 Phase 4 边界的前提下，继续削薄 controller：优先清理旧桥接方法、重复回调包装和纯 UI 辅助逻辑。 |
 
 #### 高级 (HIGH)
 
 | # | 发现点 | 具体修复建议 |
 | :--- | :--- | :--- |
 | H1 | 滴答 (tick) 静默失败 (`app/main.py:1384-1392`) | 添加一个帧错误计数器。如果 >N 个连续帧失败，在 UI 中显示一个非模态的错误横幅。将回溯日志记录到文件。考虑将物理和渲染分成两个 try/except 块，这样渲染失败就不会跳过物理计算。 |
-| H2 | 三重重复的事故对话框 (`main_window.py:268-657`) | 重构为 `_show_accident_dialog(scenario_id)`，从 `SCENARIOS[scenario_id]` 中读取标题/描述/症状/修复内容。消除约 300 行重复代码。 |
+| H2 | R43 仅完成最小信号试点 | 若后续确有性能/UX 需求，再独立立项推进“阶段 3：轮询压缩”，优先挑选 2 个既有 `render_visuals` 消费者迁出，再评估是否有必要继续瘦身 `_tick`。 |
 | H3 | 控制器触及 UI 组件 (`app/main.py:1260-1263`) | 控制器应该发出一个信号或更新 `sim_state.pt3_ratio`；UI 应该观察模型并在 `render_visuals()` 中更新数字框。 |
 | H4 | 评估 `build_result` 巨石 (`assessment_service.py:19-597`) | 拆分成按类别的辅助方法：`_score_flow_discipline()`, `_score_loop_test()` 等。在共享模块中定义事件类型常量。按类别添加单元测试。 |
-| H5 | 硬编码的定时器间隔 (`_physics_arbitration.py:127`) | 从 `_tick()` 传递实际的 `dt`，而不是假定为 `0.033`。计算 `dt = current_time - last_tick_time`。 |
+| H5 | 旧键名兼容与状态真值源仍未完全收口 | 优先统一 `p1_pri_blackbox_order` / `pt2_sec_blackbox_order` 之类遗留键名，并明确 `pt_phase_orders` 与 blackbox order 的唯一真值源。 |
 
 #### 中级 (MEDIUM)
 

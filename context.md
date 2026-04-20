@@ -20,6 +20,7 @@
 ThreePhase/
 ├── app/
 │   ├── main.py              # 应用入口、PowerSyncController（总控制器）
+│   └── controller_signals.py # Controller → UI 信号总线（R43）
 ├── domain/                  # 领域模型与常量
 │   ├── constants.py         # 物理参数（电压、频率、阻抗等）
 │   ├── enums.py             # 系统模式、断路器状态枚举
@@ -40,11 +41,14 @@ ThreePhase/
 │   ├── pt_exam_service.py           # 第4步：PT压差考核
 │   ├── sync_test_service.py         # 第5步：同期功能测试
 │   ├── fault_manager.py             # 故障注入/修复与可修复接线目标管理
+│   ├── blackbox_repair_handler.py   # 黑盒修复编排器
+│   ├── hardware_actions.py          # 启停机/合闸等硬件动作编排
+│   ├── assessment_coordinator.py    # 考核会话汇聚与闭环判定
 │   └── assessment_service.py        # 考核模式自动评分与成绩汇总
 ├── ui/                      # PyQt5 用户界面（Mixin 拼装）
 │   ├── main_window.py       # PowerSyncUI 主窗口
 │   ├── styles.py            # 浅色主题入口与全局 QSS 设计令牌
-│   ├── test_panel.py        # 测试模式控制面板 Mixin（含第1~5步控制台）
+│   ├── test_panel.py        # 测试模式控制面板主控（含第1~5步控制台）
 │   ├── panels/
 │   │   └── control_panel.py # 右侧控制面板 Mixin
 │   ├── tabs/
@@ -72,11 +76,13 @@ ThreePhase/
 ```
 PowerSyncUI (View - 多 Mixin)
         ↑ render_visuals(RenderState)
+        ↑ ControllerSignals（R43 最小试点）
         ↓ 用户操作事件
 PowerSyncController (Application Layer - app/main.py)
   - 持有 SimulationState（唯一数据源）
   - 持有 PhysicsEngine 实例
   - 持有 FaultManager（故障注入/修复与接线目标判断）
+  - 持有 AssessmentCoordinator（考核会话、事件与闭环汇聚）
   - 持有 5 个测试服务实例
   - 33ms 定时器驱动主循环
         ↑ build_render_state()
@@ -93,6 +99,14 @@ Domain Models
   - SimulationState: 双机状态、故障配置、接地模式
   - FaultConfig: 故障场景注入参数
 ```
+
+## 当前维护状态（截至 R44）
+
+- **Phase 4 已真正收官。** R33–R44 已完成，`services/` 目录下 repo 级 `self._ctrl | self.ctrl` 计数已归零。
+- 业务 service 与 physics 层都已完成显式依赖注入收口；physics 不再持有 `ctrl`，service 不再持有 `self._ctrl`。
+- R43 已建立 `ControllerSignals(QObject)` 骨架，并在主窗口状态栏落地两个最小文本试点；`_tick -> render_visuals` 仍保留为默认渲染路径，阶段 3（轮询压缩）尚未执行。
+- R44 已把事故链路收口为 `queue_accident_dialog(...)` 行为回调，物理层不再直接弹 UI 模态对话框。
+- **注意**：Phase 4 收官不等于整份维护清单全部完成；旧键名兼容、状态真值源收口、死代码/重复 UI 清理、类型标注等后续项仍待推进。
 
 ---
 
@@ -217,8 +231,8 @@ elif fc.scenario_id == 'E03': queue_accident_dialog('E03')
 # → 物理层只登记待显示事故；帧末再统一弹窗
 
 # 额外：E03 sync_ok=False 分支（180°相位差时 manual 强行合闸）
-if fc.scenario_id == 'E03': show_e03_accident_dialog()
-# → 替代通用"爆炸"消息，改为事故弹窗
+if fc.scenario_id == 'E03': queue_accident_dialog('E03')
+# → 物理层统一排队事故；帧末由 controller/UI 统一消费
 ```
 
 弹窗说明：事故原因、可见异常现象、修复方法。学员选"修复故障"→ `repair_fault()` → 可继续第五步。
@@ -401,7 +415,7 @@ if fc.params.get('g1_loop_swap') or fc.params.get('g2_loop_swap'):
 elif (gen_pt_name == 'PT1'
       and fc.params.get('pt1_phase_order') is not None
       and not is_same_phase):
-    self.ctrl.mark_fault_detected(step=4, source='pt_exam_measurement', ...)
+    self._mark_fault_detected(step=4, source='pt_exam_measurement', ...)
 ```
 覆盖 E06 / E07 / E11（步骤一无断路，仅步骤四能暴露）。
 E08（pt1_phase_order=['A','B','C'] 且无 g1_loop_swap）永远不触发——完全隐性设计。
