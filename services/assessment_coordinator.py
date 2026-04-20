@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from domain.assessment import AssessmentContext, AssessmentEvent, AssessmentEventType, AssessmentSession
 
@@ -20,34 +20,76 @@ class StepProgressSnapshot:
 
 
 class AssessmentCoordinator:
-    def __init__(self, ctrl):
-        self._ctrl = ctrl
+    def __init__(
+        self,
+        *,
+        sim_state,
+        flow_mgr,
+        assessment_svc,
+        get_fault_mgr: Callable[[], object],
+        get_assessment_session: Callable[[], Optional[AssessmentSession]],
+        set_assessment_session: Callable[[Optional[AssessmentSession]], None],
+        set_last_fault_detected: Callable[[bool], None],
+        get_loop_test_state: Callable[[], object],
+        get_pt_voltage_check_state: Callable[[], object],
+        get_pt_phase_check_state: Callable[[], object],
+        get_pt_exam_states: Callable[[], dict],
+        get_g1_blackbox_order: Callable[[], list],
+        get_g2_blackbox_order: Callable[[], list],
+        get_pt1_pri_blackbox_order: Callable[[], list],
+        get_pt1_sec_blackbox_order: Callable[[], list],
+        is_loop_test_complete: Callable[[], bool],
+        is_pt_voltage_check_complete: Callable[[], bool],
+        is_pt_phase_check_complete: Callable[[], bool],
+        build_assessment_context: Callable[[Dict[str, Any]], AssessmentContext],
+    ):
+        self._sim_state = sim_state
+        self._flow_mgr = flow_mgr
+        self._assessment_svc = assessment_svc
+        self._get_fault_mgr = get_fault_mgr
+        self._get_assessment_session = get_assessment_session
+        self._set_assessment_session = set_assessment_session
+        self._set_last_fault_detected = set_last_fault_detected
+        self._get_loop_test_state = get_loop_test_state
+        self._get_pt_voltage_check_state = get_pt_voltage_check_state
+        self._get_pt_phase_check_state = get_pt_phase_check_state
+        self._get_pt_exam_states = get_pt_exam_states
+        self._get_g1_blackbox_order = get_g1_blackbox_order
+        self._get_g2_blackbox_order = get_g2_blackbox_order
+        self._get_pt1_pri_blackbox_order = get_pt1_pri_blackbox_order
+        self._get_pt1_sec_blackbox_order = get_pt1_sec_blackbox_order
+        self._is_loop_test_complete = is_loop_test_complete
+        self._is_pt_voltage_check_complete = is_pt_voltage_check_complete
+        self._is_pt_phase_check_complete = is_pt_phase_check_complete
+        self._build_assessment_context = build_assessment_context
 
     def start_assessment_session(self, scene_id: str, preset_mode: str = 'specified'):
-        if not self._ctrl.flow_mgr.should_record_assessment_metrics():
-            self._ctrl.assessment_session = None
+        if not self._flow_mgr.should_record_assessment_metrics():
+            self._set_assessment_session(None)
             return
         now = datetime.now().isoformat(timespec='seconds')
         session_id = f"ASM-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         fault_selection_mode = 'random' if preset_mode == 'random' else 'specified'
-        self._ctrl.assessment_session = AssessmentSession(
-            session_id=session_id,
-            scene_id=scene_id,
-            mode=self._ctrl.test_flow_mode,
-            started_at=now,
-            fault_selection_mode=fault_selection_mode,
+        self._set_assessment_session(
+            AssessmentSession(
+                session_id=session_id,
+                scene_id=scene_id,
+                mode=self._flow_mgr.test_flow_mode,
+                started_at=now,
+                fault_selection_mode=fault_selection_mode,
+            )
         )
         self.append_assessment_event(
             AssessmentEventType.ASSESSMENT_STARTED,
             scene_id=scene_id,
-            mode=self._ctrl.test_flow_mode,
+            mode=self._flow_mgr.test_flow_mode,
             fault_selection_mode=fault_selection_mode,
         )
 
     def append_assessment_event(self, event_type: str, step: int = 0, **payload):
-        if not self._ctrl.flow_mgr.should_record_assessment_metrics():
+        if not self._flow_mgr.should_record_assessment_metrics():
             return
-        session = self._ctrl.assessment_session
+        session = self._get_assessment_session()
         if session is None or session.finished_at is not None:
             return
         session.events.append(
@@ -60,17 +102,17 @@ class AssessmentCoordinator:
         )
 
     def mark_fault_detected(self, step: int, source: str, **payload) -> bool:
-        fc = self._ctrl.sim_state.fault_config
+        fc = self._sim_state.fault_config
         if not fc.active or fc.repaired:
             return False
 
         fc.detected = True
-        self._ctrl._last_fault_detected = True
+        self._set_last_fault_detected(True)
 
-        if not self._ctrl.flow_mgr.should_record_assessment_metrics():
+        if not self._flow_mgr.should_record_assessment_metrics():
             return True
 
-        session = self._ctrl.assessment_session
+        session = self._get_assessment_session()
         if session is None or session.finished_at is not None:
             return True
 
@@ -94,40 +136,45 @@ class AssessmentCoordinator:
         return True
 
     def capture_assessment_state_snapshot(self) -> Dict[str, Any]:
+        loop_state = self._get_loop_test_state()
+        voltage_state = self._get_pt_voltage_check_state()
+        phase_state = self._get_pt_phase_check_state()
+        exam_states = self._get_pt_exam_states()
+        fc = self._sim_state.fault_config
         return {
-            'loop_records': deepcopy(self._ctrl.loop_test_state.records),
-            'voltage_records': deepcopy(self._ctrl.pt_voltage_check_state.records),
-            'phase_records': deepcopy(self._ctrl.pt_phase_check_state.records),
+            'loop_records': deepcopy(loop_state.records),
+            'voltage_records': deepcopy(voltage_state.records),
+            'phase_records': deepcopy(phase_state.records),
             'pt_exam_records': {
-                1: deepcopy(self._ctrl.pt_exam_states[1].records),
-                2: deepcopy(self._ctrl.pt_exam_states[2].records),
+                1: deepcopy(exam_states[1].records),
+                2: deepcopy(exam_states[2].records),
             },
             'completed': {
-                'loop': bool(self._ctrl.loop_test_state.completed),
-                'voltage': bool(self._ctrl.pt_voltage_check_state.completed),
-                'phase': bool(self._ctrl.pt_phase_check_state.completed),
-                'pt_exam_1': bool(self._ctrl.pt_exam_states[1].completed),
-                'pt_exam_2': bool(self._ctrl.pt_exam_states[2].completed),
+                'loop': bool(loop_state.completed),
+                'voltage': bool(voltage_state.completed),
+                'phase': bool(phase_state.completed),
+                'pt_exam_1': bool(exam_states[1].completed),
+                'pt_exam_2': bool(exam_states[2].completed),
                 'closure': bool(self.is_assessment_closed_loop_ready()),
             },
             'fault': {
-                'active': bool(self._ctrl.sim_state.fault_config.active),
-                'repaired': bool(self._ctrl.sim_state.fault_config.repaired),
-                'detected': bool(self._ctrl.sim_state.fault_config.detected),
-                'scene_id': self._ctrl.sim_state.fault_config.scenario_id,
+                'active': bool(fc.active),
+                'repaired': bool(fc.repaired),
+                'detected': bool(fc.detected),
+                'scene_id': fc.scenario_id,
             },
             'blackbox_orders': {
-                'g1': list(self._ctrl.g1_blackbox_order),
-                'g2': list(self._ctrl.g2_blackbox_order),
-                'pt1_primary': list(self._ctrl.pt1_pri_blackbox_order),
-                'pt1_secondary': list(self._ctrl.pt1_sec_blackbox_order),
+                'g1': list(self._get_g1_blackbox_order()),
+                'g2': list(self._get_g2_blackbox_order()),
+                'pt1_primary': list(self._get_pt1_pri_blackbox_order()),
+                'pt1_secondary': list(self._get_pt1_sec_blackbox_order()),
             },
         }
 
     def finish_assessment_session(self):
-        if not self._ctrl.flow_mgr.should_auto_score_assessment():
+        if not self._flow_mgr.should_auto_score_assessment():
             return None
-        session = self._ctrl.assessment_session
+        session = self._get_assessment_session()
         if session is None:
             return None
         if session.result is not None:
@@ -135,17 +182,17 @@ class AssessmentCoordinator:
         if not session.state_snapshot:
             session.state_snapshot = self.capture_assessment_state_snapshot()
         self.append_assessment_event(AssessmentEventType.ASSESSMENT_FINISHED)
-        context = AssessmentContext.from_snapshot_and_ctrl(session.state_snapshot or {}, self._ctrl)
-        result = self._ctrl.assessment_svc.build_result(session, context)
+        context = self._build_assessment_context(session.state_snapshot or {})
+        result = self._assessment_svc.build_result(session, context)
         session.finished_at = result.finished_at
         session.result = result
         return result
 
     def requires_random_fault_identification(self, current_step: int) -> bool:
-        session = self._ctrl.assessment_session
+        session = self._get_assessment_session()
         if session is None or session.finished_at is not None:
             return False
-        if not self._ctrl.flow_mgr.is_assessment_mode():
+        if not self._flow_mgr.is_assessment_mode():
             return False
         if session.fault_selection_mode != 'random':
             return False
@@ -155,12 +202,12 @@ class AssessmentCoordinator:
             return False
         if current_step < 4:
             return False
-        if not self._ctrl.flow_mgr.assessment_ends_after_step4_closed_loop():
+        if not self._flow_mgr.assessment_ends_after_step4_closed_loop():
             return False
         return self.is_assessment_closed_loop_ready()
 
     def submit_random_fault_identification(self, guessed_scene_id: str) -> bool:
-        session = self._ctrl.assessment_session
+        session = self._get_assessment_session()
         if session is None:
             return False
         guessed_scene_id = (guessed_scene_id or '').strip()
@@ -179,20 +226,22 @@ class AssessmentCoordinator:
         return correct
 
     def mark_assessment_result_shown(self):
-        if self._ctrl.assessment_session is not None:
-            self._ctrl.assessment_session.result_shown = True
+        session = self._get_assessment_session()
+        if session is not None:
+            session.result_shown = True
 
     def is_assessment_closed_loop_ready(self) -> bool:
+        exam_states = self._get_pt_exam_states()
         if not (
-            self._ctrl.loop_svc.is_loop_test_complete()
-            and self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete()
-            and self._ctrl.pt_phase_svc.is_pt_phase_check_complete()
-            and self._ctrl.pt_exam_states[1].completed
-            and self._ctrl.pt_exam_states[2].completed
+            self._is_loop_test_complete()
+            and self._is_pt_voltage_check_complete()
+            and self._is_pt_phase_check_complete()
+            and exam_states[1].completed
+            and exam_states[2].completed
         ):
             return False
-        fc = self._ctrl.sim_state.fault_config
-        if fc.active and self._ctrl.fault_mgr.fault_has_repairable_wiring_targets():
+        fc = self._sim_state.fault_config
+        if fc.active and self._get_fault_mgr().fault_has_repairable_wiring_targets():
             return fc.repaired
         return True
 
@@ -201,37 +250,39 @@ class AssessmentCoordinator:
         current_step: int,
         pre_step5_repair_triggered: bool,
     ) -> StepProgressSnapshot:
+        exam_states = self._get_pt_exam_states()
         ready_for_step5 = (
-            self._ctrl.loop_svc.is_loop_test_complete()
-            and self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete()
-            and self._ctrl.pt_phase_svc.is_pt_phase_check_complete()
-            and self._ctrl.pt_exam_states[1].completed
-            and self._ctrl.pt_exam_states[2].completed
+            self._is_loop_test_complete()
+            and self._is_pt_voltage_check_complete()
+            and self._is_pt_phase_check_complete()
+            and exam_states[1].completed
+            and exam_states[2].completed
         )
-        fc = self._ctrl.sim_state.fault_config
+        fc = self._sim_state.fault_config
         block_before_step5 = (
             ready_for_step5
-            and self._ctrl.flow_mgr.should_block_step5_until_blackbox_fixed()
-            and self._ctrl.fault_mgr.has_unrepaired_wiring_fault()
+            and self._flow_mgr.should_block_step5_until_blackbox_fixed()
+            and self._get_fault_mgr().has_unrepaired_wiring_fault()
             and fc.scenario_id not in ('E01', 'E02', 'E03')
         )
         should_emit_assessment_gate_event = (
             block_before_step5
-            and self._ctrl.flow_mgr.is_assessment_mode()
+            and self._flow_mgr.is_assessment_mode()
             and not pre_step5_repair_triggered
         )
         should_show_blackbox_required_dialog = (
             block_before_step5
-            and self._ctrl.flow_mgr.should_show_blackbox_required_dialog_before_step5()
+            and self._flow_mgr.should_show_blackbox_required_dialog_before_step5()
             and not pre_step5_repair_triggered
         )
+        session = self._get_assessment_session()
         assessment_result_ready = (
-            self._ctrl.flow_mgr.is_assessment_mode()
-            and self._ctrl.flow_mgr.assessment_ends_after_step4_closed_loop()
+            self._flow_mgr.is_assessment_mode()
+            and self._flow_mgr.assessment_ends_after_step4_closed_loop()
             and self.is_assessment_closed_loop_ready()
-            and self._ctrl.assessment_session is not None
+            and session is not None
             and not self.requires_random_fault_identification(current_step)
-            and not self._ctrl.assessment_session.result_shown
+            and not session.result_shown
         )
         return StepProgressSnapshot(
             current_step=current_step,

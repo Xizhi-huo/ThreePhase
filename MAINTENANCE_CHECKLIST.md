@@ -136,10 +136,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 4 进行中：R41 已完成（`pt_exam_service.py` 显式依赖注入）；Phase 3 已关闭。 |
+| 当前阶段 | Phase 4 进行中：R42 已完成（`assessment_coordinator.py` 显式依赖注入，Phase 4 service 层收口）；Phase 3 已关闭。 |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/styles.py`(1007)、`ui/panels/control_panel.py`(776)、`ui/widgets/step_panels/_panel_builders.py`(347) |
-| 下一轮默认起点 | Phase 4 — Round 42：`assessment_coordinator.py` 显式依赖注入（详见 §10） |
+| 下一轮默认起点 | Phase 4 — Round 43：`ControllerSignals(QObject)` 引入 + 分阶段 render 迁移（详见 §10） |
 
 ---
 
@@ -523,6 +523,29 @@ class PowerSyncUI(QMainWindow):
 ### 当前未完成但已明确方向
 - Phase 3：已关闭（R32 收口完成）。
 - Phase 4 主线（R33–R43）：Service 层 `self._ctrl` 显式依赖化（339 处 → 0）→ `ControllerSignals(QObject)` Signal/Slot 引入 → 旧键名与状态真值源清理、`domain/services` 类型标注补齐。详见 §10。
+
+### 第 42 轮 (2026-04-20)：Phase 4 第十轮（`assessment_coordinator.py` 显式依赖注入，Phase 4 service 收口）
+- 本轮唯一主攻目标：将 `services/assessment_coordinator.py` 中的 61 处 `self._ctrl` 全部替换为显式构造注入；本轮是 Phase 4 service 层的收口点。
+- 实际完成：
+  - `AssessmentCoordinator` 已改为 keyword-only 19 参构造注入（Phase 4 新高）。
+  - 稳定对象直接注入：`sim_state`、`flow_mgr`、`assessment_svc`。
+  - accessor 回调：`get_fault_mgr()`、`get_assessment_session()`、`get_loop_test_state()`、`get_pt_voltage_check_state()`、`get_pt_phase_check_state()`、`get_pt_exam_states()`、4 个 blackbox order 访问器。
+  - setter 回调：`set_assessment_session()`、`set_last_fault_detected()`；两者分别用于整体替换考核 session 和写回 `_last_fault_detected`。
+  - 查询回调：`is_loop_test_complete()`、`is_pt_voltage_check_complete()`、`is_pt_phase_check_complete()`。
+  - 行为回调：`build_assessment_context()`，在 `app/main.py` 内封装对 `AssessmentContext.from_snapshot_and_ctrl(snapshot, self)` 的调用，从而将 ctrl 依赖约束在适配层。
+  - `app/main.py` 已仅在 `AssessmentCoordinator(...)` 构造处完成适配，并在顶部新增 `AssessmentContext` 导入；`tests/**`、`ui/**`、其他 `services/**` 全部保持零改动。
+- 删除了哪些旧代码：
+  - 删除 `AssessmentCoordinator.__init__(self, ctrl)` 与 `self._ctrl = ctrl`。
+  - 删除文件内全部 61 处 `self._ctrl.*` 直接访问。
+- 接口变化：
+  - `AssessmentCoordinator` 构造函数改为 19 参 keyword-only 依赖注入。
+  - 公开方法签名保持不变；controller 仍通过既有桥接方法驱动考核会话生命周期。
+- 耦合度变化：
+  - `services/assessment_coordinator.py` 的 `self._ctrl` 引用数 `61 -> 0`。
+  - Phase 4 service 层 `self._ctrl` 总量 `61 -> 0`，service 子阶段收口。
+- 快照测试：PASS（`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest tests/ -q`，13/13 通过）
+- 回归清单：PASS（范围检查、`py_compile`、offscreen 导入冒烟、伪黑箱扫描全部通过）
+- 下一轮起点：Phase 4 — Round 43：`ControllerSignals(QObject)` 引入 + 分阶段 render 迁移
 
 ### 第 41 轮 (2026-04-20)：Phase 4 第九轮（`pt_exam_service.py` 显式依赖注入）
 - 本轮唯一主攻目标：将 `services/pt_exam_service.py` 中的 `self._ctrl` 全部替换为显式构造注入，在大型 step service 上继续验证“稳定对象 + 单 accessor 状态字典 + 查询回调 + 行为回调 + 私有方法内联”组合可控。
@@ -1309,7 +1332,7 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 | R39 | `hardware_actions.py` | 35 | 149 | 动作编排器（已完成） |
 | R40 | `pt_phase_check_service.py` | 38 | 346 | 大型 step service（已完成） |
 | R41 | `pt_exam_service.py` | 49 | 386 | 大型 step service（已完成） |
-| R42 | `assessment_coordinator.py` | 61 | 250 | 最重汇聚器（Phase 4 service 收口） |
+| R42 | `assessment_coordinator.py` | 61 | 250 | 最重汇聚器（Phase 4 service 收口，已完成） |
 | R43 | `ControllerSignals` + render 迁移 | — | — | Signal/Slot 分阶段落地 |
 
 ### R33：模式建立（最小验证，已完成）
@@ -1410,8 +1433,14 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 - `pt_exam_states` 作为稳定 dict 仅使用单一 accessor 注入，未为按键替换条目额外引入 setter；`_get_generator_state(gen_id)` 已在 service 内部内联
 - 本轮回归：`pytest 13 passed`
 
-- R40、R41 已完成，R42 处理最重汇聚器后收口 Phase 4 service 显式化
-- R42 处理 `assessment_coordinator`（61 处引用，依赖最广），作为 Phase 4 service 显式化的收口点
+**R42 结果**：
+- 已完成；`assessment_coordinator.py` 当前 `self._ctrl` = 0
+- Phase 4 service 参数数量新高（19 个），但已验证“3 个稳定对象直接注入 + 10 个 accessor/setter + 3 个查询回调 + 1 个行为回调 + main.py 适配层 ctrl 封装”在最重汇聚器上仍可控
+- `build_assessment_context()` 已将 `AssessmentContext.from_snapshot_and_ctrl(snapshot, self)` 的 ctrl 依赖封装在 `main.py` lambda 内，service 本体不再直接感知 controller
+- Phase 4 service 层 `self._ctrl` 总量已从 `61 -> 0`，service 子阶段收口；下一轮进入 R43 信号层
+- 本轮回归：`pytest 13 passed`
+
+- R40、R41、R42 已完成；下一轮进入 R43 `ControllerSignals(QObject)` 引入 + 分阶段 render 迁移
 
 ### R43：ControllerSignals 引入 + 分阶段 render 迁移
 

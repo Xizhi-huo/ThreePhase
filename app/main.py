@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PyQt5 import QtWidgets, QtCore
 
+from domain.assessment import AssessmentContext
 from domain.constants import GRID_AMP
 from domain.enums import SystemMode
 from domain.models import GeneratorState, SimulationState, FaultConfig
@@ -97,7 +98,27 @@ class PowerSyncController:
 
         # ── 业务服务（各服务通过 self._ctrl 回写状态 dataclass）─────────
         self.assessment_svc       = AssessmentService()
-        self.assessment_coord     = AssessmentCoordinator(self)
+        self.assessment_coord     = AssessmentCoordinator(
+            sim_state=self.sim_state,
+            flow_mgr=self.flow_mgr,
+            assessment_svc=self.assessment_svc,
+            get_fault_mgr=lambda: self.fault_mgr,
+            get_assessment_session=lambda: self.assessment_session,
+            set_assessment_session=lambda session: setattr(self, 'assessment_session', session),
+            set_last_fault_detected=lambda v: setattr(self, '_last_fault_detected', v),
+            get_loop_test_state=lambda: self.loop_test_state,
+            get_pt_voltage_check_state=lambda: self.pt_voltage_check_state,
+            get_pt_phase_check_state=lambda: self.pt_phase_check_state,
+            get_pt_exam_states=lambda: self.pt_exam_states,
+            get_g1_blackbox_order=lambda: self.g1_blackbox_order,
+            get_g2_blackbox_order=lambda: self.g2_blackbox_order,
+            get_pt1_pri_blackbox_order=lambda: self.pt1_pri_blackbox_order,
+            get_pt1_sec_blackbox_order=lambda: self.pt1_sec_blackbox_order,
+            is_loop_test_complete=lambda: self.loop_svc.is_loop_test_complete(),
+            is_pt_voltage_check_complete=lambda: self.pt_voltage_svc.is_pt_voltage_check_complete(),
+            is_pt_phase_check_complete=lambda: self.pt_phase_svc.is_pt_phase_check_complete(),
+            build_assessment_context=lambda snapshot: AssessmentContext.from_snapshot_and_ctrl(snapshot, self),
+        )
         self.blackbox_handler     = BlackboxRepairHandler(
             sim_state=self.sim_state,
             flow_mgr=self.flow_mgr,
