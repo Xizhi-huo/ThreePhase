@@ -170,7 +170,20 @@ class PowerSyncController:
             is_loop_test_complete=lambda: self.loop_svc.is_loop_test_complete(),
             append_assessment_event=self.assessment_coord.append_assessment_event,
         )
-        self.pt_phase_svc         = PtPhaseCheckService(self)
+        self.pt_phase_svc         = PtPhaseCheckService(
+            sim_state=self.sim_state,
+            flow_mgr=self.flow_mgr,
+            get_physics=lambda: self.physics,
+            get_pt_phase_check_state=lambda: self.pt_phase_check_state,
+            set_pt_phase_check_state=lambda state: setattr(self, 'pt_phase_check_state', state),
+            is_loop_test_complete=lambda: self.loop_svc.is_loop_test_complete(),
+            is_pt_voltage_check_complete=lambda: self.pt_voltage_svc.is_pt_voltage_check_complete(),
+            append_assessment_event=self.assessment_coord.append_assessment_event,
+            mark_fault_detected=self.assessment_coord.mark_fault_detected,
+            set_pt_phase_check_feedback=self.set_pt_phase_check_feedback,
+            record_pt_phase_check_result=self.record_pt_phase_check_result,
+            mark_pt_phase_check_completed=self.mark_pt_phase_check_completed,
+        )
         self.pt_exam_svc          = PtExamService(self)
         self.sync_svc             = SyncTestService(
             sim_state=self.sim_state,

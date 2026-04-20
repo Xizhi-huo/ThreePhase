@@ -12,6 +12,8 @@ PT 相序检查服务（第三步）
 与电压大小无关。
 """
 
+from typing import Callable
+
 from domain.enums import BreakerPosition
 from domain.assessment import AssessmentEventType
 from domain.test_states import PtPhaseCheckState
@@ -22,8 +24,34 @@ _ALL_KEYS = ('PT1_A', 'PT1_B', 'PT1_C', 'PT3_A', 'PT3_B', 'PT3_C')
 class PtPhaseCheckService:
     """PT 相序检查业务逻辑。"""
 
-    def __init__(self, ctrl):
-        self._ctrl = ctrl
+    def __init__(
+        self,
+        *,
+        sim_state,
+        flow_mgr,
+        get_physics: Callable[[], object],
+        get_pt_phase_check_state: Callable[[], PtPhaseCheckState],
+        set_pt_phase_check_state: Callable[[PtPhaseCheckState], None],
+        is_loop_test_complete: Callable[[], bool],
+        is_pt_voltage_check_complete: Callable[[], bool],
+        append_assessment_event: Callable,
+        mark_fault_detected: Callable,
+        set_pt_phase_check_feedback: Callable[[str, str], None],
+        record_pt_phase_check_result: Callable,
+        mark_pt_phase_check_completed: Callable[[], None],
+    ):
+        self._sim_state = sim_state
+        self._flow_mgr = flow_mgr
+        self._get_physics = get_physics
+        self._get_pt_phase_check_state = get_pt_phase_check_state
+        self._set_pt_phase_check_state = set_pt_phase_check_state
+        self._is_loop_test_complete = is_loop_test_complete
+        self._is_pt_voltage_check_complete = is_pt_voltage_check_complete
+        self._append_assessment_event = append_assessment_event
+        self._mark_fault_detected = mark_fault_detected
+        self._set_pt_phase_check_feedback = set_pt_phase_check_feedback
+        self._record_pt_phase_check_result = record_pt_phase_check_result
+        self._mark_pt_phase_check_completed = mark_pt_phase_check_completed
 
     @staticmethod
     def _sequence_display_text(seq: str) -> str:
@@ -40,26 +68,26 @@ class PtPhaseCheckService:
         return PtPhaseCheckState()
 
     def start_pt_phase_check(self):
-        self._ctrl.pt_phase_check_state.started = True
+        self._get_pt_phase_check_state().started = True
 
     def stop_pt_phase_check(self):
-        self._ctrl.pt_phase_check_state.started = False
+        self._get_pt_phase_check_state().started = False
 
     def _set_feedback(self, message, color='#444444'):
-        self._ctrl.set_pt_phase_check_feedback(message, color)
+        self._set_pt_phase_check_feedback(message, color)
 
     # ── 步骤列表 ──────────────────────────────────────────────────────────────
     def get_pt_phase_check_steps(self):
-        sim = self._ctrl.sim_state
+        sim = self._sim_state
         gen1, gen2 = sim.gen1, sim.gen2
-        state = self._ctrl.pt_phase_check_state
-        loop_done = self._ctrl.loop_svc.is_loop_test_complete()
+        state = self._get_pt_phase_check_state()
+        loop_done = self._is_loop_test_complete()
         gnd_ok = sim.grounding_mode == "小电阻接地"
         gen1_on_bus = (gen1.breaker_position == BreakerPosition.WORKING and gen1.breaker_closed)
         gen2_running_open = gen2.running and not gen2.breaker_closed
         rec = state.records
 
-        vol_done = self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete()
+        vol_done = self._is_pt_voltage_check_complete()
         steps = [
             ("1. 前提：第一步回路连通性测试已完成", loop_done),
             ("2. 前提：第二步 PT 单体线电压检查已完成", vol_done),
@@ -78,11 +106,12 @@ class PtPhaseCheckService:
         pt_name = pt_name.upper()
         phase = phase.upper()
         key = f"{pt_name}_{phase}"
-        sim = self._ctrl.sim_state
+        sim = self._sim_state
         gen1, gen2 = sim.gen1, sim.gen2
-        state = self._ctrl.pt_phase_check_state
+        state = self._get_pt_phase_check_state()
+
         def _record_invalid(reason):
-            self._ctrl.assessment_coord.append_assessment_event(
+            self._append_assessment_event(
                 AssessmentEventType.MEASUREMENT_INVALID,
                 step=3,
                 target=pt_name,
@@ -94,11 +123,11 @@ class PtPhaseCheckService:
             _record_invalid("step_not_started")
             self._set_feedback("请先点击「开始第三步测试」，再进行相序记录。", "red")
             return
-        if not self._ctrl.loop_svc.is_loop_test_complete():
+        if not self._is_loop_test_complete():
             _record_invalid("loop_test_incomplete")
             self._set_feedback("请先完成第一步【回路连通性测试】，再进行 PT 相序检查。", "red")
             return
-        if not self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete():
+        if not self._is_pt_voltage_check_complete():
             _record_invalid("pt_voltage_incomplete")
             self._set_feedback("请先完成第二步【PT 单体线电压检查】，再进行 PT 相序检查。", "red")
             return
@@ -143,18 +172,19 @@ class PtPhaseCheckService:
                 f"请在母排拓扑页将表笔放在 {key} 和 PT2_{phase} 端子上，再点击记录。", "red")
             return
 
-        phase_match = getattr(self._ctrl.physics, 'meter_phase_match', None)
+        physics = self._get_physics()
+        phase_match = getattr(physics, 'meter_phase_match', None)
         if phase_match is None:
             _record_invalid("invalid_meter_status")
             self._set_feedback("当前测量结果无效，请确认表笔接在 PT 和 PT2 同相端子上。", "red")
             return
 
-        self._ctrl.record_pt_phase_check_result(
+        self._record_pt_phase_check_result(
             key,
             phase_match,
-            self._ctrl.physics.meter_reading,
+            physics.meter_reading,
         )
-        self._ctrl.assessment_coord.append_assessment_event(
+        self._append_assessment_event(
             AssessmentEventType.MEASUREMENT_RECORDED,
             step=3,
             target=pt_name,
@@ -169,13 +199,13 @@ class PtPhaseCheckService:
 
         if any_fail:
             state.result = 'fail'
-            self._ctrl.assessment_coord.mark_fault_detected(
+            self._mark_fault_detected(
                 step=3,
                 source='pt_phase_check',
                 target=pt_name,
                 point=phase,
             )
-            if self._ctrl.flow_mgr.should_show_diagnostic_hints():
+            if self._flow_mgr.should_show_diagnostic_hints():
                 msg = f"⚠️ 相序异常！{key} 检测到端子接线错误，请检查对应侧 B/C 接线。"
             else:
                 msg = f"⚠️ 相序异常！{key} 测量结果不一致，请继续排查。"
@@ -189,7 +219,7 @@ class PtPhaseCheckService:
             self._set_feedback(f"{key} 相序正确，请继续测量其余项目。", "#006600")
         else:
             state.result = 'fail'
-            if self._ctrl.flow_mgr.should_show_diagnostic_hints():
+            if self._flow_mgr.should_show_diagnostic_hints():
                 msg = f"⚠️ {key} 相序异常！请检查对应侧接线。"
             else:
                 msg = f"⚠️ {key} 相序异常！请继续排查。"
@@ -197,11 +227,11 @@ class PtPhaseCheckService:
 
     def record_phase_sequence(self, pt_name: str, seq: str) -> bool:
         pt_name = pt_name.upper()
-        state = self._ctrl.pt_phase_check_state
-        sim = self._ctrl.sim_state
+        state = self._get_pt_phase_check_state()
+        sim = self._sim_state
 
         def _record_invalid(reason: str):
-            self._ctrl.assessment_coord.append_assessment_event(
+            self._append_assessment_event(
                 AssessmentEventType.MEASUREMENT_INVALID,
                 step=3,
                 target=pt_name,
@@ -213,11 +243,11 @@ class PtPhaseCheckService:
             _record_invalid("step_not_started")
             self._set_feedback("请先点击“开始第三步测试”再记录。", "red")
             return False
-        if not self._ctrl.loop_svc.is_loop_test_complete():
+        if not self._is_loop_test_complete():
             _record_invalid("loop_test_incomplete")
             self._set_feedback("请先完成第一步【回路连通性测试】，再进行相序检查。", "red")
             return False
-        if not self._ctrl.pt_voltage_svc.is_pt_voltage_check_complete():
+        if not self._is_pt_voltage_check_complete():
             _record_invalid("pt_voltage_incomplete")
             self._set_feedback("请先完成第二步【PT 单体线电压检查】，再进行相序检查。", "red")
             return False
@@ -253,21 +283,21 @@ class PtPhaseCheckService:
             actual = seq[phase_order.index(ph)] if is_valid_seq else '?'
             phase_match = is_valid_seq and actual == ph
             any_fail = any_fail or (not phase_match)
-            self._ctrl.record_pt_phase_check_result(
+            self._record_pt_phase_check_result(
                 key,
                 phase_match,
                 f"相序仪检测: {pt_name} → {display_seq}",
             )
 
-        if any_fail and self._ctrl.sim_state.fault_config.active:
-            self._ctrl.assessment_coord.mark_fault_detected(
+        if any_fail and self._sim_state.fault_config.active:
+            self._mark_fault_detected(
                 step=3,
                 source='phase_seq_meter',
                 target=pt_name,
                 sequence=seq,
             )
 
-        self._ctrl.assessment_coord.append_assessment_event(
+        self._append_assessment_event(
             AssessmentEventType.MEASUREMENT_RECORDED,
             step=3,
             target=pt_name,
@@ -284,31 +314,31 @@ class PtPhaseCheckService:
         return True
 
     def reset_pt_phase_check(self):
-        self._ctrl.pt_phase_check_state = self.create_pt_phase_check_state()
+        self._set_pt_phase_check_state(self.create_pt_phase_check_state())
 
     def is_pt_phase_check_complete(self):
         """流程门禁：只有用户点击"完成第三步测试"后才返回 True。"""
-        return self._ctrl.pt_phase_check_state.completed
+        return self._get_pt_phase_check_state().completed
 
     def _are_all_records_filled(self):
         """六相是否已全部测量（无论通过与否）。"""
-        records = self._ctrl.pt_phase_check_state.records
+        records = self._get_pt_phase_check_state().records
         return all(records.get(k) is not None for k in _ALL_KEYS)
 
     def _are_phase_check_records_complete(self):
         """六相记录是否齐全且全部通过（正常模式 finalize 校验用）。"""
-        records = self._ctrl.pt_phase_check_state.records
+        records = self._get_pt_phase_check_state().records
         return all(
             records.get(k) is not None and records[k]['phase_match']
             for k in _ALL_KEYS
         )
 
     def finalize_pt_phase_check(self):
-        state = self._ctrl.pt_phase_check_state
-        fc = self._ctrl.sim_state.fault_config
+        state = self._get_pt_phase_check_state()
+        fc = self._sim_state.fault_config
         fault_training = (
             fc.active and fc.detected and not fc.repaired
-            and self._ctrl.flow_mgr.can_advance_with_fault()
+            and self._flow_mgr.can_advance_with_fault()
         )
 
         if fault_training:
@@ -317,7 +347,7 @@ class PtPhaseCheckService:
                 self._set_feedback(
                     '请先完成 PT1/PT3 全部六相相序测量，再点击"完成第三步测试"。', "red")
                 return
-            self._ctrl.mark_pt_phase_check_completed()
+            self._mark_pt_phase_check_completed()
             fail_keys = [k for k in _ALL_KEYS
                          if state.records.get(k) and not state.records[k]['phase_match']]
             if fail_keys:
@@ -337,7 +367,7 @@ class PtPhaseCheckService:
                     '请先完成 PT1/PT3 全部六相相序测量（且全部通过），再点击"完成第三步测试"。',
                     "red")
                 return
-            self._ctrl.mark_pt_phase_check_completed()
+            self._mark_pt_phase_check_completed()
             self._set_feedback(
                 "第三步【PT 相序检查】已确认完成，后续操作将不再影响该步骤状态。",
                 "#006600")
