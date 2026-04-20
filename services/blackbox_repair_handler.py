@@ -33,6 +33,8 @@ class BlackboxRepairHandler:
         set_pt1_pri_blackbox_order: Callable[[list], None],
         get_pt1_sec_blackbox_order: Callable[[], list],
         set_pt1_sec_blackbox_order: Callable[[list], None],
+        apply_g2_blackbox_to_pt3: Callable[[], None],
+        apply_pt1_blackbox_to_pt_phases: Callable[[list], None],
     ):
         self._sim_state = sim_state
         self._flow_mgr = flow_mgr
@@ -47,6 +49,8 @@ class BlackboxRepairHandler:
         self._set_pt1_pri_blackbox_order = set_pt1_pri_blackbox_order
         self._get_pt1_sec_blackbox_order = get_pt1_sec_blackbox_order
         self._set_pt1_sec_blackbox_order = set_pt1_sec_blackbox_order
+        self._apply_g2_blackbox_to_pt3 = apply_g2_blackbox_to_pt3
+        self._apply_pt1_blackbox_to_pt_phases = apply_pt1_blackbox_to_pt_phases
 
     def get_blackbox_runtime_state(self, target: str) -> dict:
         fault_config = self._sim_state.fault_config
@@ -180,7 +184,8 @@ class BlackboxRepairHandler:
                     to_order=list(new_sec_order),
                 )
                 touched_layers.append('secondary')
-            self._get_pt_phase_orders()['PT3'] = list(new_sec_order)
+            pt3_order = self._get_pt_phase_orders().setdefault('PT3', ['A', 'B', 'C'])
+            pt3_order[:] = list(new_sec_order)
             component_correct = (list(new_sec_order) == ['A', 'B', 'C'])
         else:
             raise ValueError(f"Unsupported blackbox repair target: {target}")
@@ -240,9 +245,9 @@ class BlackboxRepairHandler:
         return [primary_actual[labels.index(sec_label)] for sec_label in sec_order]
 
     def sync_pt1_blackbox_to_phase_orders(self):
-        pt_phase_orders = self._get_pt_phase_orders()
-        pt_phase_orders['PT2'] = list(self._get_g1_blackbox_order())
-        pt_phase_orders['PT1'] = self._compute_pt1_net_order()
+        """派生同步: PT2 ← g1_blackbox_order；PT1 ← PT1 黑盒净相序。"""
+        self._apply_pt1_blackbox_to_pt_phases(self._compute_pt1_net_order())
 
     def sync_g2_blackbox_to_phase_orders(self):
-        self._get_pt_phase_orders()['PT3'] = list(self._get_g2_blackbox_order())
+        """派生同步: PT3 ← g2_blackbox_order。"""
+        self._apply_g2_blackbox_to_pt3()

@@ -31,6 +31,7 @@ from domain.assessment import AssessmentContext
 from domain.constants import GRID_AMP
 from domain.enums import SystemMode
 from domain.models import GeneratorState, SimulationState, FaultConfig
+from domain.phase_order_state import PhaseOrderState
 from app.controller_signals import ControllerSignals
 from services.assessment_service import AssessmentService
 from services.assessment_coordinator import AssessmentCoordinator, StepProgressSnapshot
@@ -74,22 +75,11 @@ class PowerSyncController:
             gen2=GeneratorState(freq=init_freq2, amp=init_amp2, phase_deg=init_phase2),
         )
 
-        # PT 相序（黑盒考核时随机打乱）
-        self.pt_phase_orders = {
-            'PT1': ['A', 'B', 'C'],
-            'PT2': ['A', 'B', 'C'],
-            'PT3': ['A', 'B', 'C'],
-        }
-        self.g1_blackbox_order = ['A', 'B', 'C']
-        self.g2_blackbox_order = ['A', 'B', 'C']
-        self.pt1_pri_blackbox_order = ['A', 'B', 'C']
-        self.pt1_sec_blackbox_order = ['A', 'B', 'C']
+        self.phase_order_state = PhaseOrderState.default()
         self.flow_mgr = FlowModeManager()
         self.signals = ControllerSignals()
         self._last_reported_test_step = 1
         self.test_flow_mode = 'teaching'
-        self.pt_blackbox_mode_val: bool = False
-        self._pt_blackbox_mode_proxy = self._BoolProxy(self)
         self.assessment_session = None
         self._last_fault_detected = False
         self._pending_accident_scene_id = None
@@ -99,7 +89,7 @@ class PowerSyncController:
         self._tick_error_notified = False
         self._last_tick_perf = time.perf_counter()
 
-        # ── 业务服务（各服务通过 self._ctrl 回写状态 dataclass）─────────
+        # ── 业务服务（显式构造注入；controller 保留状态所有权与桥接辅助）───
         self.assessment_svc       = AssessmentService()
         self.assessment_coord     = AssessmentCoordinator(
             sim_state=self.sim_state,
@@ -136,6 +126,8 @@ class PowerSyncController:
             set_pt1_pri_blackbox_order=lambda val: setattr(self, 'pt1_pri_blackbox_order', val),
             get_pt1_sec_blackbox_order=lambda: self.pt1_sec_blackbox_order,
             set_pt1_sec_blackbox_order=lambda val: setattr(self, 'pt1_sec_blackbox_order', val),
+            apply_g2_blackbox_to_pt3=self.phase_order_state.apply_g2_blackbox_to_pt3,
+            apply_pt1_blackbox_to_pt_phases=self.phase_order_state.apply_pt1_blackbox_to_pt_phases,
         )
         self.phase_resolver       = PhaseOrderResolver(
             sim_state=self.sim_state,
@@ -264,21 +256,60 @@ class PowerSyncController:
         self._timer.timeout.connect(self._tick)
         self._timer.start()
 
-    # ════════════════════════════════════════════════════════════════════════
-    # pt_blackbox_mode 兼容接口（circuit_tab.py 调用 ctrl.pt_blackbox_mode.get()）
-    # ════════════════════════════════════════════════════════════════════════
-    class _BoolProxy:
-        """轻量代理，让 ui 中的 ctrl.pt_blackbox_mode.get() 调用不报错。"""
-        def __init__(self, ctrl):
-            self._ctrl = ctrl
-        def get(self):
-            return self._ctrl.pt_blackbox_mode_val
-        def set(self, v):
-            self._ctrl.pt_blackbox_mode_val = bool(v)
+    @property
+    def pt_phase_orders(self):
+        return self.phase_order_state.pt_phase_orders
+
+    @pt_phase_orders.setter
+    def pt_phase_orders(self, value):
+        incoming = value or {}
+        for pt_name in ("PT1", "PT2", "PT3"):
+            next_order = list(incoming.get(pt_name, ["A", "B", "C"]))
+            current_order = self.phase_order_state.pt_phase_orders.get(pt_name)
+            if isinstance(current_order, list):
+                current_order[:] = next_order
+            else:
+                self.phase_order_state.pt_phase_orders[pt_name] = next_order
 
     @property
-    def pt_blackbox_mode(self):
-        return self._pt_blackbox_mode_proxy
+    def g1_blackbox_order(self):
+        return self.phase_order_state.g1_blackbox_order
+
+    @g1_blackbox_order.setter
+    def g1_blackbox_order(self, value):
+        self.phase_order_state.g1_blackbox_order[:] = list(value)
+
+    @property
+    def g2_blackbox_order(self):
+        return self.phase_order_state.g2_blackbox_order
+
+    @g2_blackbox_order.setter
+    def g2_blackbox_order(self, value):
+        self.phase_order_state.g2_blackbox_order[:] = list(value)
+
+    @property
+    def pt1_pri_blackbox_order(self):
+        return self.phase_order_state.pt1_pri_blackbox_order
+
+    @pt1_pri_blackbox_order.setter
+    def pt1_pri_blackbox_order(self, value):
+        self.phase_order_state.pt1_pri_blackbox_order[:] = list(value)
+
+    @property
+    def pt1_sec_blackbox_order(self):
+        return self.phase_order_state.pt1_sec_blackbox_order
+
+    @pt1_sec_blackbox_order.setter
+    def pt1_sec_blackbox_order(self, value):
+        self.phase_order_state.pt1_sec_blackbox_order[:] = list(value)
+
+    @property
+    def pt_blackbox_mode_val(self):
+        return self.phase_order_state.pt_blackbox_mode
+
+    @pt_blackbox_mode_val.setter
+    def pt_blackbox_mode_val(self, value: bool):
+        self.phase_order_state.pt_blackbox_mode = bool(value)
 
     @property
     def test_flow_mode(self):
@@ -305,7 +336,7 @@ class PowerSyncController:
         setattr(self.sim_state, ratio_attr, ratio)
 
     def get_pt_blackbox_mode(self):
-        return self.pt_blackbox_mode_val
+        return self.phase_order_state.get_pt_blackbox_mode()
 
     def get_pt_phase_sequence(self, pt_name):
         return self.phase_resolver.get_pt_phase_sequence(pt_name)
@@ -617,40 +648,25 @@ class PowerSyncController:
         )
 
     def reshuffle_pt_phase_orders(self):
-        # 不强制排除正序结果，允许随机到 ABC（真实排故训练包含"本就正确"的场景）
-        base = ['A', 'B', 'C']
-        for pt_name in self.pt_phase_orders:
-            new_order = base[:]
-            random.shuffle(new_order)
-            self.pt_phase_orders[pt_name] = new_order[:]
+        self.phase_order_state.reshuffle_pt_phase_orders()
         self.rebuild_circuit_view()
 
     def reset_pt_phase_orders(self):
-        self.pt_phase_orders = {
-            'PT1': ['A', 'B', 'C'],
-            'PT2': ['A', 'B', 'C'],
-            'PT3': ['A', 'B', 'C'],
-        }
+        self.phase_order_state.reset_pt_phase_orders()
         self.rebuild_circuit_view()
 
     def reset_blackbox_orders(self):
-        self.g1_blackbox_order = ['A', 'B', 'C']
-        self.g2_blackbox_order = ['A', 'B', 'C']
-        self.pt1_pri_blackbox_order = ['A', 'B', 'C']
-        self.pt1_sec_blackbox_order = ['A', 'B', 'C']
+        self.phase_order_state.reset_blackbox_orders()
 
     def set_g2_terminal_fault(self, enabled: bool):
         self.sim_state.fault_reverse_bc = False
-        self.g2_blackbox_order = ['A', 'C', 'B'] if enabled else ['A', 'B', 'C']
+        self.phase_order_state.set_g2_terminal_fault(enabled)
         self.blackbox_handler.sync_g2_blackbox_to_phase_orders()
         self.rebuild_circuit_view()
 
     def on_pt_blackbox_toggle(self, checked: bool):
-        self.pt_blackbox_mode_val = checked
-        if not checked:
-            self.reset_pt_phase_orders()
-        else:
-            self.reshuffle_pt_phase_orders()
+        self.phase_order_state.on_pt_blackbox_toggle(checked)
+        self.rebuild_circuit_view()
 
     def rebuild_circuit_view(self):
         self.ui.rebuild_circuit_diagram()
@@ -690,12 +706,8 @@ class PowerSyncController:
         self.sync_test_state = self.sync_svc.create_sync_test_state()
 
         # 3. 恢复 PT 相序（inject_fault 会再按场景设置）
-        self.pt_phase_orders = {
-            'PT1': ['A', 'B', 'C'],
-            'PT2': ['A', 'B', 'C'],
-            'PT3': ['A', 'B', 'C'],
-        }
-        self.reset_blackbox_orders()
+        self.phase_order_state.reset_pt_phase_orders()
+        self.phase_order_state.reset_blackbox_orders()
         self.sim_state.fault_reverse_bc = False
 
         # 4. 注入新故障

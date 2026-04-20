@@ -136,10 +136,10 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | Phase 4 已真正收官；R45 已完成（`ControlPanel` 组件化与瘦身，Phase 3 收尾）。 |
+| 当前阶段 | Phase 4 已真正收官；R46 已完成（`PhaseOrderState` 收口 + `_BoolProxy` 清理，全仓 `self._ctrl` = 0）。 |
 | 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
 | 当前最大风险文件 | `ui/styles.py`(1007)、`ui/widgets/step_panels/_panel_builders.py`(347)；`ui/panels/control_panel.py` 已于 R45 从 `776` 行收敛到 `328` 行 |
-| 下一轮默认起点 | R46：状态真值源收口（`pt_phase_orders` 派生关系、`blackbox_order` 隐式同步） |
+| 下一轮默认起点 | R47：死代码 / 重复 UI / 旧注释块清理 + `domain/services` 类型标注补齐 |
 
 ---
 
@@ -330,9 +330,11 @@ R30/R31 实际落点为 `ui/widgets/step_panels/`（不是最初规划的 `ui/te
   - 核心目标：将 repo 级 `grep -rn "self\._ctrl\|self\.ctrl" services/ | wc -l` 从当前残留值收口到 `0`
 - [ ] **收口旧键名兼容逻辑**
   - 清理历史命名债务
-- [ ] **收口状态真值源**
-  - 明确 `pt_phase_orders` 是否为派生值
-  - 消除 `blackbox_order` 与 `pt_phase_orders` 之间的隐式同步
+- [x] **收口状态真值源**
+  - R46 已完成：新增 `domain/phase_order_state.py`，将 `pt_phase_orders`、4 组 blackbox order 与 `pt_blackbox_mode` 收口为单一状态容器
+  - `PT3 ← g2_blackbox_order`、`PT1/PT2 ← PT1 黑盒 + g1_blackbox_order` 已以 `apply_*` 具名派生方法显式化
+- [x] **`_BoolProxy` / 4 处 `_ctrl` 历史残留清理**
+  - R46 已完成：删除 `app/main.py` 中 `_BoolProxy`、`_pt_blackbox_mode_proxy` 与 `pt_blackbox_mode` 兼容壳，仓内 `self._ctrl` 基线归零
 - [ ] **清理死代码、重复 UI、旧注释块**
 - [ ] **补核心 `domain/services` 类型标注**
   - 从 `domain/` 开始，逐步覆盖 `services/`
@@ -584,6 +586,40 @@ class PowerSyncUI(QMainWindow):
   - G10 PASS（功能性烟测）：offscreen 启动可正常构建控制面板；未出现 `AttributeError`、导入循环或缺失控件契约
 - 下一轮建议：
   - R46：状态真值源收口（`pt_phase_orders` 派生关系、`blackbox_order` 隐式同步）
+  - R47：死代码 / 重复 UI / 旧注释块清理 + `domain/services` 类型标注补齐
+
+### 第 46 轮 (2026-04-20)：状态真值源收口（`PhaseOrderState`）+ `_BoolProxy` 残留清理
+- 本轮唯一主攻目标：将散落在 `PowerSyncController` 上的 6 个相序/黑盒容器属性收口为单一状态容器，并清理 `app/main.py` 中 `_BoolProxy` 留下的 4 处 `_ctrl` 历史残留。
+- 实际完成：
+  - 新增 `domain/phase_order_state.py`，定义 `PhaseOrderState`，集中持有：
+    - `pt_phase_orders`
+    - `g1_blackbox_order`
+    - `g2_blackbox_order`
+    - `pt1_pri_blackbox_order`
+    - `pt1_sec_blackbox_order`
+    - `pt_blackbox_mode`
+  - `PowerSyncController.__init__` 已改为只创建 `self.phase_order_state = PhaseOrderState.default()`；原 6 个属性初始化已删除。
+  - controller 已通过 `@property / setter` 保持 `pt_phase_orders / g1_blackbox_order / g2_blackbox_order / pt1_pri_blackbox_order / pt1_sec_blackbox_order / pt_blackbox_mode_val` 对外访问面不变；setter 统一改为**原地覆盖同一 list/dict 引用**。
+  - `reshuffle_pt_phase_orders()`、`reset_pt_phase_orders()`、`reset_blackbox_orders()`、`set_g2_terminal_fault()`、`on_pt_blackbox_toggle()`、`get_pt_blackbox_mode()` 已下沉为 `phase_order_state` 方法委托；controller 仅保留 `rebuild_circuit_view()` 等副作用。
+  - 两处隐式派生已显式化：
+    - `apply_g2_blackbox_to_pt3()`
+    - `apply_pt1_blackbox_to_pt_phases(pt1_net_order)`
+  - `services/blackbox_repair_handler.py` 现保留 `sync_*` 业务编排入口，但写相序 dict 的实现已改为调用 `phase_order_state.apply_*`。
+  - `_BoolProxy`、`_pt_blackbox_mode_proxy` 与 `pt_blackbox_mode` 兼容壳已物理删除；`pt_blackbox_mode_val` 仍通过 property 兼容既有读写路径。
+- 行为与不变式说明：
+  - 本轮核心变化是“整体替换容器”收口为“原地覆盖同一引用”；经全仓 grep 核对，`app/ui/services` 内不存在缓存 `ctrl.pt_phase_orders / g*_blackbox_order / pt1_*_blackbox_order / pt_blackbox_mode_val` 的写法，因此未破坏既有不变式。
+  - `services/` 层 `self._ctrl | self.ctrl` 继续保持 `0`；R45 控制面板 baseline 未退化。
+- 验证结果：
+  - G1 PASS：`grep -rnE "self\._ctrl\b" app/ ui/ services/ domain/ adapters/ | wc -l = 0`
+  - G2 PASS：`services/` 下 `self._ctrl | self.ctrl = 0`
+  - G3 PASS：`_BoolProxy` / `_pt_blackbox_mode_proxy` / `pt_blackbox_mode.get()` 全仓清零
+  - G4 PASS：`PhaseOrderState` 已在 `domain/phase_order_state.py` 定义并在 `app/main.py` import + 实例化
+  - G5 PASS：未发现缓存 6 个容器引用的 `self._x = ctrl.xxx` 型写法
+  - G7 PASS：`apply_g2_blackbox_to_pt3` / `apply_pt1_blackbox_to_pt_phases` 可发现且已被 `blackbox_repair_handler.sync_*` 调用
+  - G9 PASS：`/Users/promise/opt/anaconda3/envs/power_gui/bin/python -m pytest -q` = `16 passed`
+  - G10 PASS：`py_compile` 通过；`PhaseOrderState.default()` 输出默认 `PT1/PT2/PT3` 正序
+  - G11 PASS：offscreen 启动无 `AttributeError / ImportError / Traceback`
+- 下一轮建议：
   - R47：死代码 / 重复 UI / 旧注释块清理 + `domain/services` 类型标注补齐
 
 ### 第 43 轮 (2026-04-20)：Phase 4 信号层骨架落地（`ControllerSignals(QObject)` 引入 + 阶段 2 最小试点）
@@ -1422,6 +1458,7 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 | R43 | `ControllerSignals` + render 迁移 | — | — | 已完成（阶段 1 + 阶段 2 试点；阶段 3 未执行） |
 | R44 | `physics_engine.py` + `_physics_*.py` | 31 | — | 已完成（physics 层 `self.ctrl` 清理，Phase 4 真正收官） |
 | R45 | `ui/panels/control_panel.py` + `ui/widgets/control_panel/*` | 12 + 3 别名直连 | 776 | 已完成（Phase 3 收尾，组件化与瘦身） |
+| R46 | `domain/phase_order_state.py` + `app/main.py` + `services/blackbox_repair_handler.py` | 状态真值源收口 + `_BoolProxy` 清理 | — | 已完成 |
 
 ### R33：模式建立（最小验证，已完成）
 
@@ -1529,7 +1566,7 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 - 本轮回归：`pytest 13 passed`
 
 - R40、R41、R42、R43、R44 已完成；Phase 4 已真正收官
-- R45 已完成；`ControlPanel` 组件化与瘦身收口，下一轮默认起点为 R46 状态真值源收口
+- R45、R46 已完成；下一轮默认起点为 R47：死代码 / 重复 UI / 旧注释块清理 + `domain/services` 类型标注补齐
 
 ### R43：ControllerSignals 引入 + 分阶段 render 迁移
 
@@ -1572,6 +1609,16 @@ Phase 4 的目标不是"继续 UI 组件化"，而是：
 - `WidgetBuilderMixin` 已收敛为薄入口：保留页切换装配、故障预设、宿主属性回绑与少量跨区联动
 - `self.ctrl.sim_state.*` 读写仍按 §5.2 例外条款保留；`c.hw.*` 三处直连已全部改为宿主回调注入
 - `pytest 13 passed`；`services/` 层 `self._ctrl | self.ctrl` 继续保持 `0`
+
+### R46：状态真值源收口 + `_BoolProxy` 清理
+
+**R46 结果**：
+- 已完成；新增 `domain/phase_order_state.py`，`PhaseOrderState` 当前集中持有 `pt_phase_orders`、4 组 blackbox order 与 `pt_blackbox_mode`
+- `PowerSyncController` 已改为 `self.phase_order_state = PhaseOrderState.default()`，并通过 `@property / setter` 维持旧公开访问面不变
+- `reset_pt_phase_orders()`、`reshuffle_pt_phase_orders()`、`reset_blackbox_orders()`、`set_g2_terminal_fault()`、`on_pt_blackbox_toggle()`、`get_pt_blackbox_mode()` 已下沉为状态容器委托；容器写操作统一改为原地覆盖同一 list/dict 引用
+- `apply_g2_blackbox_to_pt3()` 与 `apply_pt1_blackbox_to_pt_phases()` 已显式承接两处原先隐式派生关系；`blackbox_repair_handler.sync_*` 现通过它们落相序写侧
+- `_BoolProxy`、`_pt_blackbox_mode_proxy` 与 `pt_blackbox_mode` 兼容壳已物理删除；全仓 `self._ctrl` 基线现为 `0`
+- 本轮回归：`pytest -q` = `16 passed`
 
 ### 基线数据（Phase 4 启动时）
 
