@@ -1,3 +1,44 @@
+'''
+
+当前结构速览
+按钮 📡 接入 PT1 / PT3 在 pt_phase_check_panel.py:60-63，点击直连 on_connect_phase_seq_meter(pt)
+该回调在 main_window.py:269-270 透传到 circuit_tab.connect_phase_seq_meter()，当前是一步到位：调 get_pt_phase_sequence + 显示相序仪 + 显示结果标签
+二次端子 PT1_A / PT1_B / PT1_C 已在 NODES 里，_draw_circuit_content 已经画了终端盒
+拓扑点击分发在 control_panel._on_circuit_click（当前只处理万用表探针）
+V1 实施方案
+新增一个 UI 级小状态 PhaseWiringSession（放 circuit_tab 里即可，不入 domain，V2 再下沉）：
+
+
+active_pt: str | None           # "PT1" / "PT3" / None
+wired: set[str]                 # {"A","B","C"} 的子集
+流程改造（5 个小改动）：
+
+connect_phase_seq_meter(pt) 改成两阶段
+
+进入 wiring 模式：active_pt=pt, wired=set()
+相序仪 widget 加一个 set_waiting(pt_name) API，文字显示 PT1 待接线 0/3，圆点静止暗淡（复用 _direction=0 分支）
+不调 get_pt_phase_sequence，不启用 "记录 PT1" 按钮
+同时 main_window 把 circuit tab 切到前台（setCurrentWidget(circuit_tab)）
+control_panel._on_circuit_click 新增 wiring 分支（比 multimeter 更高优先级）
+
+如果 circuit_tab 有 active_pt：只对 {active_pt}_A/B/C 做 hit-test
+命中 → wired.add(phase)，redraw，更新相序仪文字 PT1 待接线 2/3
+wired == {A,B,C} → 调 get_pt_phase_sequence(pt) 让相序仪转起来 + 启用 "记录 PT1" 按钮
+_draw_circuit_content 增加高亮：active_pt 的三个二次端子 marker，可接线→ 大圆 + 闪色边；已接入→ 填充绿色
+
+_on_disconnect_psm / 切到另一个 PT：清 wiring session，相序仪回 disconnect() 态，禁用两个记录按钮，拓扑刷新
+
+PhaseSeqMeterWidget 加 set_waiting(pt_name, n, total) 方法：中间两行文字改为 PT1 / 待接线 n/3，底部氖灯都熄灭，圆点保持 _direction=0
+
+范围与风险
+业务层 (pt_phase_check_service, PhaseOrderResolver) 零改动 —— get_pt_phase_sequence 只是推迟调用
+记录 PT1 按钮 gating 改为"三点接齐"，现有 record_phase_sequence 逻辑不动
+黑盒模式（pt_blackbox_mode=True）需要额外考虑端子点位置（不是 PT1_A/B/C 而是黑盒三个 T 端子）—— V1 可先只在非黑盒模式启用 3 点接线，黑盒模式保持旧行为，或者你希望两种模式都改？
+确认一下黑盒模式这个点的处理方式，以及整体方案 OK 我就开始改。
+
+'''
+
+
 # 维护与重构清单 v2
 
 最后更新：`2026-04-20`
