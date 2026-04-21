@@ -126,6 +126,7 @@ class CircuitTab(QtWidgets.QWidget):
         self._render_ct_readings(p)
         self._render_bus_status(p)
         self._render_breakers(p)
+        self._render_generators()
         self._render_gen_wire_visibility()
         self._render_grounding_and_pt(p)
         self._render_multimeter(p)
@@ -285,11 +286,10 @@ class CircuitTab(QtWidgets.QWidget):
             ax.text(neutral[0] + 0.022, neutral[1], "N", fontsize=6, color="#888", va="center")
             return {"terms": terms, "N": neutral, "C_xy": (cx, cy)}
 
-        def draw_pt_wired(src_x, src_y, arm_tip, h_channel_y, color, ls="-"):
+        def draw_pt_wired(src_x, src_y, arm_tip, color, ls="-"):
             tx, ty = arm_tip
-            ax.plot([src_x, src_x], [src_y, h_channel_y], color=color, lw=1.2, alpha=0.85, ls=ls)
-            ax.plot([src_x, tx], [h_channel_y, h_channel_y], color=color, lw=1.2, alpha=0.85, ls=ls)
-            ax.plot([tx, tx], [h_channel_y, ty], color=color, lw=1.2, alpha=0.85, ls=ls)
+            ax.plot([src_x, tx], [src_y, src_y], color=color, lw=1.2, alpha=0.85, ls=ls)
+            ax.plot([tx, tx], [src_y, ty], color=color, lw=1.2, alpha=0.85, ls=ls)
             ax.plot(src_x, src_y, "o", color="k", markersize=3)
 
         def draw_pt_full(cx, cy, src_xs, src_ys, channels, label, sub_label, lbl_y, phase_order, ls="-", side="right"):
@@ -301,7 +301,7 @@ class CircuitTab(QtWidgets.QWidget):
                 sym = draw_pt_y_symbol(cx, cy, PT_SIZE, yn_side=yn_side)
                 terminals = [sym["A"], sym["B"], sym["C"]]
             for sx, sy, ph, color in zip(src_xs, src_ys, BUS_PHASES, BUS_COLORS):
-                draw_pt_wired(sx, sy, terminals[phase_order.index(ph)], channels[ph], color, ls=ls)
+                draw_pt_wired(sx, sy, terminals[phase_order.index(ph)], color, ls=ls)
             offset = PT_SIZE * 1.5
             if side == "right":
                 lbl_x, lbl_ha = cx + offset, "left"
@@ -440,9 +440,14 @@ class CircuitTab(QtWidgets.QWidget):
 
         _gen_stroke = [pe.withStroke(linewidth=3, foreground="white")]
         _side_stroke = [pe.withStroke(linewidth=2, foreground="white")]
-        for cx, label in [(G1_CX, "G1"), (G2_CX, "G2")]:
-            ax.add_patch(Circle((cx, GEN_CY), GEN_R, fill=False, ec="#111", lw=2.5))
-            ax.text(
+
+        self._gen_ring_artists = {}
+        self._gen_label_artists = {}
+
+        for gen_id, cx, label in [(1, G1_CX, "G1"), (2, G2_CX, "G2")]:
+            ring = Circle((cx, GEN_CY), GEN_R, fill=False, ec="#111", lw=2.5)
+            ax.add_patch(ring)
+            txt = ax.text(
                 cx,
                 GEN_CY,
                 label,
@@ -453,6 +458,9 @@ class CircuitTab(QtWidgets.QWidget):
                 color="#111",
                 path_effects=_gen_stroke,
             )
+            self._gen_ring_artists[gen_id] = ring
+            self._gen_label_artists[gen_id] = txt
+            
         for cx, side, ha in [(G1_CX, -1, "right"), (G2_CX, 1, "left")]:
             xpos = cx + side * (GEN_R + 0.025)
             ax.text(
@@ -490,7 +498,7 @@ class CircuitTab(QtWidgets.QWidget):
             cx=PT1_CX,
             cy=PT_GEN_CY,
             src_xs=G1_X,
-            src_ys=[CB_TOP] * 3,
+            src_ys=[PT_GEN_CHANNELS["A"], PT_GEN_CHANNELS["B"], PT_GEN_CHANNELS["C"]],
             channels=PT_GEN_CHANNELS,
             label="PT1",
             sub_label="G1机端",
@@ -523,7 +531,7 @@ class CircuitTab(QtWidgets.QWidget):
             cx=PT3_CX,
             cy=PT_GEN_CY,
             src_xs=G2_X,
-            src_ys=[CB_TOP] * 3,
+            src_ys=[PT_GEN_CHANNELS["A"], PT_GEN_CHANNELS["B"], PT_GEN_CHANNELS["C"]],
             channels=PT_GEN_CHANNELS,
             label="PT3",
             sub_label="G2机端",
@@ -881,6 +889,21 @@ class CircuitTab(QtWidgets.QWidget):
                 else:
                     line.set_data([x, x + 0.02], [y_bot, y_top - 0.02])
 
+    def _generator_state_color(self, gen) -> str:
+        if gen.breaker_closed and not gen.running:
+            return '#f59e0b'
+        if not gen.running:
+            return '#111111'
+        if gen.breaker_closed:
+            return '#7c3aed'
+        return '#2563eb'
+    
+    def _render_generators(self) -> None:
+        for gen_id, gen in [(1, self._api.sim_state.gen1), (2, self._api.sim_state.gen2)]:
+            color = self._generator_state_color(gen)
+            self._gen_ring_artists[gen_id].set_edgecolor(color)
+            self._gen_label_artists[gen_id].set_color(color)
+    
     def _render_grounding_and_pt(self, p):
         self.txt_grounding.set_text(p.ground_msg)
         self.txt_grounding.set_color(p.ground_color)
