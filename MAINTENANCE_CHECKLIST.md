@@ -5,9 +5,9 @@ Code Review — THREEPHASE 项目（当前仓库校正版）
 Critical
 C1. PT 黑盒渲染链路残留为永久关闭的死分支
 Location: app/main.py:328-329; ui/tabs/circuit_tab.py:71, 290, 349, 386, 404, 601, 615
-Problem: controller 的 get_pt_blackbox_mode() 永远返回 False，CircuitTab 仍保留整套 pt_blackbox_mode 分支和 draw_pt_blackbox_symbol()。但 PhaseOrderState 中旧的 pt_blackbox_mode / on_pt_blackbox_toggle / reshuffle_pt_phase_orders / get_pt_blackbox_mode 已不存在，说明这是一条“删除不彻底”的假功能链路，而不是仍有真实状态源的功能。
+Problem: controller 的 get_pt_blackbox_mode() 永远返回 False，CircuitTab 仍保留整套 pt_blackbox_mode 分支和 draw_pt_blackbox_symbol()。R47 之后，底层 PT 黑盒模式相关状态链路已经整体移除；当前残留的是 controller/UI 侧的假入口，而不是仍有真实状态源的功能。
 Impact: 维护者会误以为 PT 黑盒模式仍可启用，后续 V2 接线或测试扩展时容易在这条假入口上浪费排查时间。
-Fix: 推荐完整删除这条残留链路：删 controller wrapper、删 CircuitTab API 上的 get_pt_blackbox_mode、删 circuit_tab.py 中全部 pt_blackbox_mode 分支和 draw_pt_blackbox_symbol()。只有明确恢复该功能时，才重新引入真实状态源和测试。
+Fix: 推荐完整删除这条残留链路：删 controller wrapper、删 CircuitTab API 上的 get_pt_blackbox_mode、删 circuit_tab.py 中全部 pt_blackbox_mode 分支和 draw_pt_blackbox_symbol()。落地时除 grep `pt_blackbox_mode` / `on_pt_blackbox_toggle` / `reshuffle_pt_phase_orders` / `get_pt_blackbox_mode` 外，还应显式 grep `set_g2_terminal_fault`，确认没有残留调用方。只有明确恢复该功能时，才重新引入真实状态源和测试。
 
 Major
 M2. 接入相序仪的 freq 选择仍是 substring 检查
@@ -24,9 +24,9 @@ Fix: 统一改为 "#2ecc71"。
 
 M4. controller 跨模块调用 service 私有方法
 Location: app/main.py:585
-Problem: return self.sync_svc._is_gen_synced(gen_a, gen_b) 直接调了 SyncTestService 的下划线前缀方法。
+Problem: controller 对外已经提供 public is_gen_synced(...)，但其内部仍调用 SyncTestService 的私有 _is_gen_synced(...)；service 内部自调用和 tests/support/stubs.py 也仍沿用私有名。
 Impact: 破坏 service 封装边界，后续重构 sync_test_service 时容易误删或改坏私有实现。
-Fix: 在 SyncTestService 暴露公共 is_gen_synced(...)，controller 改调公共名；私有名可保留为委托或反向收口。
+Fix: 在 SyncTestService 上新增或提升为公共 is_gen_synced(...)，controller wrapper 改调公共名；service 内部 4 个自调用点和 tests/support/stubs.py 的同名 stub 同步切到公共名。私有名可删除，或暂时保留为委托。
 
 M5. 主窗口直接穿透读取相序仪私有状态
 Location: ui/main_window.py:192
@@ -67,9 +67,9 @@ Fix: 删除上半段孤立 section 注释，保留实际仍对应代码的那一
 
 m3. services/ 返回类型标注覆盖率仍偏低
 Location: services/ 全目录
-Problem: 粗略统计当前约为 60/197，约 30.5%，尤其数值密集的 physics/arbitration 代码块缺返回标注。
+Problem: services/ 仍有较多函数缺返回类型标注，尤其 physics/arbitration 这类数值密集模块；当前未定义统一统计口径，不建议在 checklist 中写死具体百分比。
 Impact: 不阻塞当前功能，但会持续抬高静态理解和后续重构成本。
-Fix: 保持列为独立专项轮，不与当前机械修复混做。
+Fix: 保持列为独立专项轮，等有固定统计脚本和口径后再记录基线数；不与当前机械修复混做。
 
 m4. 多处行内格式仍不一致
 Location: 例如 ui/tabs/circuit_tab.py:244, 752；ui/widgets/step_panels/pt_phase_check_panel.py:156, 161, 192

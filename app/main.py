@@ -62,10 +62,10 @@ class PowerSyncController:
         # ── 随机初始状态 ──────────────────────────────────────────────────
         init_amp1   = round(random.uniform(9500.0, 11500.0), 1)
         init_phase1 = round(random.uniform(-180.0, 180.0), 1)
-        init_freq1  = round(random.uniform(48.0, 49.0), 1)
+        init_freq1  = round(random.uniform(48.0, 52.0), 1)
         init_amp2   = round(random.uniform(9500.0, 11500.0), 1)
         init_phase2 = round(random.uniform(-180.0, 180.0), 1)
-        init_freq2  = round(random.uniform(51.0, 52.0), 1)
+        init_freq2  = round(random.uniform(48.0, 52.0), 1)
 
         # ── 唯一数据源 ────────────────────────────────────────────────────
         self.sim_state = SimulationState(
