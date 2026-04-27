@@ -1,3 +1,126 @@
+'''
+
+Code Review — THREEPHASE 项目
+Critical
+C1. get_pt_blackbox_mode() 硬编码 False — 状态被吞掉
+Location: app/main.py:328-329
+Problem: controller 的 wrapper 永远返回 False，从不委托到 self.phase_order_state.pt_blackbox_mode。UI 侧 circuit_tab.py:290 通过此 wrapper 读取并据此分支渲染普通 PT 还是黑盒符号；现在等于 PT 黑盒模式被永久关闭，但 PhaseOrderState 里那个 bool / on_pt_blackbox_toggle / reshuffle_pt_phase_orders 还在跑。
+Impact: 任何残留调用链如果 set 了 phase_order_state.pt_blackbox_mode = True（包括测试 stub、未来 V2 接线），UI 都看不见，是隐性 silent failure。
+Fix: 要么删 dead state（见 C2），要么真的转发：
+
+def get_pt_blackbox_mode(self):
+    return self.phase_order_state.get_pt_blackbox_mode()
+Major
+M1. R46 PT 黑盒方法已是 zombie code
+Location: domain/phase_order_state.py:27, L44-49, L71-78
+Problem: 最近 commit e6230dc 删了控制台中 "下垂控制 / pt 二次侧连线打乱" UI，对应的测试 test_on_pt_blackbox_toggle_uses_shuffle_then_reset 也被删（pytest 从 16 → 15）。但 pt_blackbox_mode 字段、on_pt_blackbox_toggle、reshuffle_pt_phase_orders、get_pt_blackbox_mode 全部留在 PhaseOrderState。circuit_tab._draw_circuit_content L290 还在读 get_pt_blackbox_mode()，与 C1 形成了一对死回路。
+Impact: 维护陷阱 —— 看起来功能存在，实际全程禁用；R47 cleanup 轮没识别出。
+Fix: 二选一。a) 完整删除：删 pt_blackbox_mode 字段、4 个方法和 circuit_tab 里所有 pt_blackbox_mode 分支（L386, L404, L601, L615 + draw_pt_blackbox_symbol 函数）。b) 真接回 UI 并恢复测试。推荐 (a)，因为 commit 信息明确说"删除"。
+M2. 接入相序仪的 freq 选择是 substring 检查
+Location: ui/tabs/circuit_tab.py:198
+Problem: freq = sim.gen1.freq if pt_name in "PT1" else sim.gen2.freq —— in "PT1" 是字符串子串检查。"PT1" in "PT1" 凑巧为 True，但这是个 pun，不是逻辑表达。若 PT 名换成 "P"、"PT"、"T1" 都为 True；"PT2" 反而为 False，落到 gen2 分支。这处对照原历史代码是 if pt_name in ("PT1", "PT2") else sim.gen2.freq（即 PT1/PT2 跟 gen1，PT3 跟 gen2），改写时丢了元组括号。
+Impact: 当前两个按钮只有 PT1/PT3，prod 表现正确，但你已经在规划 V2 + 用户提到 PT2，潜伏 bug。
+Fix:
+
+freq = sim.gen1.freq if pt_name in ("PT1", "PT2") else sim.gen2.freq
+M3. 绿色色号 typo
+Location: ui/tabs/circuit_tab.py:217
+Problem: color, label = "#2eec71", "正序"。其他地方（phase_seq_meter.py:30 _ABC_BRIGHT = #2ecc71，_panel_builders 里的相同绿色）都用 #2ecc71。#2eec71 不是 palette 颜色，明显是手抖。
+Impact: 三点接线完成后结果标签的绿色会和相序仪本体的绿色不一致，肉眼可辨。
+Fix: "#2ecc71"。
+M4. 跨模块调用私有方法
+Location: app/main.py:585 return self.sync_svc._is_gen_synced(gen_a, gen_b)
+Problem: controller 调用 service 的下划线前缀方法，破坏 R33–R44 立的封装边界。
+Impact: 重构 sync_test_service 时容易误删/改签名而不察觉。
+Fix: 在 SyncTestService 暴露 is_gen_synced(...) 公共方法，让 _is_gen_synced 委托到它（或反之），controller 改调公共名。
+M5. 私有属性穿透读取
+Location: ui/main_window.py:192
+Problem: get_phase_seq_meter_sequence=lambda: getattr(self.phase_seq_meter, "_sequence", "unknown") —— 直接读 widget 的 _sequence，绕过 public API。
+Impact: PhaseSeqMeterWidget 内部状态机现在有 _status (hidden/waiting/connected)，但消费方只看 _sequence，可能在 waiting 态拿到旧的 connected _sequence（仔细读代码：set_waiting 已把 _sequence='unknown'，所以暂时安全），但这个安全性是脆的。
+Fix: 在 PhaseSeqMeterWidget 加 public 方法：
+
+def current_sequence(self) -> str:
+    return self._sequence if self._status == "connected" else "unknown"
+然后 lambda 改为 lambda: self.phase_seq_meter.current_sequence()。
+
+M6. circuit_tab.py = 1238 行，超出项目自定 800 行硬阈值
+Location: ui/tabs/circuit_tab.py
+Problem: 单文件混了：母排画图、相序仪定位、相序接线 session、点击分发、CT 渲染、breaker 渲染、PT 二次端子盒、records table、loop 动画。
+Impact: 该文件已经成为最大风险文件（取代了 control_panel.py 的位置），MAINTENANCE_CHECKLIST.md §3 还把它列为 1238 但未排专项轮。每次 V1/V2 接线扩展都会让这文件继续胀。
+Fix: 拆分建议：
+circuit_tab/_phase_wiring.py —— PhaseWiringSession + handle_phase_wiring_click + _render_phase_wiring + connect/disconnect_phase_seq_meter
+circuit_tab/_record_tables.py —— _render_pt_record_tables + _mk 这块（≈300 行）
+circuit_tab/_draw_topology.py —— _draw_circuit_content（≈400 行）
+顶层只保留 CircuitTab(QWidget) 装配 + render() 入口
+M7. pytest 集合警告 — TestPanelAPI / TestPanelWidget 被 pytest 当成测试类
+Location: ui/test_panel.py:34, L112
+Problem: 类名 TestXxx 触发 pytest collection；又因为有 __init__ 被拒绝，留下 warning。两个都是非测试代码（一个是 Protocol，一个是 QWidget）。
+Impact: 警告噪音干扰真正的回归信号，长期会被忽略；CI 里如果开 -W error::PytestCollectionWarning 会直接失败。
+Fix: 任一即可：
+重命名（推荐）：TestPanelAPI → PanelAPI、TestPanelWidget → PanelWidget 并改全部引用
+加守卫：在两个类里加 __test__ = False
+在 tests/conftest.py 里 collect_ignore_glob = ['ui/test_panel.py']
+M8. 主循环 _tick exception 路径仅打 traceback
+Location: app/main.py:689-704
+Problem: physics 阶段抛异常后立即 return，下一帧 33ms 后会再次进入 —— 如果是确定性 bug 就会以 30Hz 频率刷屏 traceback。_handle_tick_failure 在 3 次后会显示 statusBar，但不会停 timer。
+Impact: 一个 bug 能在 1 秒内打 30 行 traceback，stderr 立刻被淹没；用户看不到第一次的真因。
+Fix: 连续 N 次失败后停 timer 或退化到只显示 statusBar。最小修：
+
+if self._consecutive_tick_failures >= 30 and self._timer.isActive():
+    self._timer.stop()
+    self.ui.show_warning("物理引擎已停止，请查看控制台。")
+Minor
+m1. 注释掉的逻辑保留在生产代码
+Location: pt_phase_check_panel.py:126
+Problem: #and not self._pt_recorded(pt_name) —— 注释行没说为什么。要么留逻辑要么删，目前是 future-noise。
+Fix: 删掉这一行；_pt_recorded 方法本身在 L115-117 也无人调用，一并删除。
+m2. R47 cleanup 漏的重复 section 分割
+Location: app/main.py:408-413
+Problem: 两个连续的 # ════ block 之间夹了一行空注释 "PT 节点解析辅助"，但下面紧跟另一个 section 头。R47 注释整理时 split 了一半。
+Fix: 删除上半 (L408-410)，因为 resolve_pt_node_plot_key 已经迁到 phase_order_resolver，这段注释指代的代码不在了。
+m3. services/ 类型标注覆盖率 41% (81/197)
+Location: services/ 全目录
+Problem: R47 显式排除，但记录在 checklist 说"留给独立专项轮"。这是已知债，不算违规，但 _physics_arbitration.py:243 等数值密集函数缺返回标注最碍眼。
+Fix: 不阻塞当前轮，按 checklist §10 排到下一个专项轮。
+m4. 多处行内格式不一致
+Location: circuit_tab.py:181, 244, 258, pt_phase_check_panel.py:156, 161, 192
+Problem: trailing whitespace、!= 前缺空格、缩进的 kwarg = value 风格 (markersize = 12) 与项目其余代码不一致。black / ruff format 没跑。
+Fix: 在 repo 加一次性 ruff format . 并在 .pre-commit-config.yaml 锁住。
+m5. _place_phase_seq_meter exception swallow
+Location: ui/tabs/circuit_tab.py:152-167
+Problem: try ... except Exception 整段包裹 matplotlib bbox 计算，落入 fallback 居中。如果是真的渲染异常会沉默。
+Fix: 缩小到只 catch 已知会抛的：matplotlib 在 figure 还没首次绘制时 get_position() 会返 unit bbox，这是唯一正常场景，可改为对 bbox 值做哨兵判断而不是 catch 全局。
+m6. _psm_terminal_markers 在 _draw_circuit_content 里重新赋值
+Location: ui/tabs/circuit_tab.py:744-768
+Problem: 每次 _draw_circuit_content() 都 self._psm_terminal_markers = {} 然后重建。ax.cla() 在函数顶部清了 axes，所以旧的 Line2D 不再被 axes 引用，会被 GC，OK；但 __init__ 里 L100 也初始化了一次 —— 那次完全是冗余（紧接 _build 里调用 _draw_circuit_content 会覆盖）。
+Fix: 删 L100 的 self._psm_terminal_markers = {}。
+m7. PhaseWiringSession 状态层级不清晰
+Location: ui/tabs/circuit_tab.py:44-47, L175-180
+Problem: 状态字符串 "idle" / "wiring" / "ready" 由 get_phase_wiring_status() 派生计算，但消费端在多处对比字符串字面量。容易 typo（如 "reading"）静默失败。
+Fix: 用 enum.StrEnum 或常量：
+
+class PhaseWiringStatus:
+    IDLE = "idle"
+    WIRING = "wiring"
+    READY = "ready"
+m8. ui/styles.py = 1007 行
+Location: ui/styles.py
+Problem: 单文件 QSS 模板。读起来还算线性（一大块字符串），不是真复杂度。
+Fix: 不紧迫。如果要拆，按组件分（_buttons.qss, _panels.qss, _dialogs.qss），用 pkg_resources 拼接。
+整体评价
+R45–R47 三轮收尾后：
+
+架构层面：健康。 Service 层 self._ctrl=0 已落实，dataclass 状态收口、Signal/Slot 试点都站住了。PhaseOrderResolver 抽得干净。
+当前最大债： C1+M1 这对 dead-code 死回路，必须立项一个小轮次清掉，否则 V2 接线写到一半会撞上"为什么 toggle 不生效"的 1 小时调试。
+次大债： M6 circuit_tab.py 1238 行 + M7 测试集合警告，是下两个候选轮次。
+V1 三点接线：已部分落地。 整体结构合理（PhaseWiringSession + handle_phase_wiring_click + 渲染分离），但有 M2/M3 两处具体 bug 需要先修。
+建议下一轮（R48）一次打包修：C1+M1+M2+M3+M7+m1+m2+m6。这些都是机械、低风险、相互无依赖；其余 M4/M5/M6/M8/m3/m4 留给后续专项。
+
+
+'''
+
+
+
 # 维护与重构清单 v2
 
 最后更新：`2026-04-20`
