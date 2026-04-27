@@ -10,6 +10,7 @@ ui/widgets/phase_seq_meter.py
 """
 
 import math
+from typing import Literal
 
 from PyQt5 import QtWidgets, QtCore, QtGui
 
@@ -37,13 +38,15 @@ class PhaseSeqMeterWidget(QtWidgets.QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._pos       = 0.0
-        self._direction = 0          # +1=CW/正序, -1=CCW/逆序, 0=静止
-        self._sequence  = 'unknown'
+        self._pos: float = 0.0
+        self._direction: int = 0        # +1=CW/正序, -1=CCW/逆序, 0=静止
+        self._sequence: str = 'unknown'
         self._connected_pt: str | None = None
-        self._freq      = 50.0
+        self._freq: float = 50.0
+        self._status: Literal["hidden", "waiting", "connected"] = "hidden"
+        self._waiting_text: str = ""
 
-        self._timer = QtCore.QTimer(self)
+        self._timer: QtCore.QTimer = QtCore.QTimer(self)
         self._timer.timeout.connect(self._tick)
         self._timer.start(1000 // _FPS)
 
@@ -53,19 +56,32 @@ class PhaseSeqMeterWidget(QtWidgets.QWidget):
         self.setToolTip("相序仪\n顺时针=正序  逆时针=反序")
 
     # ── Public API ────────────────────────────────────────────────────────
-    def connect_pt(self, pt_name: str, sequence: str):
+    def set_waiting(self, pt_name: str, n: int = 0, total: int = 3) -> None:
+        self._connected_pt = pt_name
+        self._sequence     = 'unknown'
+        self._direction    = 0
+        self._status       = "waiting"
+        self._waiting_text = f"待接线 {n}/{total}"
+        self.update()
+
+    def connect_pt(self, pt_name: str, sequence: str) -> None:
         self._connected_pt = pt_name
         self._sequence     = sequence
         is_valid = (len(sequence) == 3 and sequence not in ('unknown', 'FAULT'))
-        self._direction    = (1 if sequence in _ABC_FWD else
-                              -1 if is_valid else 0)
+        self._direction = 1 if sequence in _ABC_FWD else -1 if is_valid else 0
+        self._status = "connected"
+        self._waiting_text = ""
+        self.update()
 
-    def disconnect(self):
+    def disconnect(self) -> None:
         self._connected_pt = None
         self._sequence     = 'unknown'
         self._direction    = 0
+        self._status       = "hidden"
+        self._waiting_text = ""
+        self.update()
 
-    def set_freq(self, freq_hz: float):
+    def set_freq(self, freq_hz: float) -> None:
         self._freq = max(freq_hz, 1.0)
 
     # ── Timer ─────────────────────────────────────────────────────────────
@@ -126,16 +142,19 @@ class PhaseSeqMeterWidget(QtWidgets.QWidget):
             p.drawEllipse(dx - dot_r, dy - dot_r, dot_r * 2, dot_r * 2)
 
         # ── 中心文字 ─────────────────────────────────────────────────────
-        if self._connected_pt:
+        if self._status == "waiting" and self._connected_pt:
+            line1 = self._connected_pt
+            line2, c2 = self._waiting_text or "接待线 0/3", "#f59e0b"
+        elif self._connected_pt and self._status == "connected":
             line1 = self._connected_pt
             if self._sequence in _ABC_FWD:
                 line2, c2 = "正序 ↻", '#2ecc71'
             elif self._direction == -1:
                 line2, c2 = "反序 ↺", '#e74c3c'
             else:
-                line2, c2 = "异常", '#aaa'
+                line2, c2 = "异常", '#aaaaaa'
         else:
-            line1, line2, c2 = "未接入", "—", '#555'
+            line1, line2, c2 = "未接入", "—", '#555555'
 
         p.setFont(QtGui.QFont('SimHei', 9, QtGui.QFont.Bold))
         p.setPen(QtGui.QColor('#aaa'))
@@ -152,8 +171,8 @@ class PhaseSeqMeterWidget(QtWidgets.QWidget):
         lamp_ax = W // 3
         lamp_bx = W * 2 // 3
 
-        glow_a = bool(self._connected_pt and self._sequence in _ABC_FWD)
-        glow_b = bool(self._connected_pt and self._direction == -1)
+        glow_a = bool(self._status == "connected" and self._connected_pt and self._sequence in _ABC_FWD)
+        glow_b = bool(self._status == "connected" and self._connected_pt and self._direction == -1)
         self._draw_lamp(p, lamp_ax, lamp_y, lamp_r,
                         self._LAMP_A_ON if glow_a else self._LAMP_A_OFF, glow_a)
         self._draw_lamp(p, lamp_bx, lamp_y, lamp_r,

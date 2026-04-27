@@ -4,6 +4,7 @@ from PyQt5 import QtCore, QtWidgets
 
 from ui.tabs._step_style import apply_button_tone
 from ui.widgets.step_panels._panel_builders import (
+    add_load_share_cabinet_section,
     make_button,
     make_feedback_label,
     make_gen_block,
@@ -28,12 +29,14 @@ class SyncTestPanel(QtWidgets.QGroupBox):
         get_current_test_step: Callable[[], int],
         is_step_complete: Callable[[int], bool],
         on_toggle_multimeter: Optional[Callable[[], None]] = None,
+        show_load_share_cabinet_dialog: Optional[Callable[[], None]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
     ) -> None:
         super().__init__("第五步：同步功能测试", parent)
         self._api = api
         self._get_current_test_step = get_current_test_step
         self._is_step_complete = is_step_complete
+        self._show_load_share_cabinet_dialog = show_load_share_cabinet_dialog
         self.gen_refs = {}
         self._build()
 
@@ -113,6 +116,12 @@ class SyncTestPanel(QtWidgets.QGroupBox):
         btn_r2 = make_button(self, "记录第二轮（Gen2 基准 → Gen1 同步）", "#16a34a")
         btn_r2.clicked.connect(lambda: self._api.record_sync_round(2))
         lay.addWidget(btn_r2)
+        if self._show_load_share_cabinet_dialog is not None:
+            add_load_share_cabinet_section(
+                lay,
+                owner=self,
+                show_load_share_cabinet_dialog=self._show_load_share_cabinet_dialog,
+            )
 
         self.tp_s5_fb_lbl = make_feedback_label("请按步骤列表操作")
         self.tp_s5_fb_lbl.setMinimumHeight(48)

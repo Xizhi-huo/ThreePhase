@@ -154,7 +154,7 @@ class PhysicsEngine(WaveformMixin, ArbitrationMixin, ProtectionMixin, Measuremen
 
         wave_state = self._compute_wave_state(sim, is_isolated, bus_state['g1_on_bus'], bus_state['g2_on_bus'], a1, a2)
         deltas = self._update_protection_state(sim, wave_state, a1, a2, bus_state['g1_on_bus'], bus_state['g2_on_bus'])
-        self._apply_droop_control(sim)
+        # self._apply_droop_control(sim)
         self._update_circulating_current(sim, a1, a2, deltas['delta1'], deltas['delta2'])
 
         shift_b = 2 * np.pi / 3 if sim.fault_reverse_bc else -2 * np.pi / 3

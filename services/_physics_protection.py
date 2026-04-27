@@ -16,8 +16,8 @@ from domain.constants import (
     SYNC_VOLT_OK_V,
     SYNC_PHASE_OK_DEG,
     XS,
-    KP_DROOP,
-    KQ_DROOP,
+    # KP_DROOP,
+    # KQ_DROOP,
 )
 from domain.enums import BreakerPosition
 
@@ -89,22 +89,22 @@ class ProtectionMixin:
             self.relay_msg, self.relay_color = "💥 保护: Gen 2 环流过大，跳闸！", "red"
         return {'delta1': delta1, 'delta2': delta2}
 
-    def _apply_droop_control(self, sim):
+    # def _apply_droop_control(self, sim):
         # 电压限幅基于额定幅值 ±15%，确保高压系统下垂控制不会把幅值压到低压区间
-        _amp_min = GRID_AMP * 0.85
-        _amp_max = GRID_AMP * 1.15
+    #     _amp_min = GRID_AMP * 0.85
+    #     _amp_max = GRID_AMP * 1.15
         # 垂降控制仅作用于真正并入一次系统的机组（工作位 + 合闸）
-        g1_on_bus = (sim.gen1.breaker_position == BreakerPosition.WORKING and
-                     sim.gen1.breaker_closed)
-        g2_on_bus = (sim.gen2.breaker_position == BreakerPosition.WORKING and
-                     sim.gen2.breaker_closed)
-        if sim.droop_enabled and not sim.paused:
-            if g1_on_bus:
-                sim.gen1.freq = max(48.0, min(52.0, sim.gen1.freq - KP_DROOP * self.ip1))
-                sim.gen1.amp = max(_amp_min, min(_amp_max, sim.gen1.amp - KQ_DROOP * self.iq1))
-            if g2_on_bus:
-                sim.gen2.freq = max(48.0, min(52.0, sim.gen2.freq - KP_DROOP * self.ip2))
-                sim.gen2.amp = max(_amp_min, min(_amp_max, sim.gen2.amp - KQ_DROOP * self.iq2))
+    #     g1_on_bus = (sim.gen1.breaker_position == BreakerPosition.WORKING and
+    #                  sim.gen1.breaker_closed)
+    #     g2_on_bus = (sim.gen2.breaker_position == BreakerPosition.WORKING and
+    #                  sim.gen2.breaker_closed)
+    #     if sim.droop_enabled and not sim.paused:
+    #         if g1_on_bus:
+    #             sim.gen1.freq = max(48.0, min(52.0, sim.gen1.freq - KP_DROOP * self.ip1))
+    #             sim.gen1.amp = max(_amp_min, min(_amp_max, sim.gen1.amp - KQ_DROOP * self.iq1))
+    #         if g2_on_bus:
+    #             sim.gen2.freq = max(48.0, min(52.0, sim.gen2.freq - KP_DROOP * self.ip2))
+    #             sim.gen2.amp = max(_amp_min, min(_amp_max, sim.gen2.amp - KQ_DROOP * self.iq2))
 
     def _update_circulating_current(self, sim, a1, a2, delta1, delta2):
         # 仅当两台机组均真正并入一次母排（工作位 + 合闸）时才存在机间环流

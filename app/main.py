@@ -302,14 +302,6 @@ class PowerSyncController:
         self.phase_order_state.pt1_sec_blackbox_order[:] = list(value)
 
     @property
-    def pt_blackbox_mode_val(self):
-        return self.phase_order_state.pt_blackbox_mode
-
-    @pt_blackbox_mode_val.setter
-    def pt_blackbox_mode_val(self, value: bool):
-        self.phase_order_state.pt_blackbox_mode = bool(value)
-
-    @property
     def test_flow_mode(self):
         return self.flow_mgr.test_flow_mode
 
@@ -334,7 +326,7 @@ class PowerSyncController:
         setattr(self.sim_state, ratio_attr, ratio)
 
     def get_pt_blackbox_mode(self):
-        return self.phase_order_state.get_pt_blackbox_mode()
+        return False
 
     def get_pt_phase_sequence(self, pt_name):
         return self.phase_resolver.get_pt_phase_sequence(pt_name)
@@ -421,19 +413,6 @@ class PowerSyncController:
     # ════════════════════════════════════════════════════════════════════════
     def _get_generator_state(self, gen_id):
         return self.sim_state.gen1 if gen_id == 1 else self.sim_state.gen2
-
-    def set_loop_test_feedback(self, message, color='#444444'):
-        self.loop_test_state.feedback = message
-        self.loop_test_state.feedback_color = color
-
-    def record_loop_test_result(self, phase, status, reading):
-        self.loop_test_state.records[phase] = {
-            'status': status,
-            'reading': reading,
-        }
-
-    def mark_loop_test_completed(self):
-        self.loop_test_state.completed = True
 
     def set_pt_phase_check_feedback(self, message, color='#444444'):
         self.pt_phase_check_state.feedback = message
@@ -645,26 +624,8 @@ class PowerSyncController:
             hero=True,
         )
 
-    def reshuffle_pt_phase_orders(self):
-        self.phase_order_state.reshuffle_pt_phase_orders()
-        self.rebuild_circuit_view()
-
-    def reset_pt_phase_orders(self):
-        self.phase_order_state.reset_pt_phase_orders()
-        self.rebuild_circuit_view()
-
     def reset_blackbox_orders(self):
         self.phase_order_state.reset_blackbox_orders()
-
-    def set_g2_terminal_fault(self, enabled: bool):
-        self.sim_state.fault_reverse_bc = False
-        self.phase_order_state.set_g2_terminal_fault(enabled)
-        self.blackbox_handler.sync_g2_blackbox_to_phase_orders()
-        self.rebuild_circuit_view()
-
-    def on_pt_blackbox_toggle(self, checked: bool):
-        self.phase_order_state.on_pt_blackbox_toggle(checked)
-        self.rebuild_circuit_view()
 
     def rebuild_circuit_view(self):
         self.ui.rebuild_circuit_diagram()

@@ -65,31 +65,3 @@ def test_apply_methods_update_phase_orders_in_place():
     assert state.pt_phase_orders["PT2"] == ["B", "A", "C"]
     assert state.pt_phase_orders["PT1"] == ["C", "B", "A"]
 
-
-def test_on_pt_blackbox_toggle_uses_shuffle_then_reset(monkeypatch):
-    state = PhaseOrderState.default()
-    pt1_ref = state.pt_phase_orders["PT1"]
-    pt2_ref = state.pt_phase_orders["PT2"]
-    pt3_ref = state.pt_phase_orders["PT3"]
-
-    def reverse_shuffle(values):
-        values[:] = list(reversed(values))
-
-    monkeypatch.setattr("domain.phase_order_state.random.shuffle", reverse_shuffle)
-
-    state.on_pt_blackbox_toggle(True)
-    assert state.get_pt_blackbox_mode() is True
-    assert state.pt_phase_orders["PT1"] is pt1_ref
-    assert state.pt_phase_orders["PT2"] is pt2_ref
-    assert state.pt_phase_orders["PT3"] is pt3_ref
-    assert state.pt_phase_orders["PT1"] == ["C", "B", "A"]
-    assert state.pt_phase_orders["PT2"] == ["C", "B", "A"]
-    assert state.pt_phase_orders["PT3"] == ["C", "B", "A"]
-
-    state.on_pt_blackbox_toggle(False)
-    assert state.get_pt_blackbox_mode() is False
-    assert state.pt_phase_orders == {
-        "PT1": ["A", "B", "C"],
-        "PT2": ["A", "B", "C"],
-        "PT3": ["A", "B", "C"],
-    }

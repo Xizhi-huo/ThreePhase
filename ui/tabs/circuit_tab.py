@@ -5,7 +5,8 @@ ui/tabs/circuit_tab.py
 
 from __future__ import annotations
 
-from typing import Callable, Dict, Protocol
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Protocol
 
 import matplotlib.patheffects as pe
 import numpy as np
@@ -40,6 +41,10 @@ def _qs(color: str) -> str:
     }
     return _MAP.get(color, color)
 
+@dataclass
+class PhaseWiringSession:
+    active_pt: str | None = None
+    wired: set[str] = field(default_factory=set)
 
 class CircuitTabAPI(Protocol):
     @property
@@ -91,6 +96,8 @@ class CircuitTab(QtWidgets.QWidget):
         self._on_circuit_click = on_circuit_click
         self._is_test_mode_active_cb = is_test_mode_active
         self._get_current_test_step_cb = get_current_test_step
+        self._phase_wiring: PhaseWiringSession = PhaseWiringSession()
+        self._psm_terminal_markers: dict[str, dict[str, Any]] = {}
         self._build()
 
     def _build(self) -> None:
@@ -126,6 +133,7 @@ class CircuitTab(QtWidgets.QWidget):
         self._render_ct_readings(p)
         self._render_bus_status(p)
         self._render_breakers(p)
+        self._render_phase_wiring()
         self._render_generators()
         self._render_gen_wire_visibility()
         self._render_grounding_and_pt(p)
@@ -140,14 +148,7 @@ class CircuitTab(QtWidgets.QWidget):
         self._draw_circuit_content()
         self.canvas2.draw()
 
-    def connect_phase_seq_meter(self, pt_name: str):
-        """接入相序仪到指定 PT，浮动显示在 canvas 中央两台发电机之间。"""
-        seq = self._api.get_pt_phase_sequence(pt_name)
-        self.phase_seq_meter.connect_pt(pt_name, seq)
-        sim = self._api.sim_state
-        freq = sim.gen1.freq if pt_name in ("PT1", "PT2") else sim.gen2.freq
-        self.phase_seq_meter.set_freq(freq)
-
+    def _place_phase_seq_meter(self) -> None:
         mw, mh = self.phase_seq_meter.width(), self.phase_seq_meter.height()
         try:
             bbox = self.ax_circuit.get_position()
@@ -164,35 +165,123 @@ class CircuitTab(QtWidgets.QWidget):
         except Exception:
             cw, ch = self.canvas2.width(), self.canvas2.height()
             px, py = cw // 2, ch // 2
+
         mx = px - mw // 2
         my = py - mh // 2
         self.phase_seq_meter.move(mx, my)
         self.phase_seq_meter.setVisible(True)
         self.phase_seq_meter.raise_()
 
-        if seq in {"ABC", "BCA", "CAB"}:
-            color, label = "#2ecc71", "✓ 正序"
-        elif seq == "FAULT":
-            color, label = "#f39c12", "⚠ 不平衡/故障"
-        else:
-            color, label = "#e74c3c", "✗ 反序"
-        self._psm_result_lbl.setText(f"{pt_name} → {label}")
-        self._psm_result_lbl.setStyleSheet(
-            f"color:{color}; font-size:10px;"
-            " background:rgba(30,39,46,200);"
-            " border-radius:4px; padding:2px 6px;"
-        )
-        self._psm_result_lbl.adjustSize()
-        lw = self._psm_result_lbl.width()
-        self._psm_result_lbl.move(max(0, px - lw // 2), my + mh + 4)
-        self._psm_result_lbl.setVisible(True)
-        self._psm_result_lbl.raise_()
+    def get_phase_wiring_status(self) -> str:
+        if self._phase_wiring.active_pt is None:
+            return "idle"
+        if self._phase_wiring.wired == {"A", "B", "C"}:
+            return "ready"
+        return "wiring"
+    
+    def get_phase_wiring_active_pt(self) -> str | None:
+        return self._phase_wiring.active_pt
 
-    def disconnect_phase_seq_meter(self):
-        """断开相序仪，隐藏浮层。"""
+    def _phase_target_nodes(self) -> tuple[str, ...]:
+        pt_name = self._phase_wiring.active_pt
+        if pt_name not in ("PT1", "PT3"):
+            return ()
+        return tuple(f"{pt_name}_{phase}" for phase in ("A", "B", "C"))
+    
+    def connect_phase_seq_meter(self, pt_name: str) -> None:
+        pt_name = pt_name.upper()
+        self._phase_wiring.active_pt = pt_name
+        self._phase_wiring.wired.clear()
+
+        self.phase_seq_meter.set_waiting(pt_name, 0, 3)
+        sim = self._api.sim_state
+        freq = sim.gen1.freq if pt_name in "PT1" else sim.gen2.freq
+        self.phase_seq_meter.set_freq(freq)
+        self._place_phase_seq_meter()
+        self._psm_result_lbl.setVisible(False)
+        self.canvas2.draw_idle()
+
+    def disconnect_phase_seq_meter(self) -> None:
+        self._phase_wiring.active_pt = None
+        self._phase_wiring.wired.clear()
         self.phase_seq_meter.disconnect()
         self.phase_seq_meter.setVisible(False)
         self._psm_result_lbl.setVisible(False)
+        self.canvas2.draw_idle()
+
+    def _show_phase_seq_result(self, pt_name: str, seq: str) -> None:
+        self.phase_seq_meter.connect_pt(pt_name, seq)
+        self._place_phase_seq_meter()
+
+        if seq in {"ABC", "BCA", "CAB"}:
+            color, label = "#2eec71", "正序"
+        elif seq == "FAULT":
+            color, label = "#f39c12", "不平衡/故障"
+        else:
+            color, label = "#e74c3c", "反序"
+
+        self._psm_result_lbl.setText(f"{pt_name} → {label}")
+        self._psm_result_lbl.setStyleSheet(
+            f"color:{color}; font-size:10px;"
+            " background: rgba(30, 39, 46, 200);"
+            " border-radius: 4px;"
+            " padding: 2px 6px;"
+        )
+        self._psm_result_lbl.adjustSize()
+
+        mw, mh = self.phase_seq_meter.width(), self.phase_seq_meter.height()
+        px = self.phase_seq_meter.x() + mw // 2
+        py = self.phase_seq_meter.y() + mh
+        lw = self._psm_result_lbl.width()
+        self._psm_result_lbl.move(max(0, px - lw // 2), py + 4)
+        self._psm_result_lbl.setVisible(True)
+        self._psm_result_lbl.raise_()
+        self.canvas2.draw_idle()
+
+    def handle_phase_wiring_click(self, event) -> bool:
+        if self.get_phase_wiring_status() != "wiring":
+            return False
+        if event.inaxes!= self.ax_circuit or event.xdata is None or event.ydata is None:
+            return True
+    
+        closest_node = None
+        min_dist = 0.04
+        for node_name in self._phase_target_nodes():
+            x, y = NODES[node_name][:2]
+            dist = ((event.xdata - x) ** 2 + (event.ydata - y) ** 2) ** 0.5
+            if dist < min_dist:
+                closest_node = node_name
+                min_dist = dist
+
+        if closest_node is None:
+            return True
+        
+        phase = closest_node.rsplit("_", 1)[1]
+        if phase not in self._phase_wiring.wired:
+            self._phase_wiring.wired.add(phase)
+            self.phase_seq_meter.set_waiting(
+                self._phase_wiring.active_pt,
+                len(self._phase_wiring.wired),
+                3,
+            )
+            if self._phase_wiring.wired == {"A", "B", "C"}:
+                seq = self._api.get_pt_phase_sequence(self._phase_wiring.active_pt)
+                self._show_phase_seq_result(self._phase_wiring.active_pt, seq)
+
+        self.canvas2.draw_idle()
+        return True
+    
+    def _render_phase_wiring(self) -> None:
+        active_pt = self._phase_wiring.active_pt
+        wired = self._phase_wiring.wired
+
+        for node_name, pack in self._psm_terminal_markers.items():
+            pt_name, phase = node_name.split("_", 1)
+            is_target = active_pt == pt_name and self.get_phase_wiring_status() in {"wiring", "ready"}
+            is_wired = is_target and phase in wired
+
+            pack["ring"].set_visible(is_target)
+            pack["fill"].set_visible(is_wired)
 
     def _draw_circuit_content(self):
         ax = self.ax_circuit
@@ -545,10 +634,10 @@ class CircuitTab(QtWidgets.QWidget):
         PT_V_LBL_Y = PT_GEN_CY + PT_SIZE + 0.245
         PT2_V_LBL_Y = PT2_CY + PT_SIZE + 0.245
         bbox_pt = dict(facecolor="#f8fafc", edgecolor="#9a3412", boxstyle="round,pad=0.25", alpha=0.90)
-        self.txt_pt1_v = ax.text(PT1_CX, PT_V_LBL_Y, "PT1: -- V", fontsize=7, ha="center", color="#0066cc", bbox=bbox_pt)
+        self.txt_pt1_v = ax.text(PT1_CX, PT_V_LBL_Y - 0.03, "PT1: -- V", fontsize=7, ha="center", color="#0066cc", bbox=bbox_pt)
         self.txt_pt2_v = ax.text(
             PT2_CX + PT_SIZE * 2.8,
-            PT2_CY,
+            PT2_CY - 0.035,
             "PT2: -- V",
             fontsize=7,
             ha="left",
@@ -556,7 +645,7 @@ class CircuitTab(QtWidgets.QWidget):
             color="#0066cc",
             bbox=bbox_pt,
         )
-        self.txt_pt3_v = ax.text(PT3_CX, PT_V_LBL_Y, "PT3: -- V", fontsize=7, ha="center", color="#0066cc", bbox=bbox_pt)
+        self.txt_pt3_v = ax.text(PT3_CX, PT_V_LBL_Y - 0.03, "PT3: -- V", fontsize=7, ha="center", color="#0066cc", bbox=bbox_pt)
 
         self.txt_i1 = ax.text(
             CT_X_LEFT,
@@ -651,6 +740,32 @@ class CircuitTab(QtWidgets.QWidget):
 
         self.probe1_plot, = ax.plot([], [], "ro", markersize=12, alpha=0.8)
         self.probe2_plot, = ax.plot([], [], "ko", markersize=12, alpha=0.8)
+
+        self._psm_terminal_markers = {}
+        for pt_name, edge in (("PT1", "#1d4ed8"), ("PT3", "#7c3aed")):
+            for phase in ("A", "B", "C"):
+                node_name = f"{pt_name}_{phase}"
+                x, y = NODES[node_name][:2]
+
+                ring, = ax.plot(
+                    [x], [y], "o",
+                    markersize = 12,
+                    markerfacecolor = "none",
+                    markeredgecolor = edge,
+                    markeredgewidth = 2.0,
+                    visible = False,
+                    zorder = 7,
+                )
+                fill, = ax.plot(
+                    [x], [y], "o",
+                    markersize = 7.5,
+                    markerfacecolor = "#22c55e",
+                    markeredgecolor = "white",
+                    markeredgewidth = 0.8,
+                    visible = False,
+                    zorder = 8,
+                )
+                self._psm_terminal_markers[node_name] = {"ring": ring, "fill": fill}
 
         _blank6 = [["PT1 AB", "---"], ["PT1 BC", "---"], ["PT1 CA", "---"], ["PT2 AB", "---"], ["PT2 BC", "---"], ["PT2 CA", "---"]]
         _blank3 = [["AB", "---"], ["BC", "---"], ["CA", "---"]]

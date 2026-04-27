@@ -14,8 +14,10 @@ from ui.widgets.step_panels._dialogs import (
     show_assessment_result_dialog,
     show_blackbox_dialog,
     show_blackbox_required_dialog,
+    show_load_share_cabinet_dialog,
     show_random_fault_identification_dialog,
 )
+from ui.widgets.load_share_cabinet_widget import LoadShareCabinetState
 from ui.widgets.step_panels._panel_builders import (
     build_test_panel_bottom_bar,
     build_test_panel_scroll_skeleton,
@@ -120,23 +122,30 @@ class TestPanelWidget(QtWidgets.QWidget):
         on_connect_phase_seq_meter: Callable[[str], None],
         on_disconnect_phase_seq_meter: Callable[[], None],
         get_phase_seq_meter_sequence: Callable[[], str],
+        get_phase_wiring_status: Callable[[], str],
+        get_phase_wiring_active_pt: Callable[[], str | None],
+        
         parent: Optional[QtWidgets.QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._api = api
-        self._host_show_test_panel = on_show_test_panel
-        self._host_set_current_tab = on_set_current_tab
-        self._host_set_step_tabs_visible = on_set_step_tabs_visible
-        self._host_toggle_multimeter = on_toggle_multimeter
-        self._host_force_multimeter_off = on_force_multimeter_off
-        self._host_connect_phase_seq_meter = on_connect_phase_seq_meter
-        self._host_disconnect_phase_seq_meter = on_disconnect_phase_seq_meter
-        self._host_get_phase_seq_meter_sequence = get_phase_seq_meter_sequence
+        self._host_show_test_panel: Callable[[bool], None] = on_show_test_panel
+        self._host_set_current_tab: Callable[[int], None] = on_set_current_tab
+        self._host_set_step_tabs_visible: Callable[[bool], None] = on_set_step_tabs_visible
+        self._host_toggle_multimeter: Callable[[], None] = on_toggle_multimeter
+        self._host_force_multimeter_off: Callable[[], None] = on_force_multimeter_off
+        self._host_connect_phase_seq_meter: Callable[[str], None] = on_connect_phase_seq_meter
+        self._host_disconnect_phase_seq_meter: Callable[[], None] = on_disconnect_phase_seq_meter
+        self._host_get_phase_seq_meter_sequence: Callable[[], str] = get_phase_seq_meter_sequence
+        self._host_get_phase_wiring_status: Callable[[], str] = get_phase_wiring_status
+        self._host_get_phase_wiring_active_pt: Callable[[], str | None] = get_phase_wiring_active_pt
         self.test_panel = self
-        self._pre_test_scenario_id = ""
-        self._pre_test_flow_mode = "teaching"
-        self._pre_test_preset_mode = "normal"
+        self._pre_test_scenario_id: str = ""
+        self._pre_test_flow_mode: str = "teaching"
+        self._pre_test_preset_mode: str = "normal"
+        self._load_share_cabinet_state = LoadShareCabinetState()
         self._setup_test_panel()
+
 
     def set_pretest_config(self, scenario_id: str, flow_mode: str, preset_mode: str) -> None:
         self._pre_test_scenario_id = scenario_id
@@ -184,6 +193,7 @@ class TestPanelWidget(QtWidgets.QWidget):
                 is_step_complete=self._is_step_complete,
                 on_toggle_multimeter=self._on_toggle_multimeter,
                 show_blackbox_dialog=self._show_blackbox_dialog,
+                show_load_share_cabinet_dialog=self._show_load_share_cabinet_dialog,
                 parent=scroll_content,
             ),
             2: PtVoltageCheckPanel(
@@ -192,6 +202,7 @@ class TestPanelWidget(QtWidgets.QWidget):
                 is_step_complete=self._is_step_complete,
                 on_toggle_multimeter=self._on_toggle_multimeter,
                 show_blackbox_dialog=self._show_blackbox_dialog,
+                show_load_share_cabinet_dialog=self._show_load_share_cabinet_dialog,
                 parent=scroll_content,
             ),
             3: PtPhaseCheckPanel(
@@ -201,8 +212,11 @@ class TestPanelWidget(QtWidgets.QWidget):
                 on_connect_phase_seq_meter=self._on_connect_phase_seq_meter,
                 on_disconnect_phase_seq_meter=self._on_disconnect_phase_seq_meter,
                 get_phase_seq_meter_sequence=self._get_phase_seq_meter_sequence,
+                get_phase_wiring_status=self._get_phase_wiring_status,
+                get_phase_wiring_active_pt=self._get_phase_wiring_active_pt,
                 on_force_multimeter_off=self._on_force_multimeter_off,
                 show_blackbox_dialog=self._show_blackbox_dialog,
+                show_load_share_cabinet_dialog=self._show_load_share_cabinet_dialog,
                 parent=scroll_content,
             ),
             4: PtExamPanel(
@@ -211,12 +225,14 @@ class TestPanelWidget(QtWidgets.QWidget):
                 is_step_complete=self._is_step_complete,
                 on_toggle_multimeter=self._on_toggle_multimeter,
                 show_blackbox_dialog=self._show_blackbox_dialog,
+                show_load_share_cabinet_dialog=self._show_load_share_cabinet_dialog,
                 parent=scroll_content,
             ),
             5: SyncTestPanel(
                 self._api,
                 get_current_test_step=self._current_test_step,
                 is_step_complete=self._is_step_complete,
+                show_load_share_cabinet_dialog=self._show_load_share_cabinet_dialog,
                 parent=scroll_content,
             ),
         }
@@ -241,6 +257,7 @@ class TestPanelWidget(QtWidgets.QWidget):
     def enter_test_mode(self):
         scenario_id = getattr(self, "_pre_test_scenario_id", "")
         self._api.test_flow_mode = getattr(self, "_pre_test_flow_mode", "teaching")
+        self._load_share_cabinet_state.reset_defaults()
         if scenario_id:
             self._api.reset_for_scenario(scenario_id)
         else:
@@ -387,12 +404,19 @@ class TestPanelWidget(QtWidgets.QWidget):
 
     def _on_connect_phase_seq_meter(self, pt_name: str):
         self._host_connect_phase_seq_meter(pt_name)
+        self._host_set_current_tab(1)
 
     def _on_disconnect_phase_seq_meter(self):
         self._host_disconnect_phase_seq_meter()
 
     def _get_phase_seq_meter_sequence(self):
         return self._host_get_phase_seq_meter_sequence()
+    
+    def _get_phase_wiring_status(self) -> str:
+        return self._host_get_phase_wiring_status()
+    
+    def _get_phase_wiring_active_pt(self) -> str | None:
+        return self._host_get_phase_wiring_active_pt()
 
     def _show_assessment_result_dialog(self, result):
         show_assessment_result_dialog(self, result)
@@ -408,6 +432,9 @@ class TestPanelWidget(QtWidgets.QWidget):
             return
         self._api.append_assessment_event(AssessmentEventType.BLACKBOX_OPENED, step=self._current_test_step(), target=target)
         show_blackbox_dialog(self, api=self._api, step=self._current_test_step(), target=target)
+
+    def _show_load_share_cabinet_dialog(self) -> None:
+        show_load_share_cabinet_dialog(self, self._load_share_cabinet_state)
 
     def render(self, rs):
         self._render_test_panel(rs)

@@ -190,6 +190,9 @@ class PowerSyncUI(
             on_connect_phase_seq_meter=lambda pt: self.connect_phase_seq_meter(pt),
             on_disconnect_phase_seq_meter=lambda: self.disconnect_phase_seq_meter(),
             get_phase_seq_meter_sequence=lambda: getattr(self.phase_seq_meter, "_sequence", "unknown"),
+            get_phase_wiring_status=lambda: self._circuit_tab.get_phase_wiring_status(),
+            get_phase_wiring_active_pt=lambda: self._circuit_tab.get_phase_wiring_active_pt(),
+
             parent=self,
         )
         h_layout.addWidget(self._test_panel_widget)   # 加入主布局（初始隐藏）
@@ -266,8 +269,9 @@ class PowerSyncUI(
     def rebuild_circuit_diagram(self):
         self._circuit_tab.rebuild_circuit_diagram()
 
-    def connect_phase_seq_meter(self, pt_name: str):
+    def connect_phase_seq_meter(self, pt_name: str) -> None:
         self._circuit_tab.connect_phase_seq_meter(pt_name)
+        self.tab_widget.setCurrentIndex(1)
 
     def disconnect_phase_seq_meter(self):
         self._circuit_tab.disconnect_phase_seq_meter()

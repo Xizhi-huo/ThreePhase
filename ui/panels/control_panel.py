@@ -84,10 +84,6 @@ class WidgetBuilderMixin:
         on_instant_sync = lambda: getattr(ctrl, "hw").instant_sync()
         param_page = ParamControlsPage(
             sim_state=ctrl.sim_state,
-            g2_fault_active=ctrl.g2_blackbox_order != ["A", "B", "C"],
-            on_pt_blackbox_toggle=ctrl.on_pt_blackbox_toggle,
-            on_reshuffle_pt_phase_orders=ctrl.reshuffle_pt_phase_orders,
-            on_set_g2_terminal_fault=ctrl.set_g2_terminal_fault,
             on_toggle_pause=ctrl.toggle_pause,
             on_instant_sync=on_instant_sync,
         )
@@ -157,9 +153,7 @@ class WidgetBuilderMixin:
         self.sync_gain_label = param_page.sync_gain_label
         self.first_start_slider = param_page.first_start_slider
         self.first_start_label = param_page.first_start_label
-        self.droop_cb = param_page.droop_cb
-        self.pt_blackbox_cb = param_page.pt_blackbox_cb
-        self.fault_cb = param_page.fault_cb
+        # self.droop_cb = param_page.droop_cb
         self.rotate_phasor_cb = param_page.rotate_phasor_cb
         self.relay_lbl = param_page.relay_lbl
         self.pause_btn = param_page.pause_btn
@@ -173,6 +167,9 @@ class WidgetBuilderMixin:
     def _on_fp_set(self, scenario_id: str):
         self._pre_test_scenario_id = scenario_id
         self._pre_test_preset_mode = "choose" if scenario_id else "normal"
+        if not scenario_id:
+            # 正常模式不走考核流程，回到默认教学模式，避免管理员入口残留隐藏。
+            self._pre_test_flow_mode = "teaching"
         self._sync_fault_preset_buttons(self._pre_test_preset_mode)
         self._refresh_pretest_status_label()
 
@@ -300,11 +297,15 @@ class WidgetBuilderMixin:
         }.get(mode, "教学模式")
 
     def _on_circuit_click(self, event):
+        if self._circuit_tab.get_phase_wiring_status() == "wiring":
+            if self._circuit_tab.handle_phase_wiring_click(event):
+                return
+        
         if not self.ctrl.sim_state.multimeter_mode:
             return
         if event.inaxes != self.ax_circuit or event.xdata is None or event.ydata is None:
             return
-
+        
         closest_node = None
         min_dist = 0.04
         for name, data in NODES.items():

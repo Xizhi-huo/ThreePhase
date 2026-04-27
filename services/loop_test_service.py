@@ -229,10 +229,3 @@ class LoopTestService:
             self._set_loop_test_feedback(
                 "第一步【回路连通性测试】已确认完成：三相回路全部导通 [≈0Ω]，接线正确。",
                 "#006600")
-
-    def get_loop_test_blockers(self):
-        return [text for text, done in self.get_loop_test_steps() if not done]
-
-    def are_loop_records_complete(self):
-        """供 UI 步骤显示使用：三相是否已记录（未必已点完成按钮）。"""
-        return self._are_loop_records_complete()

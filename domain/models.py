@@ -19,8 +19,11 @@ class FaultConfig:
 
 @dataclass
 class GeneratorState:
+
+    "单台发电机当前的状态"
+
     freq: float
-    amp: float
+    amp: float      # 电压幅值
     phase_deg: float
     mode: str = "stop"
     running: bool = False
@@ -32,12 +35,15 @@ class GeneratorState:
 
 @dataclass
 class SimulationState:
+
+    "整个仿真系统当前的状态"
+
     gen1: GeneratorState
     gen2: GeneratorState
     system_mode: str = SystemMode.ISOLATED_BUS
     rotate_phasor: bool = True
     sim_speed: float = 0.3
-    droop_enabled: bool = False
+    # droop_enabled: bool = False
     sync_gain: float = 1.0
     gov_gain: float = 0.75
     first_start_time: int = 10

@@ -16,20 +16,12 @@ class ParamControlsPage(QtWidgets.QWidget):
         self,
         *,
         sim_state,
-        g2_fault_active: bool,
-        on_pt_blackbox_toggle,
-        on_reshuffle_pt_phase_orders,
-        on_set_g2_terminal_fault,
         on_toggle_pause,
         on_instant_sync,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self.sim_state = sim_state
-        self.g2_fault_active = g2_fault_active
-        self.on_pt_blackbox_toggle_cb = on_pt_blackbox_toggle
-        self.on_reshuffle_cb = on_reshuffle_pt_phase_orders
-        self.on_set_g2_fault_cb = on_set_g2_terminal_fault
         self.on_toggle_pause_cb = on_toggle_pause
         self.on_instant_sync_cb = on_instant_sync
         self._build()
@@ -73,30 +65,11 @@ class ParamControlsPage(QtWidgets.QWidget):
 
         layout.addWidget(param_group)
 
-        self.droop_cb = QtWidgets.QCheckBox("启用 P-f / Q-V 下垂控制 (自适应平衡)")
-        self.droop_cb.setChecked(self.sim_state.droop_enabled)
-        apply_toggle_tone(self.droop_cb, "warning")
-        self.droop_cb.toggled.connect(lambda value: setattr(self.sim_state, "droop_enabled", value))
-        layout.addWidget(self.droop_cb)
-
-        pt_group = QtWidgets.QGroupBox("PT 黑盒教学模式")
-        pt_group.setProperty("cardTone", "info")
-        pt_layout = QtWidgets.QVBoxLayout(pt_group)
-        self.pt_blackbox_cb = QtWidgets.QCheckBox("随机打乱三相顺序")
-        apply_toggle_tone(self.pt_blackbox_cb, "primary")
-        self.pt_blackbox_cb.toggled.connect(self.on_pt_blackbox_toggle_cb)
-        pt_layout.addWidget(self.pt_blackbox_cb)
-        reshuffle_btn = QtWidgets.QPushButton("重新打乱PT相序")
-        reshuffle_btn.setProperty("secondary", True)
-        reshuffle_btn.clicked.connect(self.on_reshuffle_cb)
-        pt_layout.addWidget(reshuffle_btn)
-        layout.addWidget(pt_group)
-
-        self.fault_cb = QtWidgets.QCheckBox("陷阱：故意接反 Gen2 B/C相")
-        self.fault_cb.setChecked(self.g2_fault_active)
-        apply_toggle_tone(self.fault_cb, "warning")
-        self.fault_cb.toggled.connect(self.on_set_g2_fault_cb)
-        layout.addWidget(self.fault_cb)
+        # self.droop_cb = QtWidgets.QCheckBox("启用 P-f / Q-V 下垂控制 (自适应平衡)")
+        # self.droop_cb.setChecked(self.sim_state.droop_enabled)
+        # apply_toggle_tone(self.droop_cb, "warning")
+        # self.droop_cb.toggled.connect(lambda value: setattr(self.sim_state, "droop_enabled", value))
+        # layout.addWidget(self.droop_cb)
 
         self.rotate_phasor_cb = QtWidgets.QCheckBox("相量图：绝对参考系 (电网旋转)")
         self.rotate_phasor_cb.setChecked(self.sim_state.rotate_phasor)

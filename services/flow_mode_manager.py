@@ -6,8 +6,9 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class FlowModePolicy:
     allow_continue_with_fault: bool
-    require_all_measurements_before_finalize: bool
-    require_step_pass_to_finalize: bool
+    # Legacy dead flags retained as comments during dead-code verification:
+    # require_all_measurements_before_finalize: bool
+    # require_step_pass_to_finalize: bool
     show_fault_detected_banner: bool
     show_diagnostic_hints: bool
     block_step5_until_blackbox_fixed: bool
@@ -25,8 +26,8 @@ class FlowModePolicy:
 FLOW_MODE_POLICIES = {
     'teaching': FlowModePolicy(
         allow_continue_with_fault=True,
-        require_all_measurements_before_finalize=True,
-        require_step_pass_to_finalize=False,
+        # require_all_measurements_before_finalize=True,
+        # require_step_pass_to_finalize=False,
         show_fault_detected_banner=True,
         show_diagnostic_hints=True,
         block_step5_until_blackbox_fixed=True,
@@ -42,8 +43,8 @@ FLOW_MODE_POLICIES = {
     ),
     'engineering': FlowModePolicy(
         allow_continue_with_fault=False,
-        require_all_measurements_before_finalize=True,
-        require_step_pass_to_finalize=True,
+        # require_all_measurements_before_finalize=True,
+        # require_step_pass_to_finalize=True,
         show_fault_detected_banner=True,
         show_diagnostic_hints=True,
         block_step5_until_blackbox_fixed=True,
@@ -59,8 +60,8 @@ FLOW_MODE_POLICIES = {
     ),
     'assessment': FlowModePolicy(
         allow_continue_with_fault=False,
-        require_all_measurements_before_finalize=True,
-        require_step_pass_to_finalize=True,
+        # require_all_measurements_before_finalize=True,
+        # require_step_pass_to_finalize=True,
         show_fault_detected_banner=False,
         show_diagnostic_hints=False,
         block_step5_until_blackbox_fixed=True,
@@ -99,11 +100,11 @@ class FlowModeManager:
     def can_advance_with_fault(self) -> bool:
         return self.flow_policy_flag('allow_continue_with_fault')
 
-    def require_all_measurements_before_finalize(self) -> bool:
-        return self.flow_policy_flag('require_all_measurements_before_finalize')
+    # def require_all_measurements_before_finalize(self) -> bool:
+    #     return self.flow_policy_flag('require_all_measurements_before_finalize')
 
-    def require_step_pass_to_finalize(self) -> bool:
-        return self.flow_policy_flag('require_step_pass_to_finalize')
+    # def require_step_pass_to_finalize(self) -> bool:
+    #     return self.flow_policy_flag('require_step_pass_to_finalize')
 
     def should_show_fault_detected_banner(self) -> bool:
         return self.flow_policy_flag('show_fault_detected_banner')

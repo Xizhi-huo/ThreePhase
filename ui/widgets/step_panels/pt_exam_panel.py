@@ -4,6 +4,7 @@ from PyQt5 import QtCore, QtWidgets
 
 from ui.widgets.step_panels._panel_builders import (
     add_blackbox_section,
+    add_load_share_cabinet_section,
     make_button,
     make_feedback_label,
     make_gen_block,
@@ -29,6 +30,7 @@ class PtExamPanel(QtWidgets.QGroupBox):
         is_step_complete: Callable[[int], bool],
         on_toggle_multimeter: Optional[Callable[[], None]] = None,
         show_blackbox_dialog: Optional[Callable[[str], None]] = None,
+        show_load_share_cabinet_dialog: Optional[Callable[[], None]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
     ) -> None:
         super().__init__("第四步：PT 二次端子压差测试", parent)
@@ -36,6 +38,7 @@ class PtExamPanel(QtWidgets.QGroupBox):
         self._get_current_test_step = get_current_test_step
         self._is_step_complete = is_step_complete
         self._show_blackbox_dialog = show_blackbox_dialog
+        self._show_load_share_cabinet_dialog = show_load_share_cabinet_dialog
         self.gen_refs = {}
         self._build()
 
@@ -75,6 +78,12 @@ class PtExamPanel(QtWidgets.QGroupBox):
                 owner=self,
                 api=self._api,
                 show_blackbox_dialog=self._show_blackbox_dialog,
+            )
+        if self._show_load_share_cabinet_dialog is not None:
+            add_load_share_cabinet_section(
+                lay,
+                owner=self,
+                show_load_share_cabinet_dialog=self._show_load_share_cabinet_dialog,
             )
 
         self._tp_s4_quick_btn = make_button(self, "⚡ 快捷记录全部18组", "#7c3aed")

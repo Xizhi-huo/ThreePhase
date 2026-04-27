@@ -209,6 +209,21 @@ def add_blackbox_section(lay, *, owner, api, show_blackbox_dialog):
         lay.addWidget(row)
 
 
+def add_load_share_cabinet_section(lay, *, owner, show_load_share_cabinet_dialog):
+    lay.addWidget(make_note_label("控制柜负载分配接线检查:"))
+    row = make_inline_row()
+    hlay = QtWidgets.QHBoxLayout(row)
+    hlay.setContentsMargins(0, 0, 0, 0)
+    hlay.setSpacing(4)
+
+    btn = make_button(owner, "打开控制柜", "#7c3aed")
+    btn.clicked.connect(show_load_share_cabinet_dialog)
+    hlay.addWidget(btn)
+    hlay.addStretch()
+
+    lay.addWidget(row)
+
+
 def build_test_panel_title_bar(owner, *, on_reset, on_toggle_admin, on_exit):
     top = QtWidgets.QWidget()
     set_props(top, testPanelBar=True)

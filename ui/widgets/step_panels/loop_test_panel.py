@@ -4,6 +4,7 @@ from PyQt5 import QtCore, QtWidgets
 
 from ui.widgets.step_panels._panel_builders import (
     add_blackbox_section,
+    add_load_share_cabinet_section,
     make_button,
     make_feedback_label,
     make_gen_block,
@@ -28,6 +29,7 @@ class LoopTestPanel(QtWidgets.QGroupBox):
         is_step_complete: Callable[[int], bool],
         on_toggle_multimeter: Optional[Callable[[], None]] = None,
         show_blackbox_dialog: Optional[Callable[[str], None]] = None,
+        show_load_share_cabinet_dialog: Optional[Callable[[], None]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
     ) -> None:
         super().__init__("第一步：回路连通性测试", parent)
@@ -35,6 +37,7 @@ class LoopTestPanel(QtWidgets.QGroupBox):
         self._get_current_test_step = get_current_test_step
         self._is_step_complete = is_step_complete
         self._show_blackbox_dialog = show_blackbox_dialog
+        self._show_load_share_cabinet_dialog = show_load_share_cabinet_dialog
         self.gen_refs = {}
         self._build()
 
@@ -104,6 +107,12 @@ class LoopTestPanel(QtWidgets.QGroupBox):
                 owner=self,
                 api=self._api,
                 show_blackbox_dialog=self._show_blackbox_dialog,
+            )
+        if self._show_load_share_cabinet_dialog is not None:
+            add_load_share_cabinet_section(
+                lay,
+                owner=self,
+                show_load_share_cabinet_dialog=self._show_load_share_cabinet_dialog,
             )
 
         self.tp_s1_fb_lbl = make_feedback_label("请按步骤列表操作")
