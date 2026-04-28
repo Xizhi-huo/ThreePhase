@@ -112,13 +112,15 @@ def make_gen_block(parent_lay, *, owner, api, gen_refs, step_key, gen_id, mode_o
         ilay.addWidget(row)
     if show_pos:
         ilay.addWidget(make_note_label("开关柜位置:"))
-        row, _ = _make_radio_row(
+        row, pos_rbs = _make_radio_row(
             owner,
             gen.breaker_position,
             [("脱开", BreakerPosition.DISCONNECTED), ("工作", BreakerPosition.WORKING)],
             lambda val: (lambda chk, gid=gen_id, v=val: _set_breaker_position(api, gid, v, chk)),
         )
         ilay.addWidget(row)
+    else:
+        pos_rbs = {}
     btn_row = QtWidgets.QWidget()
     br = QtWidgets.QHBoxLayout(btn_row)
     br.setContentsMargins(0, 0, 0, 0)
@@ -133,7 +135,7 @@ def make_gen_block(parent_lay, *, owner, api, gen_refs, step_key, gen_id, mode_o
     br.addWidget(brk_btn)
     ilay.addWidget(btn_row)
     parent_lay.addWidget(inner)
-    gen_refs[(step_key, gen_id)] = (brk_lbl, eng_btn, brk_btn, mode_rbs)
+    gen_refs[(step_key, gen_id)] = (brk_lbl, eng_btn, brk_btn, mode_rbs, pos_rbs)
 
 
 def make_gen_fap_block(parent_lay, *, api, gen_id, read_only=False):
@@ -317,7 +319,7 @@ def tp_dot_style(state):
 
 
 def refresh_tp_gen_refs(owner, gen_refs, sim, step):
-    for (step_key, gen_id), (brk_lbl, eng_btn, brk_btn, mode_rbs) in gen_refs.items():
+    for (step_key, gen_id), (brk_lbl, eng_btn, brk_btn, mode_rbs, pos_rbs) in gen_refs.items():
         gen = sim.gen1 if gen_id == 1 else sim.gen2
         pos = {0: "脱开", 1: "试验", 2: "工作"}.get(getattr(gen, "breaker_position", None), str(gen.breaker_position))
         brk_lbl.setText(f"{'运行' if gen.running else '停机'} | {pos} | {'合闸' if gen.breaker_closed else '断路'}")
@@ -331,6 +333,8 @@ def refresh_tp_gen_refs(owner, gen_refs, sim, step):
         apply_button_tone(owner, brk_btn, "danger" if gen.breaker_closed else "primary")
         for val, rb in mode_rbs.items():
             rb.blockSignals(True); rb.setChecked(gen.mode == val); rb.blockSignals(False)
+        for val, rb in pos_rbs.items():
+            rb.blockSignals(True); rb.setChecked(gen.breaker_position == val); rb.blockSignals(False)
 
 
 def refresh_tp_bottom(owner, api, btn_start, btn_complete, step, sim):
