@@ -3,7 +3,13 @@ from dataclasses import dataclass, field
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 
-_DEFAULT_POINTS = frozenset({15, 16, 17, 18})
+_DEFAULT_POINTS = frozenset({7, 8, 10, 11})
+_LEFT_SIGNAL_LABELS = {
+    7: "KW-",
+    8: "KW+",
+    10: "KV-",
+    11: "KV+",
+}
 
 
 @dataclass
@@ -100,6 +106,15 @@ class _LoadShareCabinetWidget(QtWidgets.QWidget):
             qp.drawEllipse(center, self._POINT_RADIUS, self._POINT_RADIUS)
 
             if terminal_no <= 25:
+                signal_label = _LEFT_SIGNAL_LABELS.get(terminal_no)
+                if signal_label is not None:
+                    signal_rect = QtCore.QRectF(center.x() - 70, center.y() - 8, 36, 16)
+                    qp.drawText(
+                        signal_rect,
+                        QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter,
+                        signal_label,
+                    )
+
                 text_rect = QtCore.QRectF(center.x() - 28, center.y() - 8, 18, 16)
                 qp.drawText(text_rect, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter, str(terminal_no))
             else:
