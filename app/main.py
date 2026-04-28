@@ -20,6 +20,7 @@ import os
 import random
 import traceback
 import time
+from copy import deepcopy
 
 # 将项目根目录加入 sys.path，确保 domain/services/ui 包可以被找到
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -88,6 +89,7 @@ class PowerSyncController:
         self._consecutive_tick_failures = 0
         self._tick_error_notified = False
         self._last_tick_perf = time.perf_counter()
+        self._test_entry_state_snapshot = None
 
         # ── 业务服务（显式构造注入；controller 保留状态所有权与桥接辅助）───
         self.assessment_svc       = AssessmentService()
@@ -331,6 +333,65 @@ class PowerSyncController:
         for ratio_attr, (pri_value, sec_value) in DEFAULT_PT_RATIO_ROWS.items():
             setattr(self.sim_state, ratio_attr, pri_value / sec_value)
             self.request_pt_ratio_row_update(ratio_attr, pri_value, sec_value)
+
+    def capture_test_entry_state(self):
+        """保存进入测试前的完整运行态，用于退出测试时恢复原状。"""
+        if self._test_entry_state_snapshot is not None:
+            return
+        self._test_entry_state_snapshot = {
+            "sim_state": deepcopy(self.sim_state),
+            "phase_order_state": deepcopy(self.phase_order_state),
+            "loop_test_state": deepcopy(self.loop_test_state),
+            "pt_voltage_check_state": deepcopy(self.pt_voltage_check_state),
+            "pt_phase_check_state": deepcopy(self.pt_phase_check_state),
+            "pt_exam_states": deepcopy(self.pt_exam_states),
+            "sync_test_state": deepcopy(self.sync_test_state),
+            "test_flow_mode": self.test_flow_mode,
+            "assessment_session": deepcopy(self.assessment_session),
+            "last_fault_detected": self._last_fault_detected,
+            "pending_accident_scene_id": self._pending_accident_scene_id,
+            "pending_ui_tab_index": self._pending_ui_tab_index,
+            "pending_pt_ratio_row_updates": deepcopy(self._pending_pt_ratio_row_updates),
+            "last_reported_test_step": self._last_reported_test_step,
+        }
+
+    def restore_test_entry_state(self):
+        """退出测试时恢复进入测试前的仿真、步骤、故障和考核状态。"""
+        snapshot = self._test_entry_state_snapshot
+        if snapshot is None:
+            return
+
+        saved_sim = deepcopy(snapshot["sim_state"])
+        self.sim_state.__dict__.clear()
+        self.sim_state.__dict__.update(saved_sim.__dict__)
+
+        saved_phase = snapshot["phase_order_state"]
+        for pt_name, order in saved_phase.pt_phase_orders.items():
+            self.phase_order_state.pt_phase_orders[pt_name][:] = list(order)
+        self.phase_order_state.g1_blackbox_order[:] = list(saved_phase.g1_blackbox_order)
+        self.phase_order_state.g2_blackbox_order[:] = list(saved_phase.g2_blackbox_order)
+        self.phase_order_state.pt1_pri_blackbox_order[:] = list(saved_phase.pt1_pri_blackbox_order)
+        self.phase_order_state.pt1_sec_blackbox_order[:] = list(saved_phase.pt1_sec_blackbox_order)
+
+        self.loop_test_state = deepcopy(snapshot["loop_test_state"])
+        self.pt_voltage_check_state = deepcopy(snapshot["pt_voltage_check_state"])
+        self.pt_phase_check_state = deepcopy(snapshot["pt_phase_check_state"])
+        self.pt_exam_states = deepcopy(snapshot["pt_exam_states"])
+        self.sync_test_state = deepcopy(snapshot["sync_test_state"])
+
+        self.test_flow_mode = snapshot["test_flow_mode"]
+        self.assessment_session = deepcopy(snapshot["assessment_session"])
+        self._last_fault_detected = snapshot["last_fault_detected"]
+        self._pending_accident_scene_id = snapshot["pending_accident_scene_id"]
+        self._pending_ui_tab_index = snapshot["pending_ui_tab_index"]
+        self._pending_pt_ratio_row_updates = deepcopy(snapshot["pending_pt_ratio_row_updates"])
+        self._last_reported_test_step = snapshot["last_reported_test_step"]
+        self._test_entry_state_snapshot = None
+
+        try:
+            self.rebuild_circuit_view()
+        except Exception:
+            traceback.print_exc()
 
     def get_pt_phase_sequence(self, pt_name):
         return self.phase_resolver.get_pt_phase_sequence(pt_name)

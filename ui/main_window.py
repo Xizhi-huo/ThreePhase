@@ -189,6 +189,7 @@ class PowerSyncUI(
             on_force_multimeter_off=lambda: self.multimeter_cb.setChecked(False),
             on_connect_phase_seq_meter=lambda pt: self.connect_phase_seq_meter(pt),
             on_disconnect_phase_seq_meter=lambda: self.disconnect_phase_seq_meter(),
+            on_restore_runtime_ui=self.restore_pre_test_ui_state,
             get_phase_seq_meter_sequence=lambda: self.phase_seq_meter.current_sequence(),
             get_phase_wiring_status=lambda: self._circuit_tab.get_phase_wiring_status(),
             get_phase_wiring_active_pt=lambda: self._circuit_tab.get_phase_wiring_active_pt(),
@@ -277,6 +278,7 @@ class PowerSyncUI(
         self._circuit_tab.disconnect_phase_seq_meter()
 
     def enter_test_mode(self):
+        self.capture_pre_test_ui_state()
         self._test_panel_widget.set_pretest_config(
             getattr(self, "_pre_test_scenario_id", ""),
             getattr(self, "_pre_test_flow_mode", "teaching"),
@@ -286,6 +288,58 @@ class PowerSyncUI(
 
     def exit_test_mode(self):
         self._test_panel_widget.exit_test_mode()
+
+    def capture_pre_test_ui_state(self):
+        self._pre_test_ui_state = {
+            "tab_index": self.tab_widget.currentIndex(),
+            "control_panel_visible": self.ctrl_container.isVisible(),
+            "control_stack_index": self._cp_stack.currentIndex(),
+        }
+
+    def restore_pre_test_ui_state(self):
+        state = getattr(self, "_pre_test_ui_state", None) or {}
+        self.sync_runtime_controls_from_state()
+        self.ctrl_container.setVisible(state.get("control_panel_visible", True))
+        self._cp_stack.setCurrentIndex(state.get("control_stack_index", 0))
+        self._cp_btn_run.setChecked(self._cp_stack.currentIndex() == 0)
+        self._cp_btn_param.setChecked(self._cp_stack.currentIndex() == 1)
+        tab_index = state.get("tab_index", 0)
+        if 0 <= tab_index < self.tab_widget.count():
+            self.tab_widget.setCurrentIndex(tab_index)
+        self._pre_test_ui_state = None
+
+    def sync_runtime_controls_from_state(self):
+        sim = self.ctrl.sim_state
+        self._sync_button_group(self._mode_bg, sim.system_mode)
+        self._sync_button_group(self._gnd_bg, sim.grounding_mode)
+        for checkbox, value in (
+            (self.remote_start_cb, sim.remote_start_signal),
+            (self.multimeter_cb, sim.multimeter_mode),
+            (self.show_gen_wires_cb, sim.show_gen_wires),
+        ):
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(value))
+            checkbox.blockSignals(False)
+        self.pause_btn.setText(
+            "▶ 恢复物理时空" if sim.paused else "⏸ 暂停整个物理空间"
+        )
+        self._apply_button_tone(
+            self.pause_btn,
+            "success" if sim.paused else "warning",
+            hero=True,
+        )
+        self._gen1_card.refresh()
+        self._gen2_card.refresh()
+
+    @staticmethod
+    def _sync_button_group(group, value):
+        for button in group.buttons():
+            if button.property("value") != value:
+                continue
+            button.blockSignals(True)
+            button.setChecked(True)
+            button.blockSignals(False)
+            break
 
     def _consume_controller_ui_requests(self):
         tab_index = self.ctrl.consume_requested_ui_tab()

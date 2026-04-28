@@ -52,6 +52,8 @@ class TestPanelAPI(Protocol):
     def test_flow_mode(self) -> str: ...
     @test_flow_mode.setter
     def test_flow_mode(self, value: str) -> None: ...
+    def capture_test_entry_state(self) -> None: ...
+    def restore_test_entry_state(self) -> None: ...
     def reset_for_scenario(self, scenario_id: str) -> None: ...
     def inject_fault(self, fault_id: str) -> None: ...
     def enter_loop_test_mode(self) -> None: ...
@@ -125,6 +127,7 @@ class TestPanelWidget(QtWidgets.QWidget):
         on_force_multimeter_off: Callable[[], None],
         on_connect_phase_seq_meter: Callable[[str], None],
         on_disconnect_phase_seq_meter: Callable[[], None],
+        on_restore_runtime_ui: Callable[[], None],
         get_phase_seq_meter_sequence: Callable[[], str],
         get_phase_wiring_status: Callable[[], str],
         get_phase_wiring_active_pt: Callable[[], str | None],
@@ -140,6 +143,7 @@ class TestPanelWidget(QtWidgets.QWidget):
         self._host_force_multimeter_off: Callable[[], None] = on_force_multimeter_off
         self._host_connect_phase_seq_meter: Callable[[str], None] = on_connect_phase_seq_meter
         self._host_disconnect_phase_seq_meter: Callable[[], None] = on_disconnect_phase_seq_meter
+        self._host_restore_runtime_ui: Callable[[], None] = on_restore_runtime_ui
         self._host_get_phase_seq_meter_sequence: Callable[[], str] = get_phase_seq_meter_sequence
         self._host_get_phase_wiring_status: Callable[[], str] = get_phase_wiring_status
         self._host_get_phase_wiring_active_pt: Callable[[], str | None] = get_phase_wiring_active_pt
@@ -259,13 +263,11 @@ class TestPanelWidget(QtWidgets.QWidget):
         root.addWidget(bottom)
 
     def enter_test_mode(self):
+        self._api.capture_test_entry_state()
         scenario_id = getattr(self, "_pre_test_scenario_id", "")
         self._api.test_flow_mode = getattr(self, "_pre_test_flow_mode", "teaching")
         self._load_share_cabinet_state.reset_defaults()
-        if scenario_id:
-            self._api.reset_for_scenario(scenario_id)
-        else:
-            self._api.inject_fault("")
+        self._api.reset_for_scenario(scenario_id)
         self._test_mode_active = True
         self._assessment_last_logged_step = None
         self._pre_step5_repair_triggered = False
@@ -286,12 +288,20 @@ class TestPanelWidget(QtWidgets.QWidget):
             self._api.enter_loop_test_mode()
 
     def exit_test_mode(self):
+        self._host_disconnect_phase_seq_meter()
+        self._api.restore_test_entry_state()
         self._test_mode_active = False
         self._tp_last_step = None
+        self._tp_admin_mode = False
+        self._tp_forced_step = None
+        self._pre_step5_repair_triggered = False
+        self._assessment_last_logged_step = None
         for panel in self._tp_step_panels.values():
             panel.reset()
         self.setVisible(False)
         self._host_show_test_panel(False)
+        self._host_set_step_tabs_visible(False)
+        self._host_restore_runtime_ui()
 
     def _on_tp_reset_step(self):
         step = self._current_test_step()

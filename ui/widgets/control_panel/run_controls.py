@@ -44,6 +44,7 @@ class RunControlsPage(QtWidgets.QWidget):
         for mode_value in AVAILABLE_MODES:
             available = mode_value == SystemMode.ISOLATED_BUS
             radio = QtWidgets.QRadioButton(mode_value if available else f"{mode_value} (待开发)")
+            radio.setProperty("value", mode_value)
             radio.setEnabled(available)
             radio.setChecked(self.sim_state.system_mode == mode_value)
             radio.toggled.connect(lambda checked, v=mode_value: self._on_mode_changed(v, checked))
@@ -112,6 +113,7 @@ class RunControlsPage(QtWidgets.QWidget):
         self.gnd_bg = QtWidgets.QButtonGroup(self)
         for label, value in [("断开(绝缘测试)", "断开"), ("小电阻(10Ω)", "小电阻接地"), ("直接接地", "直接接地")]:
             radio = QtWidgets.QRadioButton(label)
+            radio.setProperty("value", value)
             radio.setChecked(self.sim_state.grounding_mode == value)
             radio.toggled.connect(lambda checked, v=value: self._on_grounding_changed(v, checked))
             self.gnd_bg.addButton(radio)

@@ -85,6 +85,7 @@ class GeneratorCard(QtWidgets.QGroupBox):
         self.mode_bg = QtWidgets.QButtonGroup(self)
         for text, value in [("停机(0)", "stop"), ("手动", "manual"), ("自动", "auto")]:
             radio = QtWidgets.QRadioButton(text)
+            radio.setProperty("value", value)
             radio.setChecked(gen.mode == value)
             radio.toggled.connect(lambda checked, v=value: self._on_mode_toggled(v, checked))
             self.mode_bg.addButton(radio)
@@ -102,6 +103,7 @@ class GeneratorCard(QtWidgets.QGroupBox):
             ("工作", BreakerPosition.WORKING),
         ]:
             radio = QtWidgets.QRadioButton(text)
+            radio.setProperty("value", value)
             radio.setChecked(gen.breaker_position == value)
             radio.toggled.connect(lambda checked, v=value: self._on_position_toggled(v, checked))
             self.pos_bg.addButton(radio)
@@ -190,3 +192,16 @@ class GeneratorCard(QtWidgets.QGroupBox):
                 entry.blockSignals(True)
                 entry.setText(f"{value:.1f}")
                 entry.blockSignals(False)
+
+        self._sync_button_group(self.mode_bg, gen.mode)
+        self._sync_button_group(self.pos_bg, gen.breaker_position)
+
+    @staticmethod
+    def _sync_button_group(group, value):
+        for button in group.buttons():
+            if button.property("value") != value:
+                continue
+            button.blockSignals(True)
+            button.setChecked(True)
+            button.blockSignals(False)
+            break
