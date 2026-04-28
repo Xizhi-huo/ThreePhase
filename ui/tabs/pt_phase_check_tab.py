@@ -9,10 +9,10 @@ from typing import Callable, List, Optional, Protocol, Tuple
 
 from PyQt5 import QtWidgets
 
-from ui.tabs.circuit_tab import _qs
 from ui.tabs._step_style import (
     apply_button_tone,
     apply_step_shell,
+    normalize_qt_color,
     set_live_text,
     set_props,
     set_record_value,
@@ -258,12 +258,16 @@ class PtPhaseCheckTab(QtWidgets.QWidget):
 
         feedback = state.feedback
         result = state.result
+        done_count = sum(1 for key in _ALL_KEYS if records.get(key) is not None)
         if result == "pass":
             summary = "PT1/PT3 相序检查均通过，可点击“完成第三步测试”继续。"
             summary_tone = "success"
         elif result == "fail":
             summary = "⚠️ 检测到相序异常，请检查对应 PT 侧接线后重新记录。"
             summary_tone = "danger"
+        elif done_count > 0:
+            summary = f"已记录 {done_count}/6 项 PT 相序，请继续完成剩余项目。"
+            summary_tone = "info"
         else:
             summary = (
                 "请按步骤：Gen1并网 → 起机Gen2(不合闸) → 开始第三步测试 → 万用表 → "
@@ -281,7 +285,7 @@ class PtPhaseCheckTab(QtWidgets.QWidget):
         elif phase_match is False:
             match_color = "red"
         else:
-            match_color = _qs(getattr(p, "meter_color", "black"))
+            match_color = normalize_qt_color(getattr(p, "meter_color", "black"))
         self._meter_lbl.setText(f"实时测量：{meter_text}")
         set_props(self._meter_lbl, liveText=True, tone=tone_from_color(match_color))
 

@@ -73,12 +73,27 @@ def tone_from_color(color, fallback="neutral"):
     value = (color or "").lower()
     if value in {"#006400", "#008000", "#15803d", "green"}:
         return "success"
-    if value in {"#cc6600", "#92400e", "#f59e0b", "orange"}:
+    if value in {"#cc6600", "#92400e", "#f59e0b", "#ff8800", "orange"}:
         return "warning"
-    if value in {"red", "#dc2626", "#991b1b", "#b91c1c"}:
+    if value in {"red", "#dc2626", "#991b1b", "#b91c1c", "#cc0000"}:
         return "danger"
-    if value in {"#264653", "#0369a1", "#0f766e", "blue"}:
+    if value in {"#264653", "#0369a1", "#0f766e", "#0000cc", "blue"}:
         return "info"
     if value in {"#444444", "#6b7280", "black", "gray", "grey"}:
         return fallback
     return fallback
+
+
+def normalize_qt_color(color: str) -> str:
+    color_map = {
+        "gray": "#808080",
+        "grey": "#808080",
+        "green": "#008000",
+        "red": "#cc0000",
+        "orange": "#ff8800",
+        "blue": "#0000cc",
+        "black": "#000000",
+        "white": "#ffffff",
+        "k": "#000000",
+    }
+    return color_map.get((color or "").lower(), color or "#000000")

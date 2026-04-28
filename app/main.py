@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PyQt5 import QtWidgets, QtCore
 
 from domain.assessment import AssessmentContext
-from domain.constants import GRID_AMP
+from domain.constants import DEFAULT_PT_RATIO_ROWS, GRID_AMP
 from domain.models import GeneratorState, SimulationState, FaultConfig
 from domain.phase_order_state import PhaseOrderState
 from app.controller_signals import ControllerSignals
@@ -326,6 +326,11 @@ class PowerSyncController:
         if ratio_attr not in {'pt_gen_ratio', 'pt3_ratio', 'pt_bus_ratio'}:
             raise ValueError(f"Unsupported PT ratio attribute: {ratio_attr}")
         setattr(self.sim_state, ratio_attr, ratio)
+
+    def reset_pt_ratios_to_defaults(self):
+        for ratio_attr, (pri_value, sec_value) in DEFAULT_PT_RATIO_ROWS.items():
+            setattr(self.sim_state, ratio_attr, pri_value / sec_value)
+            self.request_pt_ratio_row_update(ratio_attr, pri_value, sec_value)
 
     def get_pt_phase_sequence(self, pt_name):
         return self.phase_resolver.get_pt_phase_sequence(pt_name)
@@ -668,9 +673,10 @@ class PowerSyncController:
         }
         self.sync_test_state = self.sync_svc.create_sync_test_state()
 
-        # 3. 恢复 PT 相序（inject_fault 会再按场景设置）
+        # 3. 恢复 PT 相序与默认变比（inject_fault 会再按场景设置）
         self.phase_order_state.reset_pt_phase_orders()
         self.phase_order_state.reset_blackbox_orders()
+        self.reset_pt_ratios_to_defaults()
         self.sim_state.fault_reverse_bc = False
 
         # 4. 注入新故障

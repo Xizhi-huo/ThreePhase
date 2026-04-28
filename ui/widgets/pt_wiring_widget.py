@@ -4,7 +4,7 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 _PC = {'A': '#f59e0b', 'B': '#22c55e', 'C': '#ef4444'}
 
 
-class _PTWiringWidget(QtWidgets.QWidget):
+class PTWiringWidget(QtWidgets.QWidget):
     """PT 接线盒图：按逐级传播后的实际相别显示每一层端子颜色。
 
     下方输入电缆显示上游实际来相顺序；
@@ -237,3 +237,6 @@ class _PTWiringWidget(QtWidgets.QWidget):
         qp.drawText(QtCore.QRect(0, y_cable + r + 8, w, 16), QtCore.Qt.AlignCenter,
                     f"实际来相: {''.join(pri_input)}")
         qp.end()
+
+
+__all__ = ["PTWiringWidget"]

@@ -192,13 +192,8 @@ class PtPhaseCheckService:
             value='match' if phase_match else 'mismatch',
         )
 
-        all_rec = all(state.records[k] is not None for k in _ALL_KEYS)
-        any_fail = any(
-            r is not None and not r['phase_match'] for r in state.records.values()
-        )
-
-        if any_fail:
-            state.result = 'fail'
+        self._refresh_phase_check_result()
+        if not phase_match:
             self._mark_fault_detected(
                 step=3,
                 source='pt_phase_check',
@@ -210,20 +205,16 @@ class PtPhaseCheckService:
             else:
                 msg = f"⚠️ 相序异常！{key} 测量结果不一致，请继续排查。"
             self._set_feedback(msg, "red")
-        elif all_rec:
-            state.result = 'pass'
+        elif state.result == 'pass':
             self._set_feedback(
                 "PT 相序检查通过：PT1/PT3 各相连线均正确，可点击\u201c完成第三步测试\u201d继续。",
                 "#006600")
+        elif state.result == 'fail':
+            self._set_feedback(
+                f"{key} 相序正确，但仍存在已记录异常项，请复核异常记录后继续。",
+                "#cc6600")
         elif phase_match:
             self._set_feedback(f"{key} 相序正确，请继续测量其余项目。", "#006600")
-        else:
-            state.result = 'fail'
-            if self._flow_mgr.should_show_diagnostic_hints():
-                msg = f"⚠️ {key} 相序异常！请检查对应侧接线。"
-            else:
-                msg = f"⚠️ {key} 相序异常！请继续排查。"
-            self._set_feedback(msg, "red")
 
     def record_phase_sequence(self, pt_name: str, seq: str) -> bool:
         pt_name = pt_name.upper()
@@ -275,7 +266,6 @@ class PtPhaseCheckService:
 
         phase_order = ('A', 'B', 'C')
         is_valid_seq = isinstance(seq, str) and len(seq) == 3 and set(seq) == set(phase_order)
-        is_forward_seq = seq in {'ABC', 'BCA', 'CAB'}
         display_seq = self._sequence_display_text(seq)
         any_fail = False
         for ph in phase_order:
@@ -307,9 +297,19 @@ class PtPhaseCheckService:
         )
 
         result_txt = f"{display_seq}✓" if is_valid_seq and not any_fail else f"{display_seq}✗"
-        color = "#15803d" if not any_fail else "#dc2626"
-        state.result = 'pass' if not any_fail else 'fail'
-        state.feedback = f"{pt_name} 相序已记录：{result_txt}"
+        self._refresh_phase_check_result()
+        if any_fail:
+            color = "#dc2626"
+            state.feedback = f"{pt_name} 相序已记录：{result_txt}"
+        elif state.result == 'pass':
+            color = "#15803d"
+            state.feedback = f"{pt_name} 相序已记录：{result_txt}。PT1/PT3 全部通过。"
+        elif state.result == 'fail':
+            color = "#cc6600"
+            state.feedback = f"{pt_name} 相序已记录：{result_txt}，但仍存在已记录异常项。"
+        else:
+            color = "#15803d"
+            state.feedback = f"{pt_name} 相序已记录：{result_txt}，请继续记录另一侧。"
         state.feedback_color = color
         return True
 
@@ -324,6 +324,18 @@ class PtPhaseCheckService:
         """六相是否已全部测量（无论通过与否）。"""
         records = self._get_pt_phase_check_state().records
         return all(records.get(k) is not None for k in _ALL_KEYS)
+
+    def _refresh_phase_check_result(self) -> None:
+        """总结果只由全部记录派生，避免单侧 PT 记录覆盖另一侧结果。"""
+        state = self._get_pt_phase_check_state()
+        records = state.records
+        filled = [records.get(k) for k in _ALL_KEYS]
+        if any(record is not None and not record['phase_match'] for record in filled):
+            state.result = 'fail'
+        elif all(record is not None for record in filled):
+            state.result = 'pass'
+        else:
+            state.result = None
 
     def _are_phase_check_records_complete(self) -> bool:
         """六相记录是否齐全且全部通过（正常模式 finalize 校验用）。"""

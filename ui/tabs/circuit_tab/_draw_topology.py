@@ -6,27 +6,13 @@ import numpy as np
 from domain.constants import CT_RATIO
 from domain.node_map import NODES
 from matplotlib.patches import Circle, FancyBboxPatch
+from ui.tabs._step_style import normalize_qt_color
 
 
 _LOOP_CB_BOT = 0.24
 _LOOP_CB_TOP = 0.31
 _LOOP_PROBE_Y = 0.405
 _LOOP_BUS_Y = {"A": 0.115, "B": 0.090, "C": 0.065}
-
-
-def _qs(color: str) -> str:
-    color_map = {
-        "gray": "#808080",
-        "grey": "#808080",
-        "green": "#008000",
-        "red": "#cc0000",
-        "orange": "#ff8800",
-        "blue": "#0000cc",
-        "black": "#000000",
-        "white": "#ffffff",
-        "k": "#000000",
-    }
-    return color_map.get(color, color)
 
 
 class DrawTopologyMixin:
@@ -394,17 +380,17 @@ class DrawTopologyMixin:
         self._apply_badge_tone_cb(arbitrator_lbl, "info")
         relay_lbl.setText(p.relay_msg)
         relay_tone = {
-            "red": "danger",
-            "orange": "warning",
-            "blue": "primary",
-            "green": "success",
-        }.get(_qs(p.relay_color), "primary")
+            "#cc0000": "danger",
+            "#ff8800": "warning",
+            "#0000cc": "primary",
+            "#008000": "success",
+        }.get(normalize_qt_color(p.relay_color), "primary")
         self._apply_badge_tone_cb(relay_lbl, relay_tone)
 
         for lbl_attr, text, bg in [("status1_lbl", p.brk1_text, p.brk1_bg), ("status2_lbl", p.brk2_text, p.brk2_bg)]:
             lbl = self._sidebar_label(lbl_attr)
             lbl.setText(text)
-            bg_str = _qs(bg)
+            bg_str = normalize_qt_color(bg)
             if bg_str in ("#00cc00", "#009900", "#006600", "#00ff00"):
                 tone = "success"
             elif bg_str in ("#cc0000", "#ff0000", "#990000", "#ff3333"):

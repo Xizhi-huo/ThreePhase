@@ -9,6 +9,11 @@ from typing import Protocol
 
 import numpy as np
 from PyQt5 import QtCore, QtWidgets
+
+from ui.matplotlib_config import configure_matplotlib
+
+configure_matplotlib()
+
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.ticker import MultipleLocator

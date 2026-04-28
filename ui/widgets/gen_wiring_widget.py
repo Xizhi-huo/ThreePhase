@@ -5,7 +5,7 @@ _PC = {'A': '#f59e0b', 'B': '#22c55e', 'C': '#ef4444'}
 _PI = {'A': 0, 'B': 1, 'C': 2}
 
 
-class _GenWiringWidget(QtWidgets.QWidget):
+class GenWiringWidget(QtWidgets.QWidget):
     """发电机端子盒接线图：上方三个内部绕组圆（A/B/C 固定色），
     下方三个输出接线柱方块（U/V/W），连线根据 mapping 动态绘制。
     interactive=True 时支持点击两个节点互换接线。"""
@@ -141,3 +141,6 @@ class _GenWiringWidget(QtWidgets.QWidget):
             qp.drawText(QtCore.QRect(x - 22, y_dst + r + 6, 44, 18),
                         QtCore.Qt.AlignCenter, f"({actual})")
         qp.end()
+
+
+__all__ = ["GenWiringWidget"]

@@ -2,6 +2,7 @@ from typing import Callable, Optional, TYPE_CHECKING
 
 from PyQt5 import QtCore, QtWidgets
 
+from domain.constants import DEFAULT_PT_RATIO_ROWS
 from ui.widgets.step_panels._panel_builders import (
     add_blackbox_section,
     add_load_share_cabinet_section,
@@ -53,11 +54,12 @@ class PtVoltageCheckPanel(QtWidgets.QGroupBox):
         pt_ratio_lay.setSpacing(4)
         pt_ratio_lay.setContentsMargins(4, 6, 4, 4)
         self._tp_s2_ratio_rows = {}
-        for row_label, ratio_attr, pri_default, sec_default in [
-            ("PT1 (Gen1侧)", "pt_gen_ratio", 11000, 193),
-            ("PT3 (Gen2侧)", "pt3_ratio", 11000, 193),
-            ("PT2 (母排侧)", "pt_bus_ratio", 10500, 105),
+        for row_label, ratio_attr in [
+            ("PT1 (Gen1侧)", "pt_gen_ratio"),
+            ("PT3 (Gen2侧)", "pt3_ratio"),
+            ("PT2 (母排侧)", "pt_bus_ratio"),
         ]:
+            pri_default, sec_default = DEFAULT_PT_RATIO_ROWS[ratio_attr]
             pt_ratio_lay.addWidget(make_note_label(row_label, "primary"))
             rw = make_inline_row()
             rh = QtWidgets.QHBoxLayout(rw)

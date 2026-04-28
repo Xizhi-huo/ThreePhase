@@ -8,14 +8,19 @@ from __future__ import annotations
 from typing import Callable, Dict, Protocol
 
 from PyQt5 import QtCore, QtWidgets
+
+from ui.matplotlib_config import configure_matplotlib
+
+configure_matplotlib()
+
 from matplotlib.figure import Figure
 
 from ui.tabs.waveform_tab import MplCanvas
 from ui.widgets.multimeter_widget import MultimeterWidget
 from ui.widgets.phase_seq_meter import PhaseSeqMeterWidget
 
-from ._draw_topology import DrawTopologyMixin, _qs
-from ._phase_wiring import PhaseWiringMixin, PhaseWiringSession
+from ._draw_topology import DrawTopologyMixin
+from ._phase_wiring import PhaseWiringMixin, PhaseWiringSession, PhaseWiringStatus
 from ._record_tables import RecordTablesMixin
 
 
@@ -124,4 +129,4 @@ class CircuitTab(
         self.canvas2.draw()
 
 
-__all__ = ["CircuitTab", "CircuitTabAPI", "_qs"]
+__all__ = ["CircuitTab", "CircuitTabAPI", "PhaseWiringStatus"]

@@ -1,6 +1,7 @@
 from typing import Callable, List
 
 from domain.assessment import AssessmentEventType
+from domain.constants import DEFAULT_PT3_RATIO, DEFAULT_PT_RATIO_ROWS, E04_PT3_RATIO, E04_PT3_RATIO_ROW
 from domain.fault_scenarios import SCENARIOS
 
 
@@ -99,6 +100,7 @@ class FaultManager:
 
         self._sim_state.fault_reverse_bc = False
         self._reset_blackbox_orders()
+        self._reset_pt3_ratio()
 
         if scenario_id == 'E01':
             pt_phase_orders = self._get_pt_phase_orders()
@@ -109,8 +111,8 @@ class FaultManager:
             self._set_g2_blackbox_order(['A', 'C', 'B'])
             self._blackbox_handler.sync_g2_blackbox_to_phase_orders()
         elif scenario_id == 'E04':
-            self._sim_state.pt3_ratio = 11000.0 / 93.0
-            self._request_pt_ratio_row_update('pt3_ratio', 11000, 93)
+            self._sim_state.pt3_ratio = E04_PT3_RATIO
+            self._request_pt_ratio_row_update('pt3_ratio', *E04_PT3_RATIO_ROW)
 
         self._set_g1_blackbox_order(list(
             fc.params.get('g1_blackbox_order', self._get_g1_blackbox_order())
@@ -177,8 +179,7 @@ class FaultManager:
             self._sim_state.fault_reverse_bc = False
             self._get_pt_phase_orders()['PT3'] = ['A', 'B', 'C']
         elif sid == 'E04':
-            self._sim_state.pt3_ratio = 11000.0 / 193.0
-            self._request_pt_ratio_row_update('pt3_ratio', 11000, 193)
+            self._reset_pt3_ratio()
 
         if fc.params.get('pt1_phase_order') is not None:
             self._get_pt_phase_orders()['PT1'] = ['A', 'B', 'C']
@@ -191,3 +192,8 @@ class FaultManager:
         self._set_g2_blackbox_order(list(normal))
         self._set_pt1_pri_blackbox_order(list(normal))
         self._set_pt1_sec_blackbox_order(list(normal))
+
+    def _reset_pt3_ratio(self) -> None:
+        pri, sec = DEFAULT_PT_RATIO_ROWS['pt3_ratio']
+        self._sim_state.pt3_ratio = DEFAULT_PT3_RATIO
+        self._request_pt_ratio_row_update('pt3_ratio', pri, sec)

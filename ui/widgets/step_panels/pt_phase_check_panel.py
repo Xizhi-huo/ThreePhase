@@ -2,7 +2,7 @@ from typing import Callable, Optional, TYPE_CHECKING
 
 from PyQt5 import QtCore, QtWidgets
 
-from ui.tabs.circuit_tab._phase_wiring import PhaseWiringStatus
+from ui.tabs.circuit_tab import PhaseWiringStatus
 from ui.widgets.step_panels._panel_builders import (
     add_blackbox_section,
     add_load_share_cabinet_section,

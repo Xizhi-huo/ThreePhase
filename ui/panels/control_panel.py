@@ -6,7 +6,7 @@ from PyQt5 import QtCore, QtWidgets
 
 from domain.fault_scenarios import SCENARIOS
 from domain.node_map import NODES
-from ui.tabs.circuit_tab._phase_wiring import PhaseWiringStatus
+from ui.tabs.circuit_tab import PhaseWiringStatus
 from ui.widgets.control_panel import GeneratorCard, ParamControlsPage, RunControlsPage
 from ui.widgets.control_panel._widget_tokens import (
     apply_badge_tone,

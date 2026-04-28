@@ -2,8 +2,8 @@ from PyQt5 import QtCore, QtWidgets
 
 from domain.fault_scenarios import SCENARIOS
 from ui.tabs._step_style import apply_button_tone, set_props
-from ui.widgets.gen_wiring_widget import _GenWiringWidget
-from ui.widgets.pt_wiring_widget import _PTWiringWidget
+from ui.widgets.gen_wiring_widget import GenWiringWidget
+from ui.widgets.pt_wiring_widget import PTWiringWidget
 from ui.widgets.step_panels._panel_builders import tone_from_color
 
 
@@ -69,7 +69,7 @@ def show_blackbox_dialog(owner, *, api, step, target):
         sub = QtWidgets.QLabel("上方绕组（A黄/B绿/C红）→ 下方接线柱（U/V/W）" + (" [可交互修复]" if allow_repair else " [仅查看]"))
         set_props(sub, dialogCaption=True)
         vlay.addWidget(sub)
-        widget = _GenWiringWidget(mapping, interactive=allow_repair)
+        widget = GenWiringWidget(mapping, interactive=allow_repair)
         initial_order = widget.get_order()
         vlay.addWidget(widget, alignment=QtCore.Qt.AlignHCenter)
     elif target == "PT1":
@@ -83,7 +83,7 @@ def show_blackbox_dialog(owner, *, api, step, target):
         )
         set_props(sub, dialogCaption=True)
         vlay.addWidget(sub)
-        widget = _PTWiringWidget(
+        widget = PTWiringWidget(
             pri_order,
             sec_order,
             pri_input_order=pri_input_order,
@@ -105,7 +105,7 @@ def show_blackbox_dialog(owner, *, api, step, target):
         )
         set_props(sub, dialogCaption=True)
         vlay.addWidget(sub)
-        widget = _PTWiringWidget(
+        widget = PTWiringWidget(
             pri_order,
             sec_order,
             pri_input_order=pri_input_order,

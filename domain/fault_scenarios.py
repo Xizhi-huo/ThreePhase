@@ -21,6 +21,9 @@ domain/fault_scenarios.py
 `pt2_sec_blackbox_order`，但新增场景统一使用 `pt1_*` 前缀。
 """
 
+from domain.constants import E04_PT3_RATIO
+
+
 SCENARIOS: dict = {
     '': {
         'title': '正常场景（无故障）',
@@ -147,7 +150,7 @@ SCENARIOS: dict = {
         'detection_step': 2,
         'danger_level': 'recoverable',
         'params': {
-            'pt3_ratio': 11000.0 / 93.0,   # PT3 实际硬件变比（额定应为 11000:193 = 56.99）
+            'pt3_ratio': E04_PT3_RATIO,   # PT3 实际硬件变比（额定应为 11000:193 = 56.99）
         },
         'repair_prompt': (
             '已定位故障：PT3 实际硬件变比为 11000:93（= 118.28），'
