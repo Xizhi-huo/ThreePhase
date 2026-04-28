@@ -71,13 +71,13 @@ class MeasurementMixin:
             self._meter_ema_dict[key] = a * raw_value + (1.0 - a) * self._meter_ema_dict[key]
         return self._meter_ema_dict[key]
 
-    def _ema_reset(self, *keys):
+    def _ema_reset(self, *keys) -> None:
         """探针切换时清除指定 key 的历史，避免拖尾。"""
         if hasattr(self, '_meter_ema_dict'):
             for k in keys:
                 self._meter_ema_dict.pop(k, None)
 
-    def _update_grounding(self, sim):
+    def _update_grounding(self, sim) -> None:
         ga_data = self.plot_data['ga']
         gb_data = self.plot_data['gb']
         gc_data = self.plot_data['gc']
@@ -110,7 +110,7 @@ class MeasurementMixin:
                 phase = 'B'
         return phase
     
-    def _update_pt_measurements(self, bus_a, a1, a2):
+    def _update_pt_measurements(self, bus_a, a1, a2) -> None:
         # a1/a2/bus_a 均为线电压 RMS，直接除以变比得 PT 二次侧线电压
         sim = self._sim_state
         fc = sim.fault_config
@@ -122,7 +122,7 @@ class MeasurementMixin:
         else:
             self.pt3_v = a2 / sim.pt3_ratio
 
-    def _handle_loop_measurement(self, sim, n1, n2, info1, info2):
+    def _handle_loop_measurement(self, sim, n1, n2, info1, info2) -> None:
         loop_done = self._get_loop_test_state().completed
         if (sim.gen1.running or sim.gen2.running) and not loop_done:
             self.meter_status = "invalid"
@@ -169,7 +169,7 @@ class MeasurementMixin:
                         point=f'{phase1}:{phase2}',
                     )
 
-    def _handle_intra_pt_measurement(self, sim, n1, n2, info1, info2, pt_name, ph1, ph2):
+    def _handle_intra_pt_measurement(self, sim, n1, n2, info1, info2, pt_name, ph1, ph2) -> None:
         _sim_r = self._sim_state
         _pt_ratio = (_sim_r.pt_gen_ratio if pt_name == 'PT1'
                      else _sim_r.pt3_ratio if pt_name == 'PT3'
@@ -233,7 +233,7 @@ class MeasurementMixin:
                f"  [异常]{warn_icon}" if self.meter_status == "danger" else "  [无电压]")
         )
 
-    def _handle_cross_pt_measurement(self, sim, n1, n2):
+    def _handle_cross_pt_measurement(self, sim, n1, n2) -> None:
         gen_node = n1 if not n1.startswith('PT2_') else n2
         bus_node = n2 if not n1.startswith('PT2_') else n1
         gen_pt_name = gen_node.split('_')[0]
@@ -304,7 +304,7 @@ class MeasurementMixin:
             f"  压差={meter_v:.2f} V"
         )
 
-    def _update_multimeter(self, sim):
+    def _update_multimeter(self, sim) -> None:
         ui_nodes = NODES
 
         self.meter_color = "black"

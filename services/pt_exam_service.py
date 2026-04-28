@@ -45,13 +45,13 @@ class PtExamService:
     def create_pt_exam_state(self) -> PtExamState:
         return PtExamState()
 
-    def start_pt_exam(self, gen_id):
+    def start_pt_exam(self, gen_id) -> None:
         self._get_pt_exam_states()[gen_id].started = True
 
-    def stop_pt_exam(self, gen_id):
+    def stop_pt_exam(self, gen_id) -> None:
         self._get_pt_exam_states()[gen_id].started = False
 
-    def _set_pt_exam_feedback(self, gen_id, message, color='#444444'):
+    def _set_pt_exam_feedback(self, gen_id, message, color='#444444') -> None:
         state = self._get_pt_exam_states()[gen_id]
         state.feedback = message
         state.feedback_color = color
@@ -60,7 +60,7 @@ class PtExamService:
     # def _expected_pt_probe_pair(self, gen_id, gen_phase, bus_phase):
     #     return {f"PT{'1' if gen_id == 1 else '3'}_{gen_phase}", f"PT2_{bus_phase}"}
 
-    def _get_current_pt_phase_match(self, gen_id):
+    def _get_current_pt_phase_match(self, gen_id) -> tuple[str, str] | None:
         """返回 (gen_phase, bus_phase) 元组，或 None（表笔未对准有效 PT 端子）。"""
         sim = self._sim_state
         if not sim.probe1_node or not sim.probe2_node:
@@ -74,7 +74,7 @@ class PtExamService:
                 return (a[-1], b[-1])  # (gen_phase, bus_phase)
         return None
 
-    def reset_pt_exam(self, gen_id=None):
+    def reset_pt_exam(self, gen_id=None) -> None:
         target_ids = (gen_id,) if gen_id in (1, 2) else (1, 2)
         states = self._get_pt_exam_states()
         for gid in target_ids:
@@ -89,7 +89,7 @@ class PtExamService:
     #         return gnd_ok and gen1_on and not gen2.breaker_closed
     #     return gnd_ok and gen1_on and gen2.running and not gen2.breaker_closed
 
-    def record_pt_measurement(self, gen_phase, bus_phase, gen_id):
+    def record_pt_measurement(self, gen_phase, bus_phase, gen_id) -> None:
         """
         记录 PT 二次端子矢量压差测量结果。
 
@@ -109,7 +109,7 @@ class PtExamService:
         state = states[gen_id]
         gen1, gen2 = sim.gen1, sim.gen2
 
-        def _record_invalid(reason):
+        def _record_invalid(reason) -> None:
             self._append_assessment_event(
                 AssessmentEventType.MEASUREMENT_INVALID,
                 step=4,
@@ -263,7 +263,7 @@ class PtExamService:
             msg = f"Gen {gen_id} {key} 记录完成（{done_count}/9）：矢量压差 {meter_v_sec:.2f} V。"
         self._set_pt_exam_feedback(gen_id, msg, "#006600")
 
-    def get_pt_exam_steps(self, gen_id):
+    def get_pt_exam_steps(self, gen_id) -> list[tuple[str, bool]]:
         state = self._get_pt_exam_states()[gen_id]
         records = state.records
         sim = self._sim_state
@@ -329,7 +329,7 @@ class PtExamService:
     #         "#006600",
     #     )
 
-    def finalize_all_pt_exams(self):
+    def finalize_all_pt_exams(self) -> None:
         """完成第四步：Gen1 和 Gen2 均须完成三相记录，才能锁定结果。"""
         gen1_ok = self._are_pt_exam_records_complete(1)
         gen2_ok = self._are_pt_exam_records_complete(2)
@@ -377,7 +377,7 @@ class PtExamService:
                 '#006600',
             )
 
-    def record_all_pt_measurements_quick(self):
+    def record_all_pt_measurements_quick(self) -> None:
         """
         快捷记录：跳过表笔放置检查，直接从物理引擎当前 PT 二次电压
         计算 Gen1 和 Gen2 全部 18 组压差并一次性写入记录。
@@ -449,17 +449,17 @@ class PtExamService:
                 "#006600",
             )
 
-    def _should_enforce_pt_exam_before_close(self):
+    def _should_enforce_pt_exam_before_close(self) -> bool:
         return self._sim_state.grounding_mode != "断开"
 
-    def is_pt_exam_recorded(self, gen_id):
+    def is_pt_exam_recorded(self, gen_id) -> bool:
         """流程门禁：只有用户点击"完成第四步测试"后才返回 True。"""
         return self._get_pt_exam_states()[gen_id].completed
 
-    def _are_pt_exam_records_complete(self, gen_id):
+    def _are_pt_exam_records_complete(self, gen_id) -> bool:
         """内部辅助：全部 9 组是否已记录（用于 finalize 前置校验）。"""
         records = self._get_pt_exam_states()[gen_id].records
         return all(records[key] is not None for key in (f'{g}{b}' for g in 'ABC' for b in 'ABC'))
 
-    def _get_generator_state(self, gen_id):
+    def _get_generator_state(self, gen_id) -> object:
         return self._sim_state.gen1 if gen_id == 1 else self._sim_state.gen2

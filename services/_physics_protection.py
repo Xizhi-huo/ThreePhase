@@ -36,7 +36,7 @@ def _heat_color(rms: float) -> str:
 class ProtectionMixin:
     """继电保护、垂降控制、环流监控与断路器状态机。"""
 
-    def _apply_engine_trip_interlocks(self, sim):
+    def _apply_engine_trip_interlocks(self, sim) -> None:
         if sim.loop_test_mode:
             return
         if sim.gen1.breaker_closed and not sim.gen1.running:
@@ -46,7 +46,15 @@ class ProtectionMixin:
             sim.gen2.breaker_closed = False
             self.relay_msg, self.relay_color = "⚠️ 保护: Gen 2 引擎停机失压，断路器自动脱扣！", "orange"
 
-    def _update_protection_state(self, sim, wave_state, a1, a2, g1_connected, g2_connected):
+    def _update_protection_state(
+        self,
+        sim,
+        wave_state,
+        a1,
+        a2,
+        g1_connected,
+        g2_connected,
+    ) -> dict[str, float]:
         delta1 = wave_state['ang_g1'] - wave_state['ang_bus']
         delta2 = wave_state['ang_g2'] - wave_state['ang_bus']
 
@@ -106,7 +114,7 @@ class ProtectionMixin:
     #             sim.gen2.freq = max(48.0, min(52.0, sim.gen2.freq - KP_DROOP * self.ip2))
     #             sim.gen2.amp = max(_amp_min, min(_amp_max, sim.gen2.amp - KQ_DROOP * self.iq2))
 
-    def _update_circulating_current(self, sim, a1, a2, delta1, delta2):
+    def _update_circulating_current(self, sim, a1, a2, delta1, delta2) -> None:
         # 仅当两台机组均真正并入一次母排（工作位 + 合闸）时才存在机间环流
         g1_on_bus = (sim.gen1.breaker_position == BreakerPosition.WORKING and
                      sim.gen1.breaker_closed)
@@ -146,7 +154,7 @@ class ProtectionMixin:
         else:
             self.circ_msg, self.circ_color = "机组间未形成直接环流回路", "gray"
 
-    def _update_breaker_state(self, generator, gen_id, a_value, delta, ref_freq, ref_amp, is_isolated):
+    def _update_breaker_state(self, generator, gen_id, a_value, delta, ref_freq, ref_amp, is_isolated) -> None:
         diff_deg = abs((np.degrees(delta) % 360 + 360) % 360)
         if diff_deg > 180:
             diff_deg -= 360
@@ -265,7 +273,7 @@ class ProtectionMixin:
             setattr(self, bg_attr, "gray")
             setattr(self, visual_attr, False)
 
-    def _update_breaker_logic(self, sim, delta1, delta2, a1, a2, ref_freq, ref_amp, is_isolated):
+    def _update_breaker_logic(self, sim, delta1, delta2, a1, a2, ref_freq, ref_amp, is_isolated) -> None:
         self.color_sw1 = _heat_color(self.i1_rms)
         self.color_sw2 = _heat_color(self.i2_rms)
         self._update_breaker_state(sim.gen1, 1, a1, delta1, ref_freq, ref_amp, is_isolated)

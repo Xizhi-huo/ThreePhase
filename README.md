@@ -63,14 +63,14 @@ ThreePhase/
 │   └── assessment_service.py        # 考核模式自动评分与成绩汇总
 ├── ui/                              # PyQt5 用户界面（Mixin 拼装）
 │   ├── main_window.py               # PowerSyncUI 主窗口
-│   ├── styles.py                    # 浅色主题入口与全局 QSS 设计令牌
+│   ├── styles/                      # 浅色主题入口与全局 QSS 设计令牌子包
 │   ├── test_panel.py                # 测试模式控制面板（第 1～5 步控制台）
 │   ├── panels/
 │   │   └── control_panel.py        # 右侧控制面板 Mixin
 │   ├── tabs/
 │   │   ├── _step_style.py          # 步骤页通用样式辅助
 │   │   ├── waveform_tab.py         # Tab 0：波形 & 相量图
-│   │   ├── circuit_tab.py          # Tab 1：母线拓扑（~970 行）
+│   │   ├── circuit_tab/            # Tab 1：母线拓扑子包（入口 + 相序/记录表/绘图）
 │   │   ├── loop_test_tab.py        # Tab 2：回路测试 UI
 │   │   ├── pt_voltage_check_tab.py # Tab 3：PT 电压检查 UI
 │   │   ├── pt_phase_check_tab.py   # Tab 4：PT 相序 UI
@@ -109,9 +109,10 @@ PhysicsEngine  (4 个 Mixin 组合)
   └─ MeasurementMixin   — PT 二次侧电压 & 万用表读数
 ```
 
-## 当前维护状态（截至 R44）
+## 当前维护状态（截至 R49-Round2）
 
 - **Phase 4 已真正收官。** R33–R44 已完成；`services/` 目录下 repo 级 `self._ctrl | self.ctrl` 计数已归零。
+- `R49-Round2` 已完成 `ui/styles/` 子包化：主题入口从单文件 `ui/styles.py` 收敛为 `ui/styles/`，`apply_app_theme()` / `build_app_stylesheet()` 导入面保持不变。
 - Service/physics 层已完成显式依赖注入收口：业务 service 不再持有 `self._ctrl`，physics 不再持有 `self.ctrl`。
 - R43 已引入 `ControllerSignals(QObject)` 骨架，并落地了 2 个顶层轻量文本状态试点；`_tick -> render_visuals` 仍保留为默认渲染路径，阶段 3（轮询压缩）尚未执行。
 - R44 已把 physics 事故链路收口为 `queue_accident_dialog(...)` 行为回调，物理层不再直接弹 UI 模态对话框。
@@ -466,7 +467,7 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
   - 青蓝主色，圆角统一为 8px
   - 保留系统原生标题栏
 - **主题入口**
-  - `ui/styles.py` 提供全局令牌、组件 QSS、语义属性样式与 `apply_app_theme()`
+  - `ui/styles/` 子包提供全局令牌、组件 QSS 分块、语义属性样式与 `apply_app_theme()`
   - 若运行环境安装 `qdarkstyle`，会优先叠加 light palette；未安装时自动回退到项目内置浅色样式
 - **语义化样式策略**
   - 控件不再大量直接拼接内联 `setStyleSheet()`，而是通过 `property` 驱动样式
@@ -497,7 +498,7 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 
 ### 第一步回路测试 UI 变更
 
-路径动画（绿色流动球 / 红色断路 X）已注释（`ui/tabs/circuit_tab.py`）。表笔搭接后图面无任何动态变化，学员只能通过万用表面板读数（`0.0 Ω` / `不导通`）判断通断。
+路径动画（绿色流动球 / 红色断路 X）已注释（`ui/tabs/circuit_tab/` 子包内的绘图实现）。表笔搭接后图面无任何动态变化，学员只能通过万用表面板读数（`0.0 Ω` / `不导通`）判断通断。
 
 ### 物理接线黑盒检查（渐进式交互修复）
 
@@ -516,9 +517,9 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 
 ## 当前状态
 
-- **2026-04 UI 现代化收敛**：
+- **2026-04 UI 现代化收敛（更新至 R49-Round2）**：
   - 主题路线已固定为“浅色主题 + 语义属性 QSS + 渐进式改造”，当前不做深色主题。
-  - `ui/styles.py` 已升级为全局主题入口；`ui/tabs/_step_style.py` 已作为步骤页公共样式层加入。
+  - `ui/styles/` 已完成子包化，继续保持 `apply_app_theme()` / `build_app_stylesheet()` 入口不变；`ui/tabs/_step_style.py` 已作为步骤页公共样式层加入。
   - 主窗口、主 Tab、右侧控制面板、测试面板、步骤页壳层和主要弹窗已完成第一轮统一。
 
 - **2026-04 黑盒接线逻辑校正**：

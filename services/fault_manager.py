@@ -86,7 +86,7 @@ class FaultManager:
             relevant_orders.append(self._get_g2_blackbox_order())
         return relevant_orders
 
-    def inject_fault(self, scenario_id: str):
+    def inject_fault(self, scenario_id: str) -> None:
         """注入故障场景（由管理员在训练前设置）。scenario_id='' 清除故障。"""
         fc = self._sim_state.fault_config
         fc.scenario_id = scenario_id
@@ -158,7 +158,7 @@ class FaultManager:
                 )):
             self._blackbox_handler.sync_pt1_blackbox_to_phase_orders()
 
-    def repair_fault(self, step: int = 4, source: str = 'repair_fault'):
+    def repair_fault(self, step: int = 4, source: str = 'repair_fault') -> None:
         """学员完成虚拟修复后调用，消除故障效果并重置检测标志。"""
         fc = self._sim_state.fault_config
         sid = fc.scenario_id
@@ -185,7 +185,7 @@ class FaultManager:
         if fc.params.get('g1_loop_swap') is not None:
             self._get_pt_phase_orders()['PT2'] = ['A', 'B', 'C']
 
-    def _reset_blackbox_orders(self):
+    def _reset_blackbox_orders(self) -> None:
         normal = ['A', 'B', 'C']
         self._set_g1_blackbox_order(list(normal))
         self._set_g2_blackbox_order(list(normal))

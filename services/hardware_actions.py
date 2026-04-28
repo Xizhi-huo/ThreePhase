@@ -46,7 +46,7 @@ class HardwareActions:
         self._show_e02_accident_dialog = show_e02_accident_dialog
         self._show_e03_accident_dialog = show_e03_accident_dialog
 
-    def get_preclose_flow_blockers(self, gen_id):
+    def get_preclose_flow_blockers(self, gen_id) -> list[tuple[str, list[str]]]:
         sections = []
         loop_done = self._is_loop_test_complete()
 
@@ -87,10 +87,10 @@ class HardwareActions:
                                  ["同步功能测试尚未完成（需完成两轮同步跟踪记录）"]))
         return sections
 
-    def _should_enforce_pt_exam_before_close(self):
+    def _should_enforce_pt_exam_before_close(self) -> bool:
         return self._sim_state.grounding_mode != "断开"
 
-    def _should_limit_close_to_selected_pt_target(self):
+    def _should_limit_close_to_selected_pt_target(self) -> bool:
         sim = self._sim_state
         return (
             sim.grounding_mode == "小电阻接地" and
@@ -100,7 +100,7 @@ class HardwareActions:
             self._is_pt_exam_started(1)
         )
 
-    def instant_sync(self):
+    def instant_sync(self) -> None:
         # 若母排已带电，相位必须跟随母排当前动态相角，不能强行清零
         # （bus_phase 由物理引擎实时维护，单位为弧度）
         physics = self._get_physics()
@@ -113,7 +113,7 @@ class HardwareActions:
             gen.amp = GRID_AMP
             gen.phase_deg = target_phase_deg
 
-    def toggle_engine(self, gen_id: int):
+    def toggle_engine(self, gen_id: int) -> None:
         gen = self._get_generator_state(gen_id)
         if not gen.running and gen.mode != "manual":
             self._on_engine_blocked(
@@ -124,16 +124,16 @@ class HardwareActions:
             return
         gen.running = not gen.running
 
-    def _on_engine_blocked(self, gen_id: int, title: str, message: str):
+    def _on_engine_blocked(self, gen_id: int, title: str, message: str) -> None:
         self._show_warning(title, message)
 
-    def _on_breaker_blocked(self, gen_id: int, title: str, message: str):
+    def _on_breaker_blocked(self, gen_id: int, title: str, message: str) -> None:
         """合闸被拦截时的 UI 响应钩子。由 UI 层覆写以控制弹窗和 Tab 跳转。
         控制器本身只负责状态，不直接操作视图。"""
         self._request_ui_tab(5)
         self._show_warning(title, message)
 
-    def toggle_breaker(self, gen_id: int):
+    def toggle_breaker(self, gen_id: int) -> None:
         generator = self._get_generator_state(gen_id)
         if generator.breaker_closed:
             generator.breaker_closed = False
@@ -185,5 +185,5 @@ class HardwareActions:
                 return
         generator.cmd_close = True
 
-    def _get_generator_state(self, gen_id):
+    def _get_generator_state(self, gen_id) -> object:
         return self._sim_state.gen1 if gen_id == 1 else self._sim_state.gen2

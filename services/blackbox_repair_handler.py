@@ -235,7 +235,12 @@ class BlackboxRepairHandler:
             disable_repair_button=disable_repair_button,
         )
 
-    def _compute_pt1_net_order(self, bus_order=None, pri_order=None, sec_order=None):
+    def _compute_pt1_net_order(
+        self,
+        bus_order=None,
+        pri_order=None,
+        sec_order=None,
+    ) -> list[str]:
         labels = ('A', 'B', 'C')
         bus_order = list(bus_order if bus_order is not None else self._get_g1_blackbox_order())
         pri_order = list(pri_order if pri_order is not None else self._get_pt1_pri_blackbox_order())
@@ -244,10 +249,10 @@ class BlackboxRepairHandler:
         primary_actual = [bus_order[labels.index(cable_label)] for cable_label in pri_order]
         return [primary_actual[labels.index(sec_label)] for sec_label in sec_order]
 
-    def sync_pt1_blackbox_to_phase_orders(self):
+    def sync_pt1_blackbox_to_phase_orders(self) -> None:
         """派生同步: PT2 ← g1_blackbox_order；PT1 ← PT1 黑盒净相序。"""
         self._apply_pt1_blackbox_to_pt_phases(self._compute_pt1_net_order())
 
-    def sync_g2_blackbox_to_phase_orders(self):
+    def sync_g2_blackbox_to_phase_orders(self) -> None:
         """派生同步: PT3 ← g2_blackbox_order。"""
         self._apply_g2_blackbox_to_pt3()

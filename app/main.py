@@ -1,4 +1,4 @@
-"""
+﻿"""
 app/main.py  ──  PyQt5 版本
 三相电并网仿真教学系统 · 控制器层 + 程序入口
 
@@ -57,6 +57,8 @@ class PowerSyncController:
       · 硬件控制动作（toggle_engine / toggle_breaker 等）
       · loop_test_mode 开关（跨步骤共用）
     """
+
+    _TICK_FAILURE_THRESHOLD = 5
 
     def __init__(self):
         # ── 随机初始状态 ──────────────────────────────────────────────────
@@ -325,9 +327,6 @@ class PowerSyncController:
             raise ValueError(f"Unsupported PT ratio attribute: {ratio_attr}")
         setattr(self.sim_state, ratio_attr, ratio)
 
-    def get_pt_blackbox_mode(self):
-        return False
-
     def get_pt_phase_sequence(self, pt_name):
         return self.phase_resolver.get_pt_phase_sequence(pt_name)
 
@@ -405,9 +404,6 @@ class PowerSyncController:
         self._pending_pt_ratio_row_updates.clear()
         return updates
 
-    # ════════════════════════════════════════════════════════════════════════
-    # PT 节点解析辅助（供 physics 与 UI 侧桥接调用）
-    # ════════════════════════════════════════════════════════════════════════
     # ════════════════════════════════════════════════════════════════════════
     # 小型辅助（被 UI 或多个服务直接调用）
     # ════════════════════════════════════════════════════════════════════════
@@ -582,7 +578,7 @@ class PowerSyncController:
         return self.sync_svc.is_sync_test_complete()
 
     def is_gen_synced(self, gen_a, gen_b):
-        return self.sync_svc._is_gen_synced(gen_a, gen_b)
+        return self.sync_svc.is_gen_synced(gen_a, gen_b)
 
     def queue_accident_dialog(self, scene_id: str):
         if self._pending_accident_scene_id is None:
@@ -601,11 +597,19 @@ class PowerSyncController:
     def _handle_tick_failure(self, stage: str):
         self._consecutive_tick_failures += 1
         traceback.print_exc()
-        if self._consecutive_tick_failures >= 3 and not self._tick_error_notified:
+        if self._consecutive_tick_failures == 3 and not self._tick_error_notified:
             self.ui.statusBar().showMessage(
                 f"物理帧更新连续失败 {self._consecutive_tick_failures} 次（阶段: {stage}），请检查控制台错误日志。"
             )
             self._tick_error_notified = True
+        if (
+            self._consecutive_tick_failures >= self._TICK_FAILURE_THRESHOLD
+            and self._timer.isActive()
+        ):
+            self._timer.stop()
+            self.ui.statusBar().showMessage(
+                f"物理引擎已熔断停止（阶段: {stage}，连续失败 {self._consecutive_tick_failures} 次）。"
+            )
 
     def _clear_tick_failure_state(self):
         if self._consecutive_tick_failures > 0:

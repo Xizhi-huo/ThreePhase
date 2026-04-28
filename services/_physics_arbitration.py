@@ -14,7 +14,7 @@ from domain.enums import BreakerPosition
 class ArbitrationMixin:
     """母排基准解析、死母线首台投入与并网自动相角捕获。"""
 
-    def auto_adjust_local(self, generator, sim, target_freq, target_amp):
+    def auto_adjust_local(self, generator, sim, target_freq, target_amp) -> None:
         if generator.breaker_closed:
             return
 
@@ -33,7 +33,7 @@ class ArbitrationMixin:
         else:
             generator.amp = target_amp
 
-    def auto_adjust_phase(self, generator, sim, target_phase_deg):
+    def auto_adjust_phase(self, generator, sim, target_phase_deg) -> None:
         phase_error = generator.phase_deg - target_phase_deg
         # 圆周最短角：将误差折叠到 (-180, 180]
         phase_error = (phase_error + 180.0) % 360.0 - 180.0
@@ -45,7 +45,7 @@ class ArbitrationMixin:
         # 归一化到 (-180°, 180°]，避免相位值无限漂移
         generator.phase_deg = round(((new_deg + 180.0) % 360.0) - 180.0, 1)
 
-    def _resolve_bus_reference_gen(self, g1_on_bus, g2_on_bus):
+    def _resolve_bus_reference_gen(self, g1_on_bus, g2_on_bus) -> int | None:
         if not g1_on_bus and not g2_on_bus:
             self.bus_reference_gen = None
         elif self.bus_reference_gen == 1 and g1_on_bus:
@@ -58,7 +58,7 @@ class ArbitrationMixin:
             self.bus_reference_gen = 2
         return self.bus_reference_gen
 
-    def _update_bus_reference(self, sim, is_isolated):
+    def _update_bus_reference(self, sim, is_isolated) -> dict[str, object]:
         g1_on_bus = (sim.gen1.breaker_position == BreakerPosition.WORKING) and sim.gen1.breaker_closed
         g2_on_bus = (sim.gen2.breaker_position == BreakerPosition.WORKING) and sim.gen2.breaker_closed
 
@@ -113,7 +113,7 @@ class ArbitrationMixin:
             'reference_gen': self.bus_reference_gen,
         }
 
-    def _handle_dead_bus_selection(self, sim, mode1, mode2, g1_ready, g2_ready):
+    def _handle_dead_bus_selection(self, sim, mode1, mode2, g1_ready, g2_ready) -> None:
         frame_dt = max(getattr(self, 'frame_dt', 0.033), 0.0)
         if g1_ready and mode1 == "auto" and self.first_ready != 2:
             self.first_ready = 1
@@ -147,7 +147,7 @@ class ArbitrationMixin:
             else:
                 self.arb_msg, self.arb_color = f"⏳ 仲裁: Gen 2 达标, 准备投入死母线, 延时 {max(0, int(remaining + 1))}s", "#ffcc00"
 
-    def _handle_live_bus_sync(self, sim, mode1, mode2):
+    def _handle_live_bus_sync(self, sim, mode1, mode2) -> None:
         fc = sim.fault_config
         # E03: PT3 A 相极性反接，同期装置以反相位置为目标，自动收敛至 180° 错误相位
         _e03 = (fc.active and not fc.repaired and fc.scenario_id == 'E03')
@@ -179,7 +179,7 @@ class ArbitrationMixin:
         if all_synced and (sim.gen1.breaker_closed or mode1 != "auto") and (sim.gen2.breaker_closed or mode2 != "auto"):
             self.arb_msg, self.arb_color = "✅ 仲裁器: 全部机组并联运行", "#00ff00"
 
-    def _update_arbitration(self, sim, g1_on_bus, g2_on_bus, ref_freq, ref_amp):
+    def _update_arbitration(self, sim, g1_on_bus, g2_on_bus, ref_freq, ref_amp) -> None:
         mode1 = sim.gen1.mode
         mode2 = sim.gen2.mode
 

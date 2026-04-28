@@ -118,7 +118,7 @@ class ControllerStub:
     def is_sync_test_rounds_done(self) -> bool:
         return self.sync_test_state.completed
 
-    def _is_gen_synced(self, follower, master, freq_tol=0.5, amp_tol=500.0):
+    def is_gen_synced(self, follower, master, freq_tol=0.5, amp_tol=500.0):
         return True
 
     def queue_accident_dialog(self, scene_id: str):

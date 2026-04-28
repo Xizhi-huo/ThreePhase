@@ -81,6 +81,12 @@ class PhaseSeqMeterWidget(QtWidgets.QWidget):
         self._waiting_text = ""
         self.update()
 
+    def current_sequence(self) -> str:
+        """返回当前应当对外暴露的相序结果。"""
+        if self._status == "connected":
+            return self._sequence
+        return "unknown"
+
     def set_freq(self, freq_hz: float) -> None:
         self._freq = max(freq_hz, 1.0)
 

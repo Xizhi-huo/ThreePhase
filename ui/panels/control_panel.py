@@ -6,6 +6,7 @@ from PyQt5 import QtCore, QtWidgets
 
 from domain.fault_scenarios import SCENARIOS
 from domain.node_map import NODES
+from ui.tabs.circuit_tab._phase_wiring import PhaseWiringStatus
 from ui.widgets.control_panel import GeneratorCard, ParamControlsPage, RunControlsPage
 from ui.widgets.control_panel._widget_tokens import (
     apply_badge_tone,
@@ -297,7 +298,7 @@ class WidgetBuilderMixin:
         }.get(mode, "教学模式")
 
     def _on_circuit_click(self, event):
-        if self._circuit_tab.get_phase_wiring_status() == "wiring":
+        if self._circuit_tab.get_phase_wiring_status() == PhaseWiringStatus.WIRING:
             if self._circuit_tab.handle_phase_wiring_click(event):
                 return
         

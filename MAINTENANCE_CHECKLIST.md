@@ -1,6 +1,6 @@
 '''
 
-Code Review — THREEPHASE 项目（当前仓库校正版）
+Code Review — THREEPHASE 项目（历史修复快照；当前状态见 §3 / §4 / §9 / §10）
 
 Critical
 C1. PT 黑盒渲染链路残留为永久关闭的死分支
@@ -95,17 +95,17 @@ Problem: "idle" / "wiring" / "ready" 由字符串在多个模块间传递和比�
 Impact: 容易因 typo 产生静默行为错误，且跨文件重构缺少约束。
 Fix: 抽成常量或 enum.StrEnum，再让 CircuitTab 和 step panel 共同消费。
 
-m8. ui/styles.py 仍是 1007 行单文件 QSS 模板
-Location: ui/styles.py
-Problem: 单文件样式表继续膨胀，但主要是体量问题，不是控制流复杂度问题。
-Impact: 后续样式改动仍会集中到一个超长字符串模块，review 和冲突解决成本偏高。
-Fix: 不紧迫；若要拆，按 buttons / panels / dialogs 等组件域拆分更合理。
+m8. `pt_phase_check_tab.py` 仍从 `circuit_tab` 包导入私有 `_qs` helper
+Location: ui/tabs/pt_phase_check_tab.py:12
+Problem: 第三步 tab 仍通过 `from ui.tabs.circuit_tab import _qs` 依赖母排拓扑包内部的颜色辅助函数，形成跨模块私有实现耦合。
+Impact: 后续继续拆 `circuit_tab` 时，`_qs` 的移动、改名或删除都会无意间影响 `pt_phase_check_tab.py`，让内部 helper 继续向外扩散为隐式公共 API。
+Fix: 将 `_qs` 下沉到共享的轻量颜色工具模块，或直接在 `pt_phase_check_tab.py` 本地收口为私有 helper，消除对 `ui.tabs.circuit_tab` 内部实现的依赖。
 
 '''
 
 # 维护与重构清单 v2
 
-最后更新：`2026-04-20`
+最后更新：`2026-04-28`
 
 用途：
 - 给人看：明确当前项目的维护边界、阶段目标、已完成进度。
@@ -203,9 +203,9 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 文件 | 行数 | 状态 | 核心问题 |
 |---|---:|---|---|
-| `ui/test_panel.py` | 2417 | 必须拆分 | 9 个 Mixin 中最大的，111 处 ctrl 引用 |
+| `ui/test_panel.py` | 510 | 需要审查 | 测试模式协调器已显著瘦身，但仍承担较多装配与步骤联动 |
 | `app/main.py` | 502 | 需要审查 | Controller 已完成 Phase 1 收尾，保留编排与少量 UI 胶水 |
-| `ui/styles.py` | 1007 | 纯数据，暂缓 | 纯静态样式声明，无逻辑耦合，优先级低 |
+| `ui/tabs/waveform_tab.py` | 729 | 需要审查 | 波形图、相量图、同期表与仪表盘逻辑集中在同一组件 |
 | `services/assessment_service.py` | 399 | 健康 | 评分系统已完成模块化 + 类型化 + 单域快照保护，Phase 2 已闭环 |
 | `ui/main_window.py` | 528 | 需要审查 | 9-Mixin 继承入口，待迁移为组合式 |
 | `domain/fault_scenarios.py` | 520 | 纯数据，暂缓 | 纯场景定义字典，不含逻辑 |
@@ -214,7 +214,7 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 | `services/pt_phase_check_service.py` | 345 | 健康，观察 | 37 处 `self._ctrl` 引用需逐步收口 |
 
 说明：
-- 核心攻坚对象：`ui/test_panel.py`。
+- 当前主要结构热点：`ui/tabs/waveform_tab.py`、`ui/main_window.py`、`ui/widgets/step_panels/_panel_builders.py`。
 - **耦合度指标比行数更重要**。各文件的 `self._ctrl` / `self.ctrl` 引用数是关键度量。
 
 ### 当前耦合度基线（2026-04-09）
@@ -241,14 +241,27 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 
 | 项目 | 当前状态 |
 |---|---|
-| 当前阶段 | R47 已完成（死 import 清理 + `domain/` 类型标注补齐 + 历史注释整理；`services/` 全量类型标注留给独立专项轮）。 |
-| 已完成的高/严重问题 | `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` |
-| 当前最大风险文件 | `ui/styles.py`(1007)、`ui/widgets/step_panels/_panel_builders.py`(347)；`ui/panels/control_panel.py` 已于 R45 从 `776` 行收敛到 `328` 行 |
-| 下一轮默认起点 | 后续按需立项：候选为 `services/` 类型标注专项、`ui/styles.py` 拆分、`ui/widgets/step_panels/_panel_builders.py` 拆分 |
+| 当前阶段 | `R49-Round2` 已完成（`ui/styles.py` 已拆为 `ui/styles/` 子包，`build_app_stylesheet()` 规范化输出哈希保持不变，`apply_app_theme()` API 未改）。 |
+| 已完成的高/严重问题 | 历史主线 `C1`、`C2(第一步)`、`H1`、`H2`、`H3`、`H4`、`H5` 已完成；上一轮修复计划范围内的任务已于 `R48-Round1 ~ R49-Round2` 全部收口。 |
+| 当前最大风险文件 | `ui/tabs/waveform_tab.py`(729)、`ui/main_window.py`(657)、`ui/tabs/circuit_tab/_draw_topology.py`(537)、`ui/test_panel.py`(510) |
+| 下一轮默认起点 | `R49-Round3`：`ui/tabs/waveform_tab.py` 结构审查与职责拆分预研（先梳理绘图 / 指标卡 / 同期判据边界，不改视觉与业务语义） |
 
 ---
 
 ## 4. 重构路线图
+
+### R48 Review 收口轮次（当前）
+
+- [x] Round 1：机械小修 + 死分支清除（`C1 / M2 / M3 / M7 / m1 / m2 / m6`）
+- [x] Round 2：封装边界和小型接口收口（`M4 / M5 / m7`）
+- [x] Round 3：运行时鲁棒性和异常处理（`M8 / m5`，必要时顺带局部收口 `m4`）
+- [x] Round 4：`ui/tabs/circuit_tab.py` 结构性拆分（`M6`）
+- [x] Deferred A：`services/` 返回类型标注专项（建立统一统计口径，覆盖率 `37.0% -> 100.0%`）
+- [x] Deferred B：`ui/styles.py` 拆分专项（已拆为 `ui/styles/` 子包，保留 `apply_app_theme()` / `build_app_stylesheet()` 导入兼容）
+
+说明：
+- Phase 4 主线和此前的 service/self._ctrl 收口已经闭环；R48 起转入低风险 review 收口轮次。
+- `services/` 返回类型标注专项与 `ui/styles.py` 拆分专项均已完成；后续若继续推进，转入新的 UI 结构审查轮次。
 
 ### Phase 0: 安全网建设（1-2 轮）
 
@@ -647,7 +660,175 @@ class PowerSyncUI(QMainWindow):
 
 ### 当前未完成但已明确方向
 - Phase 3：已关闭（R32 收口完成）。
-- Phase 4 主线（R33–R44）：Service 层 `self._ctrl` 显式依赖化（339 处 → 0）→ `ControllerSignals(QObject)` Signal/Slot 引入 → physics 层 `self.ctrl` 收口 → 旧键名与状态真值源清理、`domain/services` 类型标注补齐。详见 §10。
+- Phase 4 主线（R33–R44）及其后续 cleanups（R45–R49-Round2）已闭环；计划内 deferred 已清零。后续若继续推进，优先进入新的 UI 结构审查轮次，候选主目标为 `ui/tabs/waveform_tab.py`、`ui/main_window.py` 与 `ui/widgets/step_panels/_panel_builders.py`。
+
+### 第 49 轮 (2026-04-28)：R49-Round2（`ui/styles.py` 拆分专项）
+- 本轮唯一主攻目标：在不改任何颜色、间距、字重、控件视觉表现和宿主调用方式的前提下，将原 `ui/styles.py` 单文件主题入口拆为 `ui/styles/` 子包，同时保持 `apply_app_theme()` / `build_app_stylesheet()` API 与行为不变。
+- 实际完成：
+  - 已将原 `ui/styles.py` 物理拆分为 `ui/styles/` 子包，落地文件为：
+    - `ui/styles/__init__.py`
+    - `ui/styles/_theme_palette.py`
+    - `ui/styles/_panels.py`
+    - `ui/styles/_dialogs.py`
+    - `ui/styles/_inputs.py`
+    - `ui/styles/_misc.py`
+    - `ui/styles/_buttons.py`
+  - `ui/styles/__init__.py` 继续暴露 `APP_QSS`、`LIGHT_THEME`、`build_app_stylesheet()`、`apply_app_theme()`；`ui/main_window.py` 的 `from ui.styles import apply_app_theme` 无需改动即可继续工作。
+  - 原单文件 `ui/styles.py` 已删除；拆分后样式域按 panels / dialogs / misc / buttons / inputs 固定分块，样式数值与选择器顺序保持不变。
+- 接口变化：
+  - 运行时公共导入面保持不变：`from ui.styles import apply_app_theme, build_app_stylesheet`
+  - `_load_qdarkstyle_base()` 的 fallback 行为保持不变；未引入新主题 token、未新增 dark theme 分支。
+- 规模与结构变化：
+  - 原 `ui/styles.py` 行数：`1007`
+  - 拆分后单文件行数：
+    - `ui/styles/__init__.py = 51`
+    - `ui/styles/_theme_palette.py = 27`
+    - `ui/styles/_panels.py = 491`
+    - `ui/styles/_dialogs.py = 37`
+    - `ui/styles/_inputs.py = 197`
+    - `ui/styles/_misc.py = 67`
+    - `ui/styles/_buttons.py = 164`
+  - 单文件样式风险已解除；拆分后最大单文件为 `_panels.py = 491`，回到健康阈值内。
+- 验证结果：
+  - G1 PASS：`.\\.venv\\Scripts\\python.exe -m pytest -q` = `15 passed`
+  - G2 PASS：拆分前后 `build_app_stylesheet()` 规范化输出哈希一致，`sha256 = 6b4c53e960cf5046d36ed092bb308010d79af4587841aba9463d4bef5492984d`
+  - G3 PASS：offscreen 下已完成 `QApplication -> PowerSyncController()` 最小启动与 `apply_app_theme()` 烟测，结果为 `controller_ok / theme_ok`
+  - G4 PASS：`from ui.styles import apply_app_theme, build_app_stylesheet`、`APP_QSS`、`LIGHT_THEME` 导入兼容验证通过
+- 范围与边界：
+  - 本轮源码改动仅落在 `ui/styles/**` 与 checklist 本身；未改 `app/**`、`domain/**`、`services/**`、`tests/**`
+  - README 旧路径引用在本轮源码完成后已单独完成文档同步清理；当前保留的低优先级项转为 `pt_phase_check_tab.py` 对 `_qs` 的跨模块私有依赖
+- 下一轮起点：
+  - `R49-Round3`：`ui/tabs/waveform_tab.py` 结构审查与职责拆分预研
+
+### 第 49 轮 (2026-04-28)：R49-Round1（`services/` 返回类型标注专项）
+- 本轮唯一主攻目标：在不改任何业务逻辑、控制流和 UI 行为的前提下，为 `services/` 目录建立统一、可复现的返回类型标注覆盖率统计口径，并将覆盖率提升到 `>= 90%`。
+- 实际完成：
+  - 新增 `scripts/check_annotation_coverage.py`，统计口径固定为：排除 `__init__ / __post_init__ / dunder`，计入私有方法、`@staticmethod`、`@classmethod`、嵌套 helper。
+  - `services/` 返回类型标注覆盖率已从 `68/184 = 37.0%` 提升到 `184/184 = 100.0%`。
+  - 已补齐返回标注的文件包括：
+    - `services/phase_order_resolver.py`
+    - `services/hardware_actions.py`
+    - `services/fault_manager.py`
+    - `services/blackbox_repair_handler.py`
+    - `services/assessment_coordinator.py`
+    - `services/assessment_service.py`
+    - `services/loop_test_service.py`
+    - `services/pt_voltage_check_service.py`
+    - `services/pt_phase_check_service.py`
+    - `services/pt_exam_service.py`
+    - `services/sync_test_service.py`
+    - `services/_physics_arbitration.py`
+    - `services/_physics_core.py`
+    - `services/_physics_measurement.py`
+    - `services/_physics_protection.py`
+    - `services/physics_engine.py`
+- 删除了哪些旧代码：
+  - 无；本轮只新增统计脚本，并在既有函数/方法上补 `-> ...` 返回标注与少量 `typing` import，不删除业务实现。
+- 接口变化：
+  - 运行时公共接口无变化；仅新增 `scripts/check_annotation_coverage.py` 作为静态质量入口。
+  - `services/` 各文件的运行时行为、参数列表、状态读写路径与数值公式均保持不变。
+- 耦合度变化：
+  - `self._ctrl / self.ctrl` 基线保持不变，`services/` 仍为 `0`。
+  - 本轮不涉及依赖注入边界、UI 耦合或业务编排收口。
+- 验证结果：
+  - G1 PASS：`.\\.venv\\Scripts\\python.exe -m pytest -q` = `15 passed`
+  - G2 PASS：`py -3.11 scripts\\check_annotation_coverage.py services` = `184/184 = 100.0%`，退出码 `0`
+  - G3 PASS：`py -3.11 -m py_compile` 已覆盖本轮白名单内全部改动文件与统计脚本
+  - G4 PASS：本轮源码改动仅落在 `services/**/*.py`、`scripts/check_annotation_coverage.py` 与 checklist 本身；未改 `app/main.py`、`ui/**`、`tests/**`
+- 下一轮起点：
+  - `R49-Round2`：`ui/styles.py` 拆分专项
+
+### 第 48 轮 (2026-04-28)：R48-Round4（CircuitTab 结构性拆分）
+- 本轮唯一主攻目标：只处理顶部 review 中 `M6` 对应的结构性拆分，不混入新的 UI 行为调整、物理逻辑变更或样式专项。
+- 实际完成：
+  - 已将原单文件 `ui/tabs/circuit_tab.py` 拆为子包 `ui/tabs/circuit_tab/`，并落成 4 个模块：
+    - `__init__.py`：保留 `CircuitTabAPI`、`CircuitTab(QWidget)`、`_build()`、`render()`、`redraw_canvas()`、`rebuild_circuit_diagram()`
+    - `_phase_wiring.py`：承接 `PhaseWiringStatus`、`PhaseWiringSession`、相序仪接入/断开、三点接线点击与高亮渲染
+    - `_record_tables.py`：承接 Step1~Step5 记录表构建与刷新
+    - `_draw_topology.py`：承接拓扑绘制、CT/断路器/发电机/PT/接地与万用表渲染
+  - `ui/_phase_wiring_state.py` 已整体迁入 `ui/tabs/circuit_tab/_phase_wiring.py` 并物理删除；`ui/panels/control_panel.py` 与 `ui/widgets/step_panels/pt_phase_check_panel.py` 已同步改到新导入路径。
+  - `ui/tabs/pt_phase_check_tab.py` 仍通过 `from ui.tabs.circuit_tab import _qs` 取色；本轮已在子包入口 `__init__.py` 重新导出 `_qs`，保证旧消费路径不变。
+  - `ui/main_window.py` 顶部架构说明中的 `CircuitTab` 路径已同步改为 `ui/tabs/circuit_tab/`，避免继续指向不存在的旧文件。
+- 接口变化：
+  - 外部导入面保持不变：`from ui.tabs.circuit_tab import CircuitTab`
+  - `CircuitTab` 对宿主公开的方法保持不变：`render()`、`rebuild_circuit_diagram()`、`redraw_canvas()`、`get_phase_wiring_status()`、`get_phase_wiring_active_pt()`、`connect_phase_seq_meter()`、`disconnect_phase_seq_meter()`、`handle_phase_wiring_click()`
+  - mixin 之间未互相导入，也不存在子模块反向导入 `ui.tabs.circuit_tab.__init__`
+- 规模与耦合变化：
+  - 原 `ui/tabs/circuit_tab.py` 单体文件行数：`1078`
+  - 拆分后子包总行数：`989`
+  - 单文件上限实测：
+    - `__init__.py = 98`
+    - `_phase_wiring.py = 133`
+    - `_record_tables.py = 275`
+    - `_draw_topology.py = 483`
+  - 4 个目标文件均落在 Round4 提示词约束上限内。
+- 验证结果：
+  - G1 PASS：`pytest -q` 通过，结果为 `15 passed`
+  - G2 PASS：`py -3.11 -m py_compile` 已覆盖 `ui/tabs/circuit_tab/` 4 个新文件、`ui/panels/control_panel.py`、`ui/widgets/step_panels/pt_phase_check_panel.py`、`ui/main_window.py`、`ui/tabs/pt_phase_check_tab.py`
+  - G3 PASS：`from ui._phase_wiring_state` 在生产路径中已清零，旧文件 `ui/_phase_wiring_state.py` 已删除
+  - G4 PASS：4 个新文件行数全部低于 Round4 设定上限，且拆分后总行数 `989 < 1078`
+  - G5 PASS：offscreen 下已完成 `PowerSyncController()` 启动、`PT1` 三点接线走到 `ready`、以及 step 3/4/5 场景下 `CircuitTab.render(ctrl.physics.build_render_state())` 烟测，结果为 `round4_smoke_ok`
+  - G6 PASS：`__init__.py` 负责汇总 mixin；`_phase_wiring.py`、`_record_tables.py`、`_draw_topology.py` 之间无互相导入
+  - G7 PARTIAL：当前工作区不是 git repo，无法做提示词里建议的“拆分前后 5 帧快照逐帧比对”；本轮仅完成 offscreen 结构烟测与接口回归验证
+- 范围与边界：
+  - 本轮源码改动落在 `ui/tabs/circuit_tab/`、`ui/panels/control_panel.py`、`ui/widgets/step_panels/pt_phase_check_panel.py`、`ui/main_window.py` 与 checklist 本身
+  - 未改 `app/**`、`domain/**`、`services/**`、`tests/**` 的行为逻辑
+
+### 第 48 轮 (2026-04-28)：R48-Round3（运行时鲁棒性 + 异常处理）
+- 本轮唯一主攻目标：只处理顶部 review 中会影响运行时诊断与可恢复性的 `M8 / m5`，并顺带收口本轮触及行的局部空格风格 `m4`；不改 physics 计算路径、不改 `_tick()` 主体顺序。
+- 实际完成：
+  - `app/main.py` 已在 `PowerSyncController` 类上新增 `_TICK_FAILURE_THRESHOLD = 5`，并将 `_handle_tick_failure()` 改为两段式处理：第 3 次连续失败只提示 statusBar，第 5 次连续失败直接 `stop()` 定时器并显示“物理引擎已熔断停止”。
+  - `_clear_tick_failure_state()` 语义保持不变：只要成功完成一帧 render，仍会清空状态栏消息、连续失败计数和 `_tick_error_notified` 标志。
+  - `ui/tabs/circuit_tab.py::_place_phase_seq_meter()` 已移除整段 `try / except Exception`，改为显式哨兵判断 `xlim/ylim` 是否退化为零跨度；合法退化时居中放置，相反真实 matplotlib 异常将继续向上抛出并交由 Round3 的 tick 熔断接住。
+  - `ui/tabs/circuit_tab.py` 已修正 `event.inaxes != self.ax_circuit` 的缺空格问题，并清理本轮触及片段内的空白行空格；`ui/widgets/step_panels/pt_phase_check_panel.py` 中本轮触及的 3 处 trailing whitespace 也已清掉。
+- 范围与边界：
+  - 本轮源码改动仅落在 `app/main.py`、`ui/tabs/circuit_tab.py`、`ui/widgets/step_panels/pt_phase_check_panel.py` 与 checklist 本身。
+  - 未改 `services/**`、`domain/**`、`tests/**`、其他 `ui/**` 文件；未动 `markersize = ...` 这类未在本轮提示词覆盖范围内的历史格式问题。
+- 验证结果：
+  - G1 PASS：`pytest -q` 通过，结果为 `15 passed`。
+  - G2 PASS：`py -3.11 -m py_compile app/main.py ui/tabs/circuit_tab.py ui/widgets/step_panels/pt_phase_check_panel.py` 通过。
+  - G3 PASS：offscreen 下已通过脚本注入 `RuntimeError("test")` 验证 tick 熔断路径：连续失败 3 次后 statusBar 出现“连续失败 3 次”，第 5 次后 `_timer.isActive() == False` 且 statusBar 切换为“物理引擎已熔断停止”。
+  - G4 PASS：offscreen 下已 monkeypatch `ax_circuit.get_xlim/get_ylim` 为零跨度返回值，调用 `_place_phase_seq_meter()` 后相序仪按画布中心坐标放置成功，无异常抛出。
+  - G5 PARTIAL：当前工作区不是 git repo，无法做正式 diff 边界校验；按本轮实际编辑记录，改动范围已限制在白名单文件 + checklist。
+
+### 第 48 轮 (2026-04-27)：R48-Round2（封装边界 + 小型接口收口）
+- 本轮唯一主攻目标：只处理顶部 review 中“已经有 public 意图，但内部仍穿透私有实现”的 3 项收口：`M4 / M5 / m7`，不触碰同步算法、公差参数与 `circuit_tab.py` 结构性拆分。
+- 实际完成：
+  - `services/sync_test_service.py` 已将私有 `_is_gen_synced(...)` 提升为公共 `is_gen_synced(...)`，并同步替换 service 内部 4 处自调用；`tests/support/stubs.py` 中的同名 stub 也已切换到公共名。
+  - `app/main.py` 中 controller wrapper `is_gen_synced(...)` 已改为调用 `self.sync_svc.is_gen_synced(...)`，生产路径不再穿透 service 私有接口。
+  - `ui/widgets/phase_seq_meter.py` 已新增公共 `current_sequence()`，只在 `_status == "connected"` 时透传 `_sequence`，其余状态统一返回 `"unknown"`。
+  - `ui/main_window.py` 已改用 `self.phase_seq_meter.current_sequence()`，不再通过 `getattr(..., "_sequence", ...)` 读取 widget 私有状态。
+  - 新增 `ui/_phase_wiring_state.py`，定义 `PhaseWiringStatus(StrEnum)`；`ui/tabs/circuit_tab.py`、`ui/panels/control_panel.py`、`ui/widgets/step_panels/pt_phase_check_panel.py` 已统一切到枚举值消费，不再在相序接线链路上裸比较 `"idle" / "wiring" / "ready"`。
+- 范围与边界：
+  - 本轮源码改动仅落在 `services/sync_test_service.py`、`tests/support/stubs.py`、`app/main.py`、`ui/widgets/phase_seq_meter.py`、`ui/main_window.py`、`ui/_phase_wiring_state.py`、`ui/tabs/circuit_tab.py`、`ui/panels/control_panel.py`、`ui/widgets/step_panels/pt_phase_check_panel.py` 与 checklist 本身。
+  - 未改同步算法本身，`freq_tol / amp_tol / phase_tol` 保持不变；未触碰 `domain/**` 与其他 `services/**` / `ui/**`。
+- 验证结果：
+  - G1 PASS：`pytest -q` 通过，结果为 `15 passed`，无新增 warning。
+  - G2 PASS：`py -3.11 -m py_compile services/sync_test_service.py tests/support/stubs.py app/main.py ui/widgets/phase_seq_meter.py ui/main_window.py ui/_phase_wiring_state.py ui/tabs/circuit_tab.py ui/panels/control_panel.py ui/widgets/step_panels/pt_phase_check_panel.py` 通过。
+  - G3 PARTIAL：`rg -n '_is_gen_synced' app services tests ui` 为 `0` 命中；`rg -n 'getattr\\(self\\.phase_seq_meter, "_sequence"' ui` 为 `0` 命中；相序接线链路相关文件中的裸状态字符串已清零。但若按 `rg -n '"idle"|"wiring"|"ready"' ui` 全量执行，仍会命中 `ui/test_panel.py`、`ui/widgets/multimeter_widget.py`、`ui/widgets/step_panels/_panel_builders.py` 等与本轮白名单无关的历史字面量，因此仅能按“目标链路收口完成”判定通过。
+  - G4 PASS：offscreen 下已完成 `PowerSyncController()` 启动 + `PT1` 接入 + 三点接线烟测，`PhaseWiringStatus` 状态流转与 Round1 一致。
+  - G5 PASS：offscreen 下已验证 `phase_seq_meter.connect_pt("PT3", "FAULT")` 后 `current_sequence()` 返回 `"FAULT"`，并成功进入 `record_phase_sequence("PT3", "FAULT")` 路径。
+  - G6 PARTIAL：当前工作区不是 git repo，无法做正式 diff 边界校验；按本轮实际编辑记录，改动范围已限制在白名单文件 + checklist。
+
+### 第 48 轮 (2026-04-27)：R48-Round1（机械小修 + 死分支清理）
+- 本轮唯一主攻目标：只处理顶部 review 中已确认安全、机械、低风险的 7 项小修：`C1 / M2 / M3 / M7 / m1 / m2 / m6`，不触碰 `services/**`、`domain/**`、`tests/**` 业务逻辑。
+- 实际完成：
+  - `app/main.py` 已删除硬编码 `False` 的 `get_pt_blackbox_mode()` wrapper，并清理重复的“PT 节点解析辅助”section 注释。
+  - `ui/tabs/circuit_tab.py` 已完整删除 PT 黑盒渲染残留链路：`CircuitTabAPI.get_pt_blackbox_mode()`、局部变量 `pt_blackbox_mode`、内嵌 `draw_pt_blackbox_symbol()`、以及 PT1/PT2/PT3 上所有相关分支；`rebuild_circuit_diagram()` 的过期 docstring 已同步改为通用重绘说明。
+  - `ui/tabs/circuit_tab.py` 已修正相序仪 `freq` 选择条件：`PT1/PT2 -> gen1`、`PT3 -> gen2`；三点接线结果标签绿色已统一为 `#2ecc71`。
+  - `ui/test_panel.py` 已为 `TestPanelAPI` / `TestPanelWidget` 增加 `__test__ = False`，用于阻止 pytest 将生产类误收集为测试类。
+  - `ui/widgets/step_panels/pt_phase_check_panel.py` 已删除未使用的 `_pt_recorded()` 与注释残留 `#and not self._pt_recorded(pt_name)`。
+  - `ui/tabs/circuit_tab.py` 已删除 `__init__` 中冗余的 `_psm_terminal_markers` 初始化，仅保留 `_draw_circuit_content()` 内的真实重建点。
+- 范围与边界：
+  - 本轮源码改动仅落在 `app/main.py`、`ui/tabs/circuit_tab.py`、`ui/test_panel.py`、`ui/widgets/step_panels/pt_phase_check_panel.py` 与 checklist 本身。
+  - `services/**`、`domain/**`、`tests/**`、其他 `ui/**` 文件均未修改。
+- 验证结果：
+  - G1 PASS：`pytest -q` 已跑通为 `15 passed`，且输出中 `0` 次 `PytestCollectionWarning`。
+  - G2 PASS：`python -m py_compile app/main.py ui/tabs/circuit_tab.py ui/test_panel.py ui/widgets/step_panels/pt_phase_check_panel.py` 通过。
+  - G3 PASS：`rg -n 'pt_blackbox_mode|on_pt_blackbox_toggle|reshuffle_pt_phase_orders|get_pt_blackbox_mode|set_g2_terminal_fault|draw_pt_blackbox_symbol' app domain services ui tests` 在生产代码路径下 `0` 命中。
+  - G4 PASS：offscreen 启动 `PowerSyncController()` 无 `AttributeError / ImportError / Traceback`。
+  - G5 AUTO PASS / MANUAL PENDING：offscreen 下已完成 `PT1 -> 断开 -> PT3 -> 断开` 的相序仪切换烟测，无异常；真实 GUI 手动冒烟待用户确认。
+  - G6 PARTIAL：当前工作区不是 git repo，无法正式执行 diff 范围校验；按本轮实际编辑记录，改动范围已限制在白名单 4 个源码文件 + checklist。
 
 ### 第 47 轮 (2026-04-20)：死 import 清理 + `domain/` 类型标注补齐 + 历史注释整理
 - 本轮唯一主攻目标：在不改动任何业务逻辑、签名与 UI 行为的前提下，完成一轮低风险机械清理，收口未使用 import、补齐 `domain/` 类型标注、清理已不成立的历史注释。
@@ -673,7 +854,7 @@ class PowerSyncUI(QMainWindow):
   - G10 PASS：未越权文件扫描通过
 - 后续建议：
   - 本轮完成后，“耦合清理 + UI 组件化 + 状态真值源收口 + 清理轮”这条主线已经收尾。
-  - 后续若继续推进，优先级建议为：`services/` 类型标注专项、`ui/styles.py` 拆分、`ui/widgets/step_panels/_panel_builders.py` 拆分。
+  - 后续若继续推进，优先级建议为：`ui/tabs/waveform_tab.py` 结构审查、`ui/main_window.py` 结构审查、`ui/widgets/step_panels/_panel_builders.py` 拆分。
 
 ### 第 46 轮 (2026-04-20)：状态真值源收口（`PhaseOrderState`）+ `_BoolProxy` 残留清理
 - 本轮唯一主攻目标：将散落在 `PowerSyncController` 上的 6 个相序/黑盒容器属性收口为单一状态容器，并清理 `app/main.py` 中 `_BoolProxy` 留下的 4 处 `_ctrl` 历史残留。
@@ -1526,6 +1707,17 @@ class PowerSyncUI(QMainWindow):
 ---
 
 ## 10. 下一轮默认起点 — 后续收口路线图
+
+### 最新默认起点（R49-Round3）
+
+- 主目标：启动 `ui/tabs/waveform_tab.py` 结构审查与职责拆分预研，在不改波形绘制、同期判据、指标卡视觉和宿主调用方式的前提下，先梳理“图表初始化 / 波形渲染 / 同期表渲染 / 仪表盘状态”四类边界，为后续物理拆分做准备。
+- 优先顺序：
+  - 先输出 `waveform_tab.py` 的职责地图，明确哪些函数属于 figure/canvas 初始化，哪些属于 render path，哪些属于 badge / metric card / criteria widget 构造。
+  - 再识别最适合先拆出的纯 helper 区块，优先考虑 `_make_*` 组件工厂、轴样式助手和同步判据格式化函数。
+  - 预研轮只做边界梳理与最小可拆分方案，不顺手改视觉、不顺手改 physics 数据来源。
+- 明确后移：
+  - README 的 `ui/styles.py` 旧路径文案单独作为文档清理项处理，不与 `waveform_tab.py` 结构轮次混合。
+  - `ui/main_window.py` 与 `_panel_builders.py` 的结构专项继续后移，作为 `waveform_tab.py` 之后的候选轮次。
 
 ### 总体目标
 

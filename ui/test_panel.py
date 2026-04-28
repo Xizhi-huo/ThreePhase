@@ -32,6 +32,8 @@ from ui.widgets.step_panels._panel_builders import (
 
 
 class TestPanelAPI(Protocol):
+    __test__ = False
+
     @property
     def sim_state(self) -> object: ...
     @property
@@ -110,6 +112,8 @@ class TestPanelAPI(Protocol):
 
 
 class TestPanelWidget(QtWidgets.QWidget):
+    __test__ = False
+
     def __init__(
         self,
         api: TestPanelAPI,

@@ -3,6 +3,7 @@ from typing import Dict, List, Set
 
 from domain.assessment import (
     AssessmentContext,
+    AssessmentEvent,
     AssessmentEventType,
     AssessmentPenalty,
     AssessmentResult,
@@ -42,16 +43,16 @@ class AssessmentService:
         def count(event_type: str) -> int:
             return sum(1 for event in events if event.event_type == event_type)
 
-        def all_events(event_type: str):
+        def all_events(event_type: str) -> list[AssessmentEvent]:
             return [event for event in events if event.event_type == event_type]
 
-        def first(event_type: str):
+        def first(event_type: str) -> AssessmentEvent | None:
             for event in events:
                 if event.event_type == event_type:
                     return event
             return None
 
-        def happened_before(lhs, rhs) -> bool:
+        def happened_before(lhs: AssessmentEvent | None, rhs: AssessmentEvent | None) -> bool:
             if lhs is None:
                 return False
             if rhs is None:
@@ -249,7 +250,9 @@ class AssessmentService:
         )
 
     @staticmethod
-    def _build_step_score_summaries(score_items: List[AssessmentScoreItem]):
+    def _build_step_score_summaries(
+        score_items: List[AssessmentScoreItem],
+    ) -> tuple[dict[str, int], dict[str, int]]:
         step_scores = {
             "flow_discipline": sum(item.earned_score for item in score_items if item.code.startswith("A")),
             "loop_test": sum(item.earned_score for item in score_items if item.code.startswith("B")),

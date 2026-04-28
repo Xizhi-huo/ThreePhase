@@ -5,7 +5,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
-from domain.assessment import AssessmentContext, AssessmentEvent, AssessmentEventType, AssessmentSession
+from domain.assessment import (
+    AssessmentContext,
+    AssessmentEvent,
+    AssessmentEventType,
+    AssessmentResult,
+    AssessmentSession,
+)
 
 
 @dataclass(frozen=True)
@@ -63,7 +69,7 @@ class AssessmentCoordinator:
         self._is_pt_phase_check_complete = is_pt_phase_check_complete
         self._build_assessment_context = build_assessment_context
 
-    def start_assessment_session(self, scene_id: str, preset_mode: str = 'specified'):
+    def start_assessment_session(self, scene_id: str, preset_mode: str = 'specified') -> None:
         if not self._flow_mgr.should_record_assessment_metrics():
             self._set_assessment_session(None)
             return
@@ -86,7 +92,7 @@ class AssessmentCoordinator:
             fault_selection_mode=fault_selection_mode,
         )
 
-    def append_assessment_event(self, event_type: str, step: int = 0, **payload):
+    def append_assessment_event(self, event_type: str, step: int = 0, **payload) -> None:
         if not self._flow_mgr.should_record_assessment_metrics():
             return
         session = self._get_assessment_session()
@@ -171,7 +177,7 @@ class AssessmentCoordinator:
             },
         }
 
-    def finish_assessment_session(self):
+    def finish_assessment_session(self) -> AssessmentResult | None:
         if not self._flow_mgr.should_auto_score_assessment():
             return None
         session = self._get_assessment_session()
@@ -225,7 +231,7 @@ class AssessmentCoordinator:
         )
         return correct
 
-    def mark_assessment_result_shown(self):
+    def mark_assessment_result_shown(self) -> None:
         session = self._get_assessment_session()
         if session is not None:
             session.result_shown = True

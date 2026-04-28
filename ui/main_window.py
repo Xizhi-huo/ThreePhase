@@ -12,7 +12,7 @@ PowerSyncUI 通过“Mixin + 独立 QWidget 组件”装配各区域：
   WaveformTab        (ui/tabs/waveform_tab.py)
     - Tab0（波形/相量）的独立 QWidget 组件
 
-  CircuitTab         (ui/tabs/circuit_tab.py)
+  CircuitTab         (ui/tabs/circuit_tab/)
     - Tab1（母排拓扑）的独立 QWidget 组件
 
   LoopTestTab          (ui/tabs/loop_test_tab.py)
@@ -189,7 +189,7 @@ class PowerSyncUI(
             on_force_multimeter_off=lambda: self.multimeter_cb.setChecked(False),
             on_connect_phase_seq_meter=lambda pt: self.connect_phase_seq_meter(pt),
             on_disconnect_phase_seq_meter=lambda: self.disconnect_phase_seq_meter(),
-            get_phase_seq_meter_sequence=lambda: getattr(self.phase_seq_meter, "_sequence", "unknown"),
+            get_phase_seq_meter_sequence=lambda: self.phase_seq_meter.current_sequence(),
             get_phase_wiring_status=lambda: self._circuit_tab.get_phase_wiring_status(),
             get_phase_wiring_active_pt=lambda: self._circuit_tab.get_phase_wiring_active_pt(),
 

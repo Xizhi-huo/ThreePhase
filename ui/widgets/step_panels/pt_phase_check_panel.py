@@ -2,6 +2,7 @@ from typing import Callable, Optional, TYPE_CHECKING
 
 from PyQt5 import QtCore, QtWidgets
 
+from ui.tabs.circuit_tab._phase_wiring import PhaseWiringStatus
 from ui.widgets.step_panels._panel_builders import (
     add_blackbox_section,
     add_load_share_cabinet_section,
@@ -30,7 +31,7 @@ class PtPhaseCheckPanel(QtWidgets.QGroupBox):
         on_connect_phase_seq_meter: Optional[Callable[[str], None]] = None,
         on_disconnect_phase_seq_meter: Optional[Callable[[], None]] = None,
         get_phase_seq_meter_sequence: Optional[Callable[[], str]] = None,
-        get_phase_wiring_status: Optional[Callable[[], str]] = None,
+        get_phase_wiring_status: Optional[Callable[[], PhaseWiringStatus]] = None,
         get_phase_wiring_active_pt: Optional[Callable[[], str | None]] = None,
         on_force_multimeter_off: Optional[Callable[[], None]] = None,
         show_load_share_cabinet_dialog: Optional[Callable[[], None]] = None,
@@ -44,7 +45,7 @@ class PtPhaseCheckPanel(QtWidgets.QGroupBox):
         self._on_connect_phase_seq_meter: Optional[Callable[[str], None]] = on_connect_phase_seq_meter
         self._on_disconnect_phase_seq_meter: Optional[Callable[[], None]] = on_disconnect_phase_seq_meter
         self._get_phase_seq_meter_sequence: Optional[Callable[[], str]] = get_phase_seq_meter_sequence
-        self._get_phase_wiring_status: Optional[Callable[[], str]] = get_phase_wiring_status
+        self._get_phase_wiring_status: Optional[Callable[[], PhaseWiringStatus]] = get_phase_wiring_status
         self._get_phase_wiring_active_pt: Optional[Callable[[], str | None]] = get_phase_wiring_active_pt
         self._on_force_multimeter_off: Optional[Callable[[], None]] = on_force_multimeter_off
         self._show_load_share_cabinet_dialog: Optional[Callable[[], None]] = show_load_share_cabinet_dialog
@@ -106,24 +107,19 @@ class PtPhaseCheckPanel(QtWidgets.QGroupBox):
         set_props(self.tp_s3_fb_lbl, feedbackText=True, tone="neutral")
         lay.addWidget(self.tp_s3_fb_lbl)
 
-    def _phase_wiring_status(self) -> str:
-        return self._get_phase_wiring_status() if self._get_phase_wiring_status else "idle"
+    def _phase_wiring_status(self) -> PhaseWiringStatus:
+        return self._get_phase_wiring_status() if self._get_phase_wiring_status else PhaseWiringStatus.IDLE
     
     def _phase_wiring_active_pt(self) -> str | None:
         return self._get_phase_wiring_active_pt() if self._get_phase_wiring_active_pt else None
-    
-    def _pt_recorded(self, pt_name: str) -> bool:
-        records = self._api.pt_phase_check_state.records
-        return all(records.get(f"{pt_name}_{ph}") is not None for ph in ("A", "B", "C"))
-    
+
     def _refresh_record_buttons(self) -> None:
         status = self._phase_wiring_status()
         active_pt = self._phase_wiring_active_pt()
         for pt_name, btn in self._tp_s3_rec_btns.items():
             btn.setEnabled(
-                status == "ready"
+                status == PhaseWiringStatus.READY
                 and active_pt == pt_name
-                #and not self._pt_recorded(pt_name)
             )
 
     def on_enter(self) -> None:
@@ -150,15 +146,15 @@ class PtPhaseCheckPanel(QtWidgets.QGroupBox):
         set_feedback_label(self.tp_s3_fb_lbl, "相序仪已断开,可重新接入。", "#64748b")
 
     def _on_record_psm(self, pt_name: str):
-        if self._phase_wiring_status() != "ready" or self._phase_wiring_active_pt() != pt_name:
+        if self._phase_wiring_status() != PhaseWiringStatus.READY or self._phase_wiring_active_pt() != pt_name:
             set_feedback_label(self.tp_s3_fb_lbl, "请先完成当前 PT 的三点接线，再记录结果。", "orange")
             return
-        
+
         seq = self._get_phase_seq_meter_sequence() if self._get_phase_seq_meter_sequence else "unknown"
         if seq == "unknown":
             set_feedback_label(self.tp_s3_fb_lbl, "相序仪结果尚未就绪, 请先完成接线。", "orange")
             return
-        
+
         ok = self._api.record_phase_sequence(pt_name, seq)
         state = self._api.pt_phase_check_state
         set_feedback_label(self.tp_s3_fb_lbl, state.feedback, state.feedback_color)
@@ -174,7 +170,7 @@ class PtPhaseCheckPanel(QtWidgets.QGroupBox):
         active_pt = self._phase_wiring_active_pt()
         state = self._api.pt_phase_check_state
 
-        if status == "wiring" and active_pt:
+        if status == PhaseWiringStatus.WIRING and active_pt:
             set_feedback_label(
                 self.tp_s3_fb_lbl,
                 f"{active_pt} 正在接线中，请在母排拓扑页完成 {active_pt}_A / {active_pt}_B / {active_pt}_C 三点连接。",
@@ -182,12 +178,12 @@ class PtPhaseCheckPanel(QtWidgets.QGroupBox):
             )
             return
 
-        elif status == "ready" and active_pt:
+        elif status == PhaseWiringStatus.READY and active_pt:
             set_feedback_label(
                 self.tp_s3_fb_lbl,
                 f"{active_pt} 三点接线已完成，请查看相序仪结果后点击“记录 {active_pt}”。",
                 "#2563eb",
             )
             return
-    
+
         set_feedback_label(self.tp_s3_fb_lbl, state.feedback, state.feedback_color)

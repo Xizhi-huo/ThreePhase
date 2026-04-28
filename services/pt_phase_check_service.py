@@ -67,17 +67,17 @@ class PtPhaseCheckService:
     def create_pt_phase_check_state(self) -> PtPhaseCheckState:
         return PtPhaseCheckState()
 
-    def start_pt_phase_check(self):
+    def start_pt_phase_check(self) -> None:
         self._get_pt_phase_check_state().started = True
 
-    def stop_pt_phase_check(self):
+    def stop_pt_phase_check(self) -> None:
         self._get_pt_phase_check_state().started = False
 
-    def _set_feedback(self, message, color='#444444'):
+    def _set_feedback(self, message, color='#444444') -> None:
         self._set_pt_phase_check_feedback(message, color)
 
     # ── 步骤列表 ──────────────────────────────────────────────────────────────
-    def get_pt_phase_check_steps(self):
+    def get_pt_phase_check_steps(self) -> list[tuple[str, bool]]:
         sim = self._sim_state
         gen1, gen2 = sim.gen1, sim.gen2
         state = self._get_pt_phase_check_state()
@@ -102,7 +102,7 @@ class PtPhaseCheckService:
         return steps
 
     # ── 逐相记录 ──────────────────────────────────────────────────────────────
-    def record_pt_phase_check(self, pt_name, phase):
+    def record_pt_phase_check(self, pt_name, phase) -> None:
         pt_name = pt_name.upper()
         phase = phase.upper()
         key = f"{pt_name}_{phase}"
@@ -110,7 +110,7 @@ class PtPhaseCheckService:
         gen1, gen2 = sim.gen1, sim.gen2
         state = self._get_pt_phase_check_state()
 
-        def _record_invalid(reason):
+        def _record_invalid(reason) -> None:
             self._append_assessment_event(
                 AssessmentEventType.MEASUREMENT_INVALID,
                 step=3,
@@ -230,7 +230,7 @@ class PtPhaseCheckService:
         state = self._get_pt_phase_check_state()
         sim = self._sim_state
 
-        def _record_invalid(reason: str):
+        def _record_invalid(reason: str) -> None:
             self._append_assessment_event(
                 AssessmentEventType.MEASUREMENT_INVALID,
                 step=3,
@@ -313,19 +313,19 @@ class PtPhaseCheckService:
         state.feedback_color = color
         return True
 
-    def reset_pt_phase_check(self):
+    def reset_pt_phase_check(self) -> None:
         self._set_pt_phase_check_state(self.create_pt_phase_check_state())
 
-    def is_pt_phase_check_complete(self):
+    def is_pt_phase_check_complete(self) -> bool:
         """流程门禁：只有用户点击"完成第三步测试"后才返回 True。"""
         return self._get_pt_phase_check_state().completed
 
-    def _are_all_records_filled(self):
+    def _are_all_records_filled(self) -> bool:
         """六相是否已全部测量（无论通过与否）。"""
         records = self._get_pt_phase_check_state().records
         return all(records.get(k) is not None for k in _ALL_KEYS)
 
-    def _are_phase_check_records_complete(self):
+    def _are_phase_check_records_complete(self) -> bool:
         """六相记录是否齐全且全部通过（正常模式 finalize 校验用）。"""
         records = self._get_pt_phase_check_state().records
         return all(
@@ -333,7 +333,7 @@ class PtPhaseCheckService:
             for k in _ALL_KEYS
         )
 
-    def finalize_pt_phase_check(self):
+    def finalize_pt_phase_check(self) -> None:
         state = self._get_pt_phase_check_state()
         fc = self._sim_state.fault_config
         fault_training = (
@@ -372,5 +372,5 @@ class PtPhaseCheckService:
                 "第三步【PT 相序检查】已确认完成，后续操作将不再影响该步骤状态。",
                 "#006600")
 
-    def get_pt_phase_check_blockers(self):
+    def get_pt_phase_check_blockers(self) -> list[str]:
         return [text for text, done in self.get_pt_phase_check_steps() if not done]

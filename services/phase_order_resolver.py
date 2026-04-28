@@ -15,7 +15,7 @@ class PhaseOrderResolver:
         self._get_pt_phase_orders = get_pt_phase_orders
         self._get_g2_blackbox_order = get_g2_blackbox_order
 
-    def resolve_pt_node_plot_key(self, node_name):
+    def resolve_pt_node_plot_key(self, node_name) -> str | None:
         parts = node_name.split('_', 1)
         if len(parts) != 2:
             return None
@@ -55,7 +55,7 @@ class PhaseOrderResolver:
             return 'FAULT'
         return order[0].upper() + order[1].upper() + order[2].upper()
 
-    def resolve_loop_node_phase(self, node_name):
+    def resolve_loop_node_phase(self, node_name) -> str:
         _, gen_name, terminal = node_name.split('_', 2)
         if gen_name == 'G1':
             idx = ('A', 'B', 'C').index(terminal)

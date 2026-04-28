@@ -57,19 +57,19 @@ class PtVoltageCheckService:
     def create_pt_voltage_check_state(self) -> PtVoltageCheckState:
         return PtVoltageCheckState()
 
-    def start_pt_voltage_check(self):
+    def start_pt_voltage_check(self) -> None:
         self._get_pt_voltage_check_state().started = True
 
-    def stop_pt_voltage_check(self):
+    def stop_pt_voltage_check(self) -> None:
         self._get_pt_voltage_check_state().started = False
 
-    def _set_feedback(self, message, color='#444444'):
+    def _set_feedback(self, message, color='#444444') -> None:
         state = self._get_pt_voltage_check_state()
         state.feedback = message
         state.feedback_color = color
 
     # ── 步骤列表 ──────────────────────────────────────────────────────────────
-    def get_pt_voltage_check_steps(self):
+    def get_pt_voltage_check_steps(self) -> list[tuple[str, bool]]:
         sim = self._sim_state
         gen1, gen2 = sim.gen1, sim.gen2
         state = self._get_pt_voltage_check_state()
@@ -100,7 +100,7 @@ class PtVoltageCheckService:
         return steps
 
     # ── 逐项记录 ──────────────────────────────────────────────────────────────
-    def record_pt_voltage_measurement(self, pt_name, phase_pair):
+    def record_pt_voltage_measurement(self, pt_name, phase_pair) -> None:
         """
         记录 pt_name（'PT1'/'PT2'/'PT3'）的 phase_pair（'AB'/'BC'/'CA'）线电压。
         仅当 started=True 时对 records 进行写入。
@@ -109,7 +109,7 @@ class PtVoltageCheckService:
         gen1, gen2 = sim.gen1, sim.gen2
         state = self._get_pt_voltage_check_state()
 
-        def _record_invalid(reason):
+        def _record_invalid(reason) -> None:
             self._append_assessment_event(
                 AssessmentEventType.MEASUREMENT_INVALID,
                 step=2,
@@ -221,7 +221,7 @@ class PtVoltageCheckService:
             msg = f"{key} 线电压已记录{rec_note}，请继续测量其余项目。"
         self._set_feedback(msg, rec_color)
 
-    def _get_probe_key(self):
+    def _get_probe_key(self) -> str | None:
         """根据当前表笔位置返回对应记录键，未对准返回 None。"""
         sim = self._sim_state
         n1, n2 = sim.probe1_node, sim.probe2_node
@@ -229,14 +229,14 @@ class PtVoltageCheckService:
             return None
         return _NODES_TO_KEY.get(frozenset({n1, n2}))
 
-    def reset_pt_voltage_check(self):
+    def reset_pt_voltage_check(self) -> None:
         self._set_pt_voltage_check_state(self.create_pt_voltage_check_state())
 
-    def is_pt_voltage_check_complete(self):
+    def is_pt_voltage_check_complete(self) -> bool:
         """流程门禁：只有用户点击「完成第二步测试」后才返回 True。"""
         return self._get_pt_voltage_check_state().completed
 
-    def _are_records_complete(self):
+    def _are_records_complete(self) -> bool:
         """内部辅助：九项是否已全部记录且均在合格范围内（用于 finalize 前置校验）。
         voltage 字段存一次侧值（V），额定 10500V，±15% → [8925, 12075V]。
         """
@@ -246,12 +246,12 @@ class PtVoltageCheckService:
             for k in _ALL_KEYS
         )
 
-    def _are_all_records_filled(self):
+    def _are_all_records_filled(self) -> bool:
         """九项是否已全部测量（无论是否在合格范围内）。"""
         records = self._get_pt_voltage_check_state().records
         return all(records[k] is not None for k in _ALL_KEYS)
 
-    def finalize_pt_voltage_check(self):
+    def finalize_pt_voltage_check(self) -> None:
         state = self._get_pt_voltage_check_state()
         fc = self._sim_state.fault_config
         fault_training = (
@@ -308,5 +308,5 @@ class PtVoltageCheckService:
                 "第二步【PT 单体线电压检查】已确认完成，后续操作将不再影响该步骤状态。",
                 "#006600")
 
-    def get_pt_voltage_check_blockers(self):
+    def get_pt_voltage_check_blockers(self) -> list[str]:
         return [text for text, done in self.get_pt_voltage_check_steps() if not done]

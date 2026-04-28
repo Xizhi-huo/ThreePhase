@@ -39,12 +39,12 @@ class LoopTestService:
     def create_loop_test_state(self) -> LoopTestState:
         return LoopTestState()
 
-    def _set_loop_test_feedback(self, message, color='#444444'):
+    def _set_loop_test_feedback(self, message, color='#444444') -> None:
         state = self._get_loop_test_state()
         state.feedback = message
         state.feedback_color = color
 
-    def _get_current_loop_phase_match(self):
+    def _get_current_loop_phase_match(self) -> str | None:
         sim = self._sim_state
         n1, n2 = sim.probe1_node, sim.probe2_node
         if not n1 or not n2:
@@ -59,7 +59,7 @@ class LoopTestService:
             return parts1[2]
         return None
 
-    def get_loop_test_steps(self):
+    def get_loop_test_steps(self) -> list[tuple[str, bool]]:
         sim = self._sim_state
         gen1, gen2 = sim.gen1, sim.gen2
         state = self._get_loop_test_state()
@@ -85,11 +85,11 @@ class LoopTestService:
             return [(text, True) for text, _ in steps]
         return steps
 
-    def record_loop_measurement(self, phase):
+    def record_loop_measurement(self, phase) -> None:
         sim = self._sim_state
         gen1, gen2 = sim.gen1, sim.gen2
         phase = phase.upper()
-        def _record_invalid(reason):
+        def _record_invalid(reason) -> None:
             self._append_assessment_event(
                 AssessmentEventType.MEASUREMENT_INVALID,
                 step=1,
@@ -174,19 +174,19 @@ class LoopTestService:
                     f"{phase} 相断路 [∞Ω]（疑似接线错误），已记录结果，请继续测量其余相别。",
                     "#cc6600")
 
-    def reset_loop_test(self):
+    def reset_loop_test(self) -> None:
         self._set_loop_test_state(self.create_loop_test_state())
 
-    def is_loop_test_complete(self):
+    def is_loop_test_complete(self) -> bool:
         """流程门禁：只有用户点击"完成第一步测试"后才返回 True。"""
         return self._get_loop_test_state().completed
 
-    def _are_loop_records_complete(self):
+    def _are_loop_records_complete(self) -> bool:
         """内部辅助：三相记录是否齐全（用于 finalize 前置校验）。"""
         records = self._get_loop_test_state().records
         return all(records[ph] is not None for ph in ('A', 'B', 'C'))
 
-    def finalize_loop_test(self):
+    def finalize_loop_test(self) -> None:
         if not self._are_loop_records_complete():
             self._set_loop_test_feedback(
                 '请先完成 A/B/C 三相回路连通性记录，再点击"完成第一步测试"。', "red")

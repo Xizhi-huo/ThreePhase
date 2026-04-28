@@ -132,7 +132,7 @@ class PhysicsEngine(WaveformMixin, ArbitrationMixin, ProtectionMixin, Measuremen
         self._meter_ema_alpha: float = 0.07
 
     # ── 每帧主调度 ─────────────────────────────────────────────────────────
-    def update_physics(self):
+    def update_physics(self) -> None:
         sim = self._sim_state
         is_isolated = sim.system_mode == SystemMode.ISOLATED_BUS
 
@@ -173,7 +173,7 @@ class PhysicsEngine(WaveformMixin, ArbitrationMixin, ProtectionMixin, Measuremen
         self._update_multimeter(sim)
 
     # ── UI 快照输出 ────────────────────────────────────────────────────────
-    def build_render_state(self):
+    def build_render_state(self) -> RenderState:
         """将物理引擎当前帧的所有渲染属性打包为 RenderState 快照，供 UI 消费。"""
         return RenderState(
             plot_data         = self.plot_data,

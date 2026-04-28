@@ -16,11 +16,17 @@ _PEAK = math.sqrt(2.0 / 3.0)
 class WaveformMixin:
     """三相波形生成、历史缓冲与相量坐标计算。"""
 
-    def _control_speed_factor(self, sim):
+    def _control_speed_factor(self, sim) -> float:
         return max(sim.sim_speed, 0.05)
 
     @staticmethod
-    def _three_phase_samples(base_angle, amp, shift_b, shift_c, prefix):
+    def _three_phase_samples(
+        base_angle,
+        amp,
+        shift_b,
+        shift_c,
+        prefix,
+    ) -> dict[str, float | np.ndarray]:
         # amp 为线电压 RMS；转换为峰值相电压后再做 sin 波形
         peak = amp * _PEAK
         return {
@@ -29,7 +35,20 @@ class WaveformMixin:
             f'{prefix}c': peak * np.sin(base_angle + shift_c),
         }
 
-    def _build_wave_history(self, w_bus, w_g1, w_g2, p_bus, p_g1, p_g2, bus_a, a1, a2, shift_b, shift_c):
+    def _build_wave_history(
+        self,
+        w_bus,
+        w_g1,
+        w_g2,
+        p_bus,
+        p_g1,
+        p_g2,
+        bus_a,
+        a1,
+        a2,
+        shift_b,
+        shift_c,
+    ) -> dict[str, np.ndarray]:
         hist_t = self.animation_time - self.fixed_t[::-1]
         result = {}
         result.update(self._three_phase_samples(
@@ -42,12 +61,26 @@ class WaveformMixin:
         result['ic2'] = np.zeros(MAX_POINTS)
         return result
 
-    def _append_history_sample(self, key, value):
+    def _append_history_sample(self, key, value) -> None:
         series = self.plot_data[key]
         series[:-1] = series[1:]
         series[-1] = value
 
-    def _get_instant_samples(self, sample_time, w_bus, w_g1, w_g2, p_bus, p_g1, p_g2, bus_a, a1, a2, shift_b, shift_c):
+    def _get_instant_samples(
+        self,
+        sample_time,
+        w_bus,
+        w_g1,
+        w_g2,
+        p_bus,
+        p_g1,
+        p_g2,
+        bus_a,
+        a1,
+        a2,
+        shift_b,
+        shift_c,
+    ) -> dict[str, float | np.ndarray]:
         result = {}
         result.update(self._three_phase_samples(
             w_bus * sample_time + p_bus, bus_a, -2*np.pi/3, +2*np.pi/3, 'g'))
@@ -57,13 +90,13 @@ class WaveformMixin:
             w_g2  * sample_time + p_g2,  a2,    shift_b,    shift_c,    'g2'))
         return result
 
-    def _advance_time(self, sim):
+    def _advance_time(self, sim) -> float:
         prev_animation_time = self.animation_time
         if not sim.paused:
             self.animation_time += 0.002 * sim.sim_speed
         return prev_animation_time
 
-    def _update_actual_amplitudes(self, sim):
+    def _update_actual_amplitudes(self, sim) -> tuple[float, float]:
         speed_factor = self._control_speed_factor(sim)
         for generator in (sim.gen1, sim.gen2):
             target_amp = generator.amp if generator.running else 0.0
@@ -77,7 +110,7 @@ class WaveformMixin:
                     generator.actual_amp = max(target_amp, generator.actual_amp - climb_speed)
         return sim.gen1.actual_amp, sim.gen2.actual_amp
 
-    def _compute_wave_state(self, sim, is_isolated, g1_on_bus, g2_on_bus, a1, a2):
+    def _compute_wave_state(self, sim, is_isolated, g1_on_bus, g2_on_bus, a1, a2) -> dict[str, float]:
         w_g1 = 2 * np.pi * sim.gen1.freq
         w_g2 = 2 * np.pi * sim.gen2.freq
         p_g1 = np.radians(sim.gen1.phase_deg)
@@ -118,7 +151,17 @@ class WaveformMixin:
             'g2a_sample': a2    * _PEAK * np.sin(w_g2  * self.animation_time + p_g2),
         }
 
-    def _update_wave_history(self, prev_animation_time, wave_state, a1, a2, shift_b, shift_c, g1_connected, g2_connected):
+    def _update_wave_history(
+        self,
+        prev_animation_time,
+        wave_state,
+        a1,
+        a2,
+        shift_b,
+        shift_c,
+        g1_connected,
+        g2_connected,
+    ) -> None:
         if not self.history_initialized or not self.plot_data:
             self.plot_data = self._build_wave_history(
                 wave_state['bus_w'], wave_state['w_g1'], wave_state['w_g2'],
@@ -150,7 +193,7 @@ class WaveformMixin:
             self._append_history_sample('ic1', (samples['g1a'] - samples['ga']) / XS if g1_connected else 0.0)
             self._append_history_sample('ic2', (samples['g2a'] - samples['ga']) / XS if g2_connected else 0.0)
 
-    def _update_plot_metadata(self, wave_state, a1, a2, shift_b, shift_c):
+    def _update_plot_metadata(self, wave_state, a1, a2, shift_b, shift_c) -> None:
         self.plot_data.update({
             'ang_grid': wave_state['ang_bus'],
             'ang_g1':   wave_state['ang_g1'],
