@@ -285,13 +285,13 @@ UI 只能读取状态刷新自己，不能反向污染业务状态。
 - [x] **Mixin 属性交叉引用扫描**
   - 列出每个 Mixin 创建的 `self.xxx` 属性
   - 标注哪些属性被其他 Mixin 访问
-  - 输出为 `docs/mixin_dependency_map.md`
-  - 这是 Phase 3 UI 组件化的前置依赖图
+  - 曾输出为 UI Mixin 依赖扫描文档
+  - 这是 Phase 3 UI 组件化的前置依赖图；Tab 组件化完成后该历史文档已移除，不再作为当前维护入口
 
 完成标准：
 - `pytest tests/` 可以跑通，物理和评分快照全部 PASS。
 - PhysicsEngine 可以不依赖 PyQt5 实例化。
-- Mixin 属性依赖图已输出。
+- Mixin 属性依赖图已完成历史扫描；当前 UI 已迁移到独立 QWidget 组件，不再维护旧 Mixin 依赖图。
 
 ### Phase 1: Controller 瘦身 — 接口隔离（3-5 轮）
 
@@ -1645,9 +1645,9 @@ class PowerSyncUI(QMainWindow):
 - 下一轮起点：Phase 1 — 拆出 `AssessmentCoordinator`
 
 ### 第 9 轮 (2026-04-09)：Phase 0 收尾（Mixin 属性交叉引用扫描）
-- 本轮唯一主攻目标：输出 `docs/mixin_dependency_map.md`，闭环 Phase 0
+- 本轮唯一主攻目标：输出 UI Mixin 属性交叉引用扫描，闭环 Phase 0
 - 实际完成：
-  - 新增 `docs/mixin_dependency_map.md`
+  - 新增 UI Mixin 依赖扫描文档（历史产物；Tab 组件化完成后已移除）
   - 扫描 `main_window + 9 个 Mixin` 的显式 `self.xxx` 创建属性
   - 输出共享属性交叉引用表
   - 统计各 Mixin 的 `self.ctrl` 使用次数
@@ -1673,7 +1673,7 @@ class PowerSyncUI(QMainWindow):
   - 已验证 `AssessmentService.build_result()` 可在最小 ctrl 替身下独立运行
 - 快照测试：PASS（`python -m pytest tests/`）
 - 回归清单：PASS（基于快照与测试入口验证）
-- 下一轮起点：完成 `docs/mixin_dependency_map.md`
+- 下一轮起点：Phase 0 收尾扫描完成后进入 Phase 1
 
 ### 早期摘要（第 1 - 4 轮）
 - 已完成：`C1`、`C2（第一步）`、`H1`、`H2`

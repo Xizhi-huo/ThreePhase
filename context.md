@@ -745,5 +745,4 @@ numpy       # 数值计算
   - `tests/snapshots/assessment_fault_random.json`
 - 当前测试命令：
   - `python -m pytest tests/`
-- Phase 0 仍未完成的任务：
-  - `docs/mixin_dependency_map.md`
+- Phase 0 已闭环；旧 UI Mixin 依赖扫描文档已随 Tab 组件化完成移除，当前不再维护 `/docs/` 下的 Mixin 映射文件
