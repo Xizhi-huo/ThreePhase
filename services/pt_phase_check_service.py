@@ -19,6 +19,7 @@ from domain.assessment import AssessmentEventType
 from domain.test_states import PtPhaseCheckState
 
 _ALL_KEYS = ('PT1_A', 'PT1_B', 'PT1_C', 'PT3_A', 'PT3_B', 'PT3_C')
+_POSITIVE_PHASE_SEQUENCES = {'ABC', 'BCA', 'CAB'}
 
 
 class PtPhaseCheckService:
@@ -264,14 +265,14 @@ class PtPhaseCheckService:
                 self._set_feedback("测量 PT3 相序时，Gen2 断路器应保持断开状态。", "red")
                 return False
 
+        seq = seq.upper() if isinstance(seq, str) else seq
         phase_order = ('A', 'B', 'C')
         is_valid_seq = isinstance(seq, str) and len(seq) == 3 and set(seq) == set(phase_order)
         display_seq = self._sequence_display_text(seq)
+        phase_match = is_valid_seq and seq in _POSITIVE_PHASE_SEQUENCES
         any_fail = False
         for ph in phase_order:
             key = f"{pt_name}_{ph}"
-            actual = seq[phase_order.index(ph)] if is_valid_seq else '?'
-            phase_match = is_valid_seq and actual == ph
             any_fail = any_fail or (not phase_match)
             self._record_pt_phase_check_result(
                 key,

@@ -5,6 +5,9 @@ from typing import Callable
 
 from domain.assessment import AssessmentEventType
 
+_NORMAL_ORDER = ['A', 'B', 'C']
+_NORMAL_POLARITY = [1, 1, 1]
+
 
 @dataclass(frozen=True)
 class BlackboxRepairOutcome:
@@ -94,11 +97,17 @@ class BlackboxRepairHandler:
             pri_input_order = ['A', 'B', 'C']
             if self._sim_state.fault_reverse_bc:
                 pri_input_order = ['A', 'C', 'B']
+            sec_polarity = [-1, 1, 1] if (
+                fault_active
+                and fault_config.scenario_id == 'E03'
+                and fault_config.params.get('pt3_a_reversed')
+            ) else list(_NORMAL_POLARITY)
             return {
                 'fault_active': fault_active,
                 'pri_input_order': pri_input_order,
-                'pri_order': ['A', 'B', 'C'],
-                'sec_order': list(pt_phase_orders.get('PT3', ['A', 'B', 'C'])),
+                'pri_order': list(_NORMAL_ORDER),
+                'sec_order': list(pt_phase_orders.get('PT3', _NORMAL_ORDER)),
+                'sec_polarity': sec_polarity,
                 'repair_target': 'PT3' if self._flow_mgr.can_repair_in_blackbox() else None,
             }
         raise ValueError(f"Unsupported blackbox target: {target}")
@@ -113,7 +122,9 @@ class BlackboxRepairHandler:
             initial_pri_order=None,
             new_pri_order=None,
             initial_sec_order=None,
-            new_sec_order=None) -> BlackboxRepairOutcome:
+            new_sec_order=None,
+            initial_sec_polarity=None,
+            new_sec_polarity=None) -> BlackboxRepairOutcome:
         component_correct = False
         touched_layers = []
 
@@ -184,9 +195,36 @@ class BlackboxRepairHandler:
                     to_order=list(new_sec_order),
                 )
                 touched_layers.append('secondary')
+            if (
+                initial_sec_polarity is not None
+                and new_sec_polarity is not None
+                and list(new_sec_polarity) != list(initial_sec_polarity)
+            ):
+                self._append_assessment_event(
+                    AssessmentEventType.BLACKBOX_SWAP,
+                    step=step,
+                    target='PT3',
+                    layer='polarity',
+                    from_order=list(initial_sec_polarity),
+                    to_order=list(new_sec_polarity),
+                )
+                touched_layers.append('polarity')
             pt3_order = self._get_pt_phase_orders().setdefault('PT3', ['A', 'B', 'C'])
             pt3_order[:] = list(new_sec_order)
-            component_correct = (list(new_sec_order) == ['A', 'B', 'C'])
+            fault_config = self._sim_state.fault_config
+            e03_polarity_fault = (
+                fault_config.active
+                and not fault_config.repaired
+                and fault_config.scenario_id == 'E03'
+            )
+            if new_sec_polarity is None:
+                polarity_correct = not e03_polarity_fault
+            else:
+                polarity_correct = list(new_sec_polarity) == _NORMAL_POLARITY
+            component_correct = (
+                list(new_sec_order) == _NORMAL_ORDER
+                and polarity_correct
+            )
         else:
             raise ValueError(f"Unsupported blackbox repair target: {target}")
 
@@ -213,6 +251,16 @@ class BlackboxRepairHandler:
         disable_repair_button = False
         fault_mgr = self._get_fault_mgr()
         if (
+            fault_active
+            and target == 'PT3'
+            and fault_config.scenario_id == 'E03'
+        ):
+            fault_mgr.repair_fault(step=step, source='PT3_polarity_blackbox')
+            fault_cleared = True
+            disable_repair_button = True
+            message = "OK PT3 A 相极性已恢复，故障已清除。请关闭黑盒后重新测量。"
+            message_color = "#15803d"
+        elif (
             fault_active
             and fault_mgr.all_repairable_wiring_targets_normal()
             and self._flow_mgr.should_auto_clear_fault_only_when_all_blackboxes_normal()

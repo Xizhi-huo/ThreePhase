@@ -186,6 +186,28 @@ class FaultManager:
         if fc.params.get('g1_loop_swap') is not None:
             self._get_pt_phase_orders()['PT2'] = ['A', 'B', 'C']
 
+    def maybe_repair_pt_ratio_fault(
+        self,
+        ratio_attr: str,
+        ratio: float,
+        *,
+        step: int = 2,
+        source: str = 'pt_ratio_panel',
+    ) -> bool:
+        """E04 在 PT3 变比恢复到额定值后才清除故障。"""
+        fc = self._sim_state.fault_config
+        if not (
+            ratio_attr == 'pt3_ratio'
+            and fc.active
+            and not fc.repaired
+            and fc.scenario_id == 'E04'
+        ):
+            return False
+        if abs(float(ratio) - DEFAULT_PT3_RATIO) > 1e-6:
+            return False
+        self.repair_fault(step=step, source=source)
+        return True
+
     def _reset_blackbox_orders(self) -> None:
         normal = ['A', 'B', 'C']
         self._set_g1_blackbox_order(list(normal))

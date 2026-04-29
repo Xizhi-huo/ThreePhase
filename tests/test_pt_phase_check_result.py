@@ -63,6 +63,18 @@ def test_phase_sequence_pass_is_not_reported_until_both_pts_are_recorded():
     assert state.result == "pass"
 
 
+def test_phase_sequence_positive_rotations_are_accepted():
+    state, service = _build_service()
+
+    assert service.record_phase_sequence("PT1", "BCA")
+    assert state.result is None
+    assert all(state.records[f"PT1_{phase}"]["phase_match"] for phase in "ABC")
+
+    assert service.record_phase_sequence("PT3", "CAB")
+    assert state.result == "pass"
+    assert all(state.records[f"PT3_{phase}"]["phase_match"] for phase in "ABC")
+
+
 def test_phase_sequence_failure_is_not_overwritten_by_later_pass():
     state, service = _build_service()
 

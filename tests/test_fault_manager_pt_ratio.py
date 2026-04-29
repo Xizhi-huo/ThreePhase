@@ -64,3 +64,15 @@ def test_injecting_non_e04_fault_restores_pt3_ratio_after_e04():
     manager.inject_fault("")
     assert sim.pt3_ratio == DEFAULT_PT3_RATIO
     assert updates[-1] == ("pt3_ratio", 11000, 193)
+
+
+def test_e04_is_repaired_when_pt3_ratio_returns_to_default():
+    sim, updates, manager = _build_fault_manager()
+
+    manager.inject_fault("E04")
+    sim.pt3_ratio = DEFAULT_PT3_RATIO
+
+    assert manager.maybe_repair_pt_ratio_fault("pt3_ratio", DEFAULT_PT3_RATIO)
+    assert sim.fault_config.repaired is True
+    assert sim.pt3_ratio == DEFAULT_PT3_RATIO
+    assert updates[-1] == ("pt3_ratio", 11000, 193)

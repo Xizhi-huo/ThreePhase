@@ -328,6 +328,43 @@ class PowerSyncController:
         if ratio_attr not in {'pt_gen_ratio', 'pt3_ratio', 'pt_bus_ratio'}:
             raise ValueError(f"Unsupported PT ratio attribute: {ratio_attr}")
         setattr(self.sim_state, ratio_attr, ratio)
+        repaired = self.fault_mgr.maybe_repair_pt_ratio_fault(
+            ratio_attr,
+            ratio,
+            step=2,
+            source=f'{ratio_attr}_panel',
+        )
+        if repaired:
+            self._reset_fault_affected_records_after_repair(self.sim_state.fault_config.scenario_id)
+
+    def _reset_fault_affected_records_after_repair(self, scenario_id: str) -> None:
+        if scenario_id not in ('E03', 'E04'):
+            return
+
+        voltage_state = self.pt_voltage_check_state
+        for key in ('PT3_AB', 'PT3_BC', 'PT3_CA'):
+            voltage_state.records[key] = None
+        voltage_state.completed = False
+        voltage_state.feedback = "PT3 故障已修复，请重新测量并记录 PT3 三组线电压。"
+        voltage_state.feedback_color = '#0369a1'
+
+        phase_state = self.pt_phase_check_state
+        for key in ('PT3_A', 'PT3_B', 'PT3_C'):
+            phase_state.records[key] = None
+        phase_state.completed = False
+        phase_state.result = None
+        phase_state.feedback = "PT3 故障已修复，请重新记录 PT3 相序。"
+        phase_state.feedback_color = '#0369a1'
+
+        pt3_exam_state = self.pt_exam_states[2]
+        for key in pt3_exam_state.records:
+            pt3_exam_state.records[key] = None
+        pt3_exam_state.completed = False
+        pt3_exam_state.feedback = "PT3 故障已修复，请重新完成 Gen2/PT3 压差测量。"
+        pt3_exam_state.feedback_color = '#0369a1'
+
+        if scenario_id == 'E03':
+            self.sync_test_state = self.sync_svc.create_sync_test_state()
 
     def reset_pt_ratios_to_defaults(self):
         for ratio_attr, (pri_value, sec_value) in DEFAULT_PT_RATIO_ROWS.items():
@@ -446,7 +483,10 @@ class PowerSyncController:
         return self.blackbox_handler.get_blackbox_runtime_state(target)
 
     def apply_blackbox_repair_attempt(self, *args, **kwargs):
-        return self.blackbox_handler.apply_blackbox_repair_attempt(*args, **kwargs)
+        outcome = self.blackbox_handler.apply_blackbox_repair_attempt(*args, **kwargs)
+        if getattr(outcome, 'fault_cleared', False):
+            self._reset_fault_affected_records_after_repair(self.sim_state.fault_config.scenario_id)
+        return outcome
 
     def toggle_engine(self, gen_id: int):
         return self.hw.toggle_engine(gen_id)

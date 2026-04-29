@@ -60,6 +60,7 @@ def show_blackbox_dialog(owner, *, api, step, target):
     initial_order = None
     initial_pri_order = None
     initial_sec_order = None
+    initial_sec_polarity = None
 
     if target in ("G1", "G2"):
         dlg.setWindowTitle(f"发电机 {target} 机端接线检查")
@@ -99,8 +100,9 @@ def show_blackbox_dialog(owner, *, api, step, target):
         pri_input_order = blackbox_state["pri_input_order"]
         pri_order = blackbox_state["pri_order"]
         sec_order = blackbox_state["sec_order"]
+        sec_polarity = blackbox_state.get("sec_polarity")
         sub = QtWidgets.QLabel(
-            "上: 二次侧输出→测量端口 [可互换]  |  下: 一次侧输入←Gen2 [只读]"
+            "上: 二次侧输出→测量端口 [可互换/可切换极性]  |  下: 一次侧输入←Gen2 [只读]"
             if allow_repair else "上: 二次侧输出→测量端口 [只读]  |  下: 一次侧输入←Gen2 [只读]"
         )
         set_props(sub, dialogCaption=True)
@@ -109,10 +111,13 @@ def show_blackbox_dialog(owner, *, api, step, target):
             pri_order,
             sec_order,
             pri_input_order=pri_input_order,
+            sec_polarity=sec_polarity,
             interactive_sec=allow_repair,
+            interactive_polarity=allow_repair,
         )
         initial_pri_order = widget.get_pri_order()
         initial_sec_order = widget.get_sec_order()
+        initial_sec_polarity = widget.get_sec_polarity()
         vlay.addWidget(widget, alignment=QtCore.Qt.AlignHCenter)
         repair_target = blackbox_state["repair_target"]
         if fault_active and fc.scenario_id == "E03" and not assessment_mode:
@@ -136,6 +141,11 @@ def show_blackbox_dialog(owner, *, api, step, target):
             new_order = widget.get_order() if repair_target in ("G1", "G2") else None
             new_pri = widget.get_pri_order() if repair_target in ("PT1", "PT3") else None
             new_sec = widget.get_sec_order() if repair_target in ("PT1", "PT3") else None
+            new_sec_polarity = (
+                widget.get_sec_polarity()
+                if repair_target in ("PT1", "PT3") and hasattr(widget, "get_sec_polarity")
+                else None
+            )
             outcome = api.apply_blackbox_repair_attempt(
                 repair_target,
                 step=step,
@@ -145,6 +155,8 @@ def show_blackbox_dialog(owner, *, api, step, target):
                 new_pri_order=new_pri,
                 initial_sec_order=initial_sec_order,
                 new_sec_order=new_sec,
+                initial_sec_polarity=initial_sec_polarity,
+                new_sec_polarity=new_sec_polarity,
             )
             if not assessment_mode:
                 fb_lbl.setText(outcome.message)
