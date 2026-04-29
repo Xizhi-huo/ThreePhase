@@ -141,11 +141,16 @@ class DrawTopologyMixin:
 
         def draw_generator_neutral_ground(cx):
             fan_xs = [cx - 0.030, cx, cx + 0.030]
-            fan_y = gnd_bot_y + 0.02
-            conn_lines = []
+            fan_y = gnd_bot_y + 0.06
+            stub_gap_y = gnd_bot_y + 0.03
+            lower_stubs = []
+            upper_stubs = []
             for fx in fan_xs:
-                line, = ax.plot([fx, fx], [gnd_bot_y, fan_y], color="k", lw=1.4)
-                conn_lines.append(line)
+                line, = ax.plot([fx, fx], [gnd_bot_y, stub_gap_y], color="k", lw=1.4)
+                lower_stubs.append(line)
+                line, = ax.plot([fx, fx], [stub_gap_y, fan_y], color="k", lw=1.4)
+                upper_stubs.append(line)
+            conn_lines = []
             line, = ax.plot([fan_xs[0], fan_xs[-1]], [fan_y, fan_y], color="k", lw=1.4)
             conn_lines.append(line)
             dot, = ax.plot([cx], [fan_y], "ko", markersize=4)
@@ -163,6 +168,8 @@ class DrawTopologyMixin:
                 ey = gnd_earth_y + i * 0.013
                 ax.plot([cx - half, cx + half], [ey, ey], "k-", lw=2.0 - i * 0.4)
             return {
+                "lower_stubs": lower_stubs,
+                "upper_stubs": upper_stubs,
                 "conn": conn_lines,
                 "bypass": bypass_ln,
                 "resistor": [res_zigzag, rn_text, post_res_ln],
@@ -438,6 +445,10 @@ class DrawTopologyMixin:
         disconnected = gnd_mode == "断开"
         direct = gnd_mode == "直接接地"
         for gnd in (self.gnd_data1, self.gnd_data2):
+            for line in gnd["lower_stubs"]:
+                line.set_visible(not disconnected)
+            for line in gnd["upper_stubs"]:
+                line.set_visible(True)
             for line in gnd["conn"]:
                 line.set_visible(not disconnected)
             gnd["bypass"].set_visible(not disconnected and direct)
