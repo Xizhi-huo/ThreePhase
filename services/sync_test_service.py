@@ -235,10 +235,16 @@ class SyncTestService:
                 '请先完成并记录两轮同步测试，再点击“完成第五步测试”。', "red")
             return
         # 自动将两台发电机切至自动模式，并恢复额定参数（50 Hz / GRID_AMP / 相位 0°）
+        self._sim_state.remote_start_signal = True
         for gen in (self._sim_state.gen1, self._sim_state.gen2):
             gen.mode = "auto"
+            gen.running = True
+            gen.breaker_position = BreakerPosition.WORKING
+            gen.breaker_closed = True
+            gen.cmd_close = False
             gen.freq = GRID_FREQ
             gen.amp = GRID_AMP
+            gen.actual_amp = GRID_AMP
             gen.phase_deg = 0.0
         self._get_sync_test_state().completed = True
         self._set_sync_test_feedback(
