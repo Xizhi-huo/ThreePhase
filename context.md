@@ -100,13 +100,18 @@ Domain Models
   - FaultConfig: 故障场景注入参数
 ```
 
-## 当前维护状态（截至 R49-Round2）
+## 当前维护状态（截至 2026-04 最新功能同步）
 
 - **Phase 4 已真正收官。** R33–R44 已完成，`services/` 目录下 repo 级 `self._ctrl | self.ctrl` 计数已归零。
 - `R49-Round2` 已完成 `ui/styles/` 子包化：主题入口从单文件 `ui/styles.py` 收敛为 `ui/styles/`，`apply_app_theme()` / `build_app_stylesheet()` 导入面保持不变。
 - 业务 service 与 physics 层都已完成显式依赖注入收口；physics 不再持有 `ctrl`，service 不再持有 `self._ctrl`。
 - R43 已建立 `ControllerSignals(QObject)` 骨架，并在主窗口状态栏落地两个最小文本试点；`_tick -> render_visuals` 仍保留为默认渲染路径，阶段 3（轮询压缩）尚未执行。
 - R44 已把事故链路收口为 `queue_accident_dialog(...)` 行为回调，物理层不再直接弹 UI 模态对话框。
+- 第一步回路测试已扩展为六组记录：`AA/BB/CC` 同相导通、`AB/AC/BC` 异相隔离；测试页、测试面板快捷按钮和母排拓扑记录表均已同步。
+- E03/E04 已具备考核模式可完成的修复路径：E03 通过 PT3 接线盒二次侧极性标识修复，E04 通过右侧控制台 PT3 变比恢复额定值修复。
+- 第五步完成后会稳定双机并联状态并重置波形历史；第二步 PT 电压跟踪在完成后停止，避免后续步骤断路器抖动。
+- 母排拓扑中性点断开显示只隐藏三条竖线下段，保留上段、横向汇合线、汇合点、到电阻的竖线和电阻本体。
+- 当前自动化回归：`python -m pytest` 共 30 项通过。
 - **注意**：Phase 4 收官不等于整份维护清单全部完成；旧键名兼容、状态真值源收口、死代码/重复 UI 清理、类型标注等后续项仍待推进。
 
 ---
@@ -145,17 +150,31 @@ Domain Models
 
 | 步骤 | 服务类 | 电气状态 | 核心验证 |
 |------|--------|----------|----------|
-| 1. 回路导通测试 | `LoopTestService` | 双机手动/工作位/合闸/未启机，拆除接地电阻 | A/B/C三相回路导通；检出相序接线错误 |
+| 1. 回路导通测试 | `LoopTestService` | 双机手动/工作位/合闸/未启机，拆除接地电阻 | AA/BB/CC 同相导通；AB/AC/BC 异相隔离；检出相序接线错误 |
 | 2. PT电压检查 | `PtVoltageCheckService` | Gen1并网，Gen2运行但断路器分闸 | PT1/PT2/PT3三相线电压，±15%容差（额定10.5kV） |
 | 3. PT相序检查 | `PtPhaseCheckService` | 同步骤2 | PT1/PT3相序表仅显示正序 / 反序 / 异常；记录链路不再向学员暴露具体三字母顺序 |
 | 4. PT压差考核 | `PtExamService` | 分两个子测试（Gen1/Gen2交替上母线） | 9对PT端子间向量压差；验证同期就绪 |
 | 5. 同期功能测试 | `SyncTestService` | Gen2自动模式追踪Gen1 | Δf<0.5Hz，ΔV<500V，Δθ<15°收敛后合闸 |
+
+### 第一步特殊行为
+- `LoopTestState.records` 默认键为 `AA / BB / CC / AB / AC / BC`
+- `AA / BB / CC` 期望导通 `≈0Ω`
+- `AB / AC / BC` 期望断路 `∞Ω`
+- 跨相断路是正常结果，记录时以 `passed=True` 写入；跨相异常导通才会触发回路异常判断
+- 母排拓扑页第一步记录表已同步为六行，并按 `passed` 字段着色
 
 ### 第二步特殊行为（_physics_arbitration.py）
 - Gen1 以 ±0.02Hz / ±5V 随机游走模拟真实抖动（仅 Auto 模式）
 - Gen2 以秒级步长慢速追赶 Gen1（仅 Auto 模式）
 - **手动模式下两台机组均不受自动追踪影响，学员可自由调参**
 - 第二步测试面板的滑块加有 `sl.isSliderDown()` 保护，拖动时不被每帧渲染覆盖
+
+### 第四步 PT 压差公式
+- 机组侧 PT：Gen1 使用 PT1，Gen2 使用 PT3；母排侧固定使用 PT2
+- 相电压换算：`gen_ph = gen_line / sqrt(3)`，`bus_ph = bus_line / sqrt(3)`
+- 同相压差：`abs(gen_ph - bus_ph)`
+- 跨相压差：`sqrt(gen_ph² + bus_ph² + gen_ph·bus_ph)`
+- E03 PT3 A 相极性反接：同相为 `gen_ph + bus_ph`，跨相为 `sqrt(gen_ph² + bus_ph² - gen_ph·bus_ph)`
 
 ---
 
@@ -170,8 +189,8 @@ Domain Models
 |------|------|----------|----------|------------|----------|
 | E01 | ✅ 启用 | Gen1 A/B相接线互换 | 步骤1（回路断路）+ 步骤3（相序异常）+ 步骤4（压差矩阵异常） | Gen2合闸触发**致命事故弹窗** | recoverable |
 | E02 | ✅ 启用 | Gen2 B/C相接线互换 | 步骤1（回路断路）+ 步骤3（相序异常）+ 步骤4（压差矩阵异常） | Gen2合闸触发**致命事故弹窗** | recoverable |
-| E03 | ✅ 启用 | PT3 A相极性反接 | 步骤2（PT3_AB/CA≈106V标红）+ 步骤3（PT3_A相位不匹配）+ 步骤4（A行压差异常） | Gen2追踪收敛至180°错误相位；强行合闸触发**致命事故弹窗** | accident |
-| E04 | ✅ 启用 | PT3实际变比11000:93（≈118.28），额定应为11000:193（≈56.99） | 步骤2（PT3二次侧≈88V标红）+ 步骤4（PT3各行压差偏小） | 无 | recoverable |
+| E03 | ✅ 启用 | PT3 A相极性反接 | 步骤2（PT3_AB/CA≈106V标红）+ 步骤3（PT3_A相位不匹配）+ 步骤4（A行压差异常）；可在 PT3 接线盒修复极性 | 未修复时 Gen2追踪收敛至180°错误相位；强行合闸触发**致命事故弹窗** | accident |
+| E04 | ✅ 启用 | PT3实际变比11000:93（≈118.28），额定应为11000:193（≈56.99） | 步骤2（PT3二次侧≈88V标红）+ 步骤4（PT3各行压差偏小）；可在控制台恢复 PT3 额定变比修复 | 无事故弹窗 | recoverable |
 
 ### Gen1/PT1 接线矩阵场景（E05–E14）
 
@@ -209,10 +228,11 @@ E04 的核心：PT3 **硬件实际变比** 为 118.28，但**额定铭牌**应�
 - 检测触发：`meter_status == 'danger'` 时置 `fc.detected = True`
 - 记录表格：`primary_v = meter_v_sec × 56.99 ≈ 5060V`，不在 [8925, 12075]V → 表格也标红
 - 反馈文本中"偏离额定"显示动态计算的额定二次侧值（PT3为184V，PT2为105V），不再硬编码
+- 学员在右侧控制台把 PT3 变比恢复为额定 `11000:193` 后，`FaultManager.maybe_repair_pt_ratio_fault()` 会自动清除 E04，并要求重新记录受影响的 PT3 数据
 
 ### E01 / E02 / E03 事故触发机制（关键设计）
 
-E01/E02/E03 均在步骤1~4可被检出，但**不在进入步骤5时弹修复对话框**。事故在 Gen2 断路器合闸瞬间触发，有**两层拦截**：
+E01/E02/E03 均在步骤1~4可被检出，但 E01/E02 不在进入步骤5时弹修复对话框。E03 已可通过 PT3 接线盒提前修复极性；若未修复，事故仍在 Gen2 断路器合闸瞬间触发，有**两层拦截**：
 
 **第一层（UI层，app/main.py `toggle_breaker()`）**：
 ```python
@@ -239,12 +259,12 @@ if fc.scenario_id == 'E03': queue_accident_dialog('E03')
 弹窗说明：事故原因、可见异常现象、修复方法。学员选"修复故障"→ `repair_fault()` → 可继续第五步。
 
 - `ui/main_window.py::_check_fault_detection()` 现在对 `danger_level == 'accident'` 的场景直接返回，只保留检测状态与横幅，不在步骤 1~4 提前弹修复框。
-- 因此 E01/E02/E03 的修复入口统一保留在第五步真实事故弹窗，不再出现前面步骤“一键修复”绕过流程的行为。
+- 因此 E01/E02 的修复入口统一保留在第五步真实事故弹窗；E03 优先通过 PT3 接线盒极性修复，事故弹窗只作为未修复时兜底。
 - 事故弹窗链路已改为“物理层排队、主循环帧末消费”，避免物理更新过程中直接进入模态对话框。
 
 **事故场景步骤 1~4 弹窗策略**：
 - `_check_fault_detection()`（main_window.py）不再在检测阶段弹修复框；事故场景只保留异常数据与状态更新
-- `test_panel.py` 第五步前修复关卡会排除 `('E01','E02','E03')`，这些场景不会在进入步骤 5 前弹黑盒修复框
+- `test_panel.py` 第五步前修复关卡会排除 `('E01','E02')` 这类事故合闸修复场景；E03 通过 PT3 接线盒极性修复路径处理
 - 结果：步骤 1~4 学员只看到异常测量值与流程提示；事故仅在步骤 5 合闸触发
 
 **E03 工程原理**：PT3 A 相极性反接使同期装置参考角偏差 180°。`_handle_live_bus_sync` 中 E03 激活时，`auto_adjust_phase` 目标改为 `target_phase_deg + 180°`，Gen2 收敛至反相位置；sync_ok=False，仲裁器显示红色警告。学员若仍强行合闸，触发事故弹窗。
@@ -260,7 +280,7 @@ if fc.scenario_id == 'E03': queue_accident_dialog('E03')
    - E05–E14：检查 `g1_blackbox_order` / `pt1_pri_blackbox_order` / `pt1_sec_blackbox_order`
    - E02：检查 `g2_blackbox_order`
 6. 黑盒内实际修复完成 → `repair_fault()` → `repaired = True`，允许继续测试
-7. E01/E02/E03 例外：修复时机在第五步合闸事故弹窗内，步骤2~4仅显示横幅不弹窗
+7. E01/E02 例外：修复时机在第五步合闸事故弹窗内；E03 可在 PT3 接线盒提前修复极性，事故弹窗仅作为未修复兜底
 
 ### 流程模式策略（teaching / engineering / assessment）
 
@@ -281,7 +301,7 @@ if fc.scenario_id == 'E03': queue_accident_dialog('E03')
     - 第四步未完成时点击“完成第四步测试”不再给缺项提示，直接记入违规推进事件并进入评分
 - 当前三模式保持一致的策略：
   - 都要求先完成本步规定测量项
-  - 都要求第五步前完成黑盒真实修复
+  - 存在可修复黑盒目标的场景要求第五步前完成真实修复；E01/E02 仍保留第五步事故弹窗修复入口，E03 优先走 PT3 极性修复
   - 都允许黑盒查看与交互修复
 - `assessment` 模式的附加约束：
   - 管理员快捷按钮禁用
@@ -307,7 +327,7 @@ if fc.scenario_id == 'E03': queue_accident_dialog('E03')
 - 评分服务：
   - `services/assessment_service.py`
     - 根据事件流与 `AssessmentSession.state_snapshot` 计算总分、分项满分、完整计分点、扣分项、否决原因、统计指标
-    - 当前采用 **30 个细分计分点** 的 100 分制：
+    - 当前采用 **33 个细分计分点** 的 100 分制：
       - 流程纪律 16
       - 第一步回路测试 10
       - 第二步 PT 电压检查 12
@@ -316,7 +336,7 @@ if fc.scenario_id == 'E03': queue_accident_dialog('E03')
       - 异常识别与故障定位 14
       - 黑盒修复 12
       - 效率与规范性 8
-    - 30 个计分点按 `A1-H2` 输出到成绩单详细表，覆盖步骤顺序、各步记录完整性、显性/隐性故障识别、定位、黑盒修复与效率控制
+    - 33 个计分点按 `A1-H2` 输出到成绩单详细表，覆盖步骤顺序、各步记录完整性、显性/隐性故障识别、定位、黑盒修复与效率控制；第一步现在对应 `B1-B7`，其中 `B1-B6` 分别对应 `AA/BB/CC/AB/AC/BC` 六组回路记录
     - `E08` 这类隐性故障若依赖第四步闭环门禁后才发现问题，会丢失“隐性故障识别 / 定位不依赖系统门禁”等关键分项，不再可能满分
     - `measurement_invalid` 事件流已接入步骤 1~4 的无效记录路径，现用于 `D3`、`E3`、`H2` 等细分计分点
     - 黑盒定位与修复评分已升级为层级级目标：`G1.terminal`、`PT1.primary`、`PT1.secondary`、`G2.terminal`
@@ -330,7 +350,7 @@ if fc.scenario_id == 'E03': queue_accident_dialog('E03')
 ### 考核闭环判定补充
 
 - `is_assessment_closed_loop_ready()` 现在只会对“存在可修复黑盒目标”的场景强制要求 `fault_config.repaired == True`
-- 因此像 E04 这类非黑盒接线故障，前四步完成后可以正常结算考核成绩，不会再因为没有黑盒修复入口而卡死
+- 因此像 E04 这类非黑盒接线故障不会卡在黑盒门禁；学员需在右侧控制台把 PT3 变比恢复为额定 `11000:193`，重新记录正常数据后再完成考核闭环
 - 考核模式下，步骤 1 / 3 与物理万用表故障提示都会通过 `should_show_diagnostic_hints()` 自动降级为非定位性提示，系统只给状态，不直接给出接线位置答案
 
 ### 考核模式当前记录的核心事件
@@ -349,7 +369,7 @@ if fc.scenario_id == 'E03': queue_accident_dialog('E03')
 - `hazard_action`
 - `assessment_finished`
 - `fault_detected` 不再由 `_tick()` 用 `step=0` 补记，评分中的“首次发现异常步骤”现在按真实检测步骤统计
-- E01/E02/E03 的事故弹窗修复入口现在按 `step=5` 记录 `fault_repaired`，不再误记为第四步修复
+- E01/E02 的事故弹窗修复入口现在按 `step=5` 记录 `fault_repaired`，不再误记为第四步修复；E03 优先通过 PT3 接线盒极性标识提前修复，若未修复才走第五步事故兜底
 
 ### Gen1/PT1 接线矩阵注入机制（E05–E14，通用参数驱动）
 
@@ -575,6 +595,7 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 ### 第一步回路测试 UI 变更
 - **路径动画已注释**（`ui/tabs/circuit_tab/` 子包内绘图实现）：绿色流动球（导通）与红色 X 符号（断路）的路径动画全部注释，图面连线无任何动态变化。
 - 学员**只能**通过万用表面板读数（`0.0 Ω` = 导通，`不导通` = 断路）判断通断，不再有视觉外挂提示。
+- 第一阶段测试页、测试模式控制台与母排拓扑页记录表均显示六组记录：`AA / BB / CC / AB / AC / BC`。
 - 动画相关 Plot 对象（`loop_anim_wire_ok` 等）保留但始终为空，`_clear_loop_anim()` 方法保留。
 
 ### 物理接线黑盒检查（`_add_blackbox_section` / `_show_blackbox_dialog`）
@@ -601,8 +622,8 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - PT 黑盒显示采用“逐级传播”模型：PT1 下方输入相序直接继承 `ctrl.g1_blackbox_order`，一次侧输出再叠加 `ctrl.pt1_pri_blackbox_order`，二次侧输出继续叠加 `ctrl.pt1_sec_blackbox_order`；除母排固定端子位置外，不再把每层输入重置为 `ABC`
 - UI 语义进一步固定为：底部输入电缆显示上游实际来相，`A1/B1/C1` 显示一次侧传播后的实际相别，`A2/B2/C2` 显示二次侧传播后的实际相别，最上方测量端仅将二次侧当前结果垂直引出
 - G2 `mapping`：`ctrl.g2_blackbox_order`；终端接线级错误会同步写入 `pt_phase_orders['PT3']`
-- PT3 `pri_order`：默认 `ABC`；`sec_order` = `pt_phase_orders['PT3']`，E03 极性反接仍通过 `fault_reverse_bc` 之外的专属故障逻辑呈现
-- E03 激活时 PT3 对话框额外显示橙色极性反接提示
+- PT3 `pri_order`：默认 `ABC`；`sec_order` = `pt_phase_orders['PT3']`；E03 通过 `sec_polarity=[-1,1,1]` 呈现 A 相二次极性反接
+- E03 激活时 PT3 对话框显示二次侧极性标识，考核 / 工程 / 教学模式均可点击极性标记恢复为 `+++`
 - 第五步前修复关卡与 `SyncTestService.record_sync_round()` 都会调用 `ctrl.has_unrepaired_wiring_fault()`；只要当前场景所涉及的可修复黑盒目标未恢复 `ABC`，系统就停留在第四步并提示先去黑盒修复，同时也禁止记录第五步
   - `g1_blackbox_order` / `pt1_pri_blackbox_order` / `pt1_sec_blackbox_order`
   - `g2_blackbox_order`（E02）
@@ -671,13 +692,16 @@ def record_all_pt_measurements_quick(self):
 - 控制器不再直接切换 `tab_widget` 或直接写入 PT3 变比数字框；改为登记待处理的 UI 请求，由 `PowerSyncUI` 在 `render_visuals()` / `show_warning()` 中统一消费。
 - `services/assessment_service.py::build_result()` 已拆为“上下文准备 + 分类评分 helper + 汇总组装”三段；评分规则、额外扣分逻辑和 `AssessmentResult` 输出结构保持原样。
 - 死母线首台投入倒计时已改为使用真实帧间隔：控制器在 `_tick()` 中记录 `frame_dt` 并注入 `PhysicsEngine`，`_physics_arbitration.py` 用该 `dt` 取代硬编码 `0.033` 来累加 `dead_bus_timer`。
-- 长期维护与去屎山化重构进度统一记录在 [MAINTENANCE_CHECKLIST.md](/c:/Users/AW57P/Documents/ThreePhase_entier/MAINTENANCE_CHECKLIST.md)，该文件现已覆盖：总体进度、轮次历史、固定回归清单、UI 解耦阶段、核心逻辑测试原则、未来 UI 替换关系说明、大文件统计脚本入口，以及 `ctrl` 耦合治理 / Mixin 治理方向；后续迭代默认先更新该文件。
+- 长期维护与去屎山化重构进度统一记录在 [MAINTENANCE_CHECKLIST.md](MAINTENANCE_CHECKLIST.md)，该文件现已覆盖：总体进度、轮次历史、固定回归清单、UI 解耦阶段、核心逻辑测试原则、未来 UI 替换关系说明、大文件统计脚本入口，以及 `ctrl` 耦合治理 / Mixin 治理方向；后续迭代默认先更新该文件。
 
-- **已完成并验证**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过
-- **已实现待验证**：E03 步骤5（Gen2追踪+180°目标，双层拦截，事故弹窗）；E04 步骤2（PT3标红、记录表格标红、检测触发）；E05–E14 物理注入（通用参数驱动，含下列修复）
+- **已完成并验证**：隔离母排模式完整五步骤仿真；E01 / E02 场景全步骤测试通过；E03 可通过 PT3 接线盒极性标识提前修复；E04 可通过右侧控制台 PT3 变比恢复为 `11000:193` 后清故障
+- **已实现并纳入回归**：第一步 `AA/BB/CC/AB/AC/BC` 六组回路记录与母排拓扑记录表；第五步完成后双机稳定到 `50Hz / 10500V / 0°` 并重置波形历史；中性点接地断开时只隐藏电阻下方三条竖线的下段
+- **已完成并验证**：E05–E14 物理注入与物理接线黑盒渐进式交互修复（通用参数驱动，含下列修复）
 - **最新实现**：
   - 黑盒接线检查按钮下移至**第 1～4 步全局显示**（`_add_blackbox_section` 帮助函数）
   - `_GenWiringWidget` / `_PTWiringWidget` 支持**点击互换**交互修复（两次点击互换节点）
+  - `_PTWiringWidget` 已支持二次侧极性显示与交互；E03 的 `-++` 可在 PT3 接线盒中直接恢复为 `+++`
+  - E04 的 PT3 变比修复已接入 `FaultManager.maybe_repair_pt_ratio_fault()`，用户在右侧控制台恢复额定变比后会清除故障并要求重新记录受影响数据
   - **渐进式修复逻辑**：`_on_confirm()` 仅在当前场景所有“可修复黑盒目标”均还原为 `['A','B','C']` 后才调用 `repair_fault()`；G1/PT1 与 G2 黑盒都会纳入该判断；单组件修复后提示"继续检查其他位置"，不立即清除故障
   - `resolve_loop_node_phase` 仍直接读取 `pt_phase_orders['PT2']`，但该值已由 `sync_pt1_blackbox_to_phase_orders()` 从运行态黑盒状态同步生成，不再应被理解为唯一物理真值源
   - **E01 double-swap bug 修复**：`inject_fault` 中 `g1_loop_swap` 通用块加 `scenario_id != 'E01'` 守卫，防止覆盖 E01 显式设置的 PT2
