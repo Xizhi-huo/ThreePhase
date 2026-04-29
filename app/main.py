@@ -666,7 +666,10 @@ class PowerSyncController:
         return self.sync_test_state.started and not self.sync_test_state.completed
 
     def finalize_sync_test(self):
+        was_completed = self.sync_svc.is_sync_test_complete()
         self.sync_svc.finalize_sync_test()
+        if not was_completed and self.sync_svc.is_sync_test_complete():
+            self.physics.reset_wave_history()
 
     def reset_sync_test(self):
         self.sync_svc.reset_sync_test()

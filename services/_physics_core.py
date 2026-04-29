@@ -16,6 +16,10 @@ _PEAK = math.sqrt(2.0 / 3.0)
 class WaveformMixin:
     """三相波形生成、历史缓冲与相量坐标计算。"""
 
+    def reset_wave_history(self) -> None:
+        self.plot_data = {}
+        self.history_initialized = False
+
     def _control_speed_factor(self, sim) -> float:
         return max(sim.sim_speed, 0.05)
 
