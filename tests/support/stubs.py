@@ -210,9 +210,12 @@ def apply_fault_e01(ctrl: ControllerStub):
 def build_full_records() -> dict[str, Any]:
     return {
         "loop_records": {
-            "A": {"status": "ok", "reading": "通路"},
-            "B": {"status": "ok", "reading": "通路"},
-            "C": {"status": "ok", "reading": "通路"},
+            "AA": {"status": "ok", "reading": "通路", "expected_status": "ok", "passed": True},
+            "BB": {"status": "ok", "reading": "通路", "expected_status": "ok", "passed": True},
+            "CC": {"status": "ok", "reading": "通路", "expected_status": "ok", "passed": True},
+            "AB": {"status": "danger", "reading": "断路", "expected_status": "danger", "passed": True},
+            "AC": {"status": "danger", "reading": "断路", "expected_status": "danger", "passed": True},
+            "BC": {"status": "danger", "reading": "断路", "expected_status": "danger", "passed": True},
         },
         "voltage_records": {
             "PT1_AB": {"reading": 184.5},

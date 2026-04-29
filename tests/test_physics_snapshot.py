@@ -102,6 +102,20 @@ def test_completed_pt_voltage_check_does_not_keep_tracking_active():
     assert sim.gen2.amp == GRID_AMP
 
 
+def test_cross_phase_loop_measurement_reports_expected_open_state():
+    ctrl = ControllerStub()
+    configure_loop_measurement_state(ctrl)
+    ctrl.sim_state.probe1_node = "LOOP_G1_A"
+    ctrl.sim_state.probe2_node = "LOOP_G2_B"
+
+    engine = _build_engine(ctrl)
+    render_state = engine.build_render_state()
+
+    assert render_state.meter_status == "danger"
+    assert render_state.meter_color == "green"
+    assert "异相隔离正常" in render_state.meter_reading
+
+
 def test_physics_snapshot_normal():
     ctrl = ControllerStub()
     configure_loop_measurement_state(ctrl)

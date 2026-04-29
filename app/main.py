@@ -178,6 +178,7 @@ class PowerSyncController:
             set_loop_test_state=lambda state: setattr(self, 'loop_test_state', state),
             append_assessment_event=self.assessment_coord.append_assessment_event,
             exit_loop_test_mode=self.exit_loop_test_mode,
+            mark_fault_detected=self.assessment_coord.mark_fault_detected,
         )
         self.pt_voltage_svc       = PtVoltageCheckService(
             sim_state=self.sim_state,
@@ -534,8 +535,8 @@ class PowerSyncController:
     # ════════════════════════════════════════════════════════════════════════
     # 第一步：回路连通性测试 — 委托给 LoopTestService
     # ════════════════════════════════════════════════════════════════════════
-    def record_loop_measurement(self, phase):
-        self.loop_svc.record_loop_measurement(phase)
+    def record_loop_measurement(self, pair):
+        self.loop_svc.record_loop_measurement(pair)
 
     def finalize_loop_test(self):
         self.loop_svc.finalize_loop_test()
@@ -553,6 +554,9 @@ class PowerSyncController:
 
     def get_current_loop_phase_match(self):
         return self.loop_svc._get_current_loop_phase_match()
+
+    def get_current_loop_pair(self):
+        return self.loop_svc.get_current_loop_pair()
 
     def is_loop_test_complete(self):
         return self.loop_svc.is_loop_test_complete()

@@ -7,8 +7,8 @@ _DEFAULT_POINTS = frozenset({7, 8, 10, 11})
 _LEFT_SIGNAL_LABELS = {
     7: "KW-",
     8: "KW+",
-    10: "KV-",
-    11: "KV+",
+    10: "KV+",
+    11: "KV-",
 }
 
 

@@ -10,6 +10,7 @@ from typing import Callable, List, Optional, Protocol, Tuple
 from PyQt5 import QtWidgets
 
 from domain.enums import BreakerPosition
+from domain.test_states import LOOP_TEST_RECORD_KEYS
 from ui.tabs._step_style import (
     apply_button_tone,
     apply_step_shell,
@@ -32,7 +33,7 @@ class LoopTestTabAPI(Protocol):
 
     def finalize_loop_test(self) -> None: ...
 
-    def record_loop_measurement(self, phase: str) -> None: ...
+    def record_loop_measurement(self, pair: str) -> None: ...
 
     def enter_loop_test_mode(self) -> None: ...
 
@@ -41,6 +42,8 @@ class LoopTestTabAPI(Protocol):
     def get_loop_test_steps(self) -> List[Tuple[str, bool]]: ...
 
     def get_current_loop_phase_match(self) -> Optional[str]: ...
+
+    def get_current_loop_pair(self) -> Optional[str]: ...
 
     def is_loop_test_complete(self) -> bool: ...
 
@@ -78,8 +81,8 @@ class LoopTestTab(QtWidgets.QWidget):
 
         desc = QtWidgets.QLabel(
             "合闸前首先验证三相回路连通性：断开中性点小电阻，将两台发电机切至手动模式，"
-            "依次合闸（不要起机），再用万用表通断挡分别测量 A/B/C 三相回路（万用表靠自身电池"
-            "注入微小电流），确认 G1 与 G2 同相回路导通正常（可在母排拓扑页观察电流流向动画）。"
+            "依次合闸（不要起机），再用万用表通断挡测量同相与异相回路（万用表靠自身电池"
+            "注入微小电流），确认 G1 与 G2 同相回路导通、异相回路隔离。"
         )
         desc.setWordWrap(True)
         outer.addWidget(desc)
@@ -162,26 +165,34 @@ class LoopTestTab(QtWidgets.QWidget):
             self._step_labels.append(label)
         outer.addWidget(steps_grp)
 
-        rec_grp = QtWidgets.QGroupBox("三相回路测量记录")
+        rec_grp = QtWidgets.QGroupBox("回路测量记录")
         rec_layout = QtWidgets.QVBoxLayout(rec_grp)
         self._record_labels: dict[str, QtWidgets.QLabel] = {}
-        for phase in ("A", "B", "C"):
+        record_titles = {
+            "AA": "AA 同相",
+            "BB": "BB 同相",
+            "CC": "CC 同相",
+            "AB": "AB 异相",
+            "AC": "AC 异相",
+            "BC": "BC 异相",
+        }
+        for pair in LOOP_TEST_RECORD_KEYS:
             row_widget = QtWidgets.QWidget()
             set_props(row_widget, recordRow=True)
             row = QtWidgets.QHBoxLayout(row_widget)
             row.setContentsMargins(10, 6, 10, 6)
 
-            phase_label = QtWidgets.QLabel(f"{phase} 相")
-            phase_label.setFixedWidth(60)
+            phase_label = QtWidgets.QLabel(record_titles[pair])
+            phase_label.setFixedWidth(80)
             set_live_text(phase_label, "info")
 
             value_label = QtWidgets.QLabel("未记录")
             value_label.setFixedWidth(280)
             set_record_value(value_label, "neutral")
 
-            record_btn = QtWidgets.QPushButton(f"记录 {phase} 相")
+            record_btn = QtWidgets.QPushButton(f"记录 {pair}")
             record_btn.clicked.connect(
-                lambda _, ph=phase: self._api.record_loop_measurement(ph)
+                lambda _, p=pair: self._api.record_loop_measurement(p)
             )
             apply_button_tone(self, record_btn, "primary")
 
@@ -189,7 +200,7 @@ class LoopTestTab(QtWidgets.QWidget):
             row.addWidget(value_label)
             row.addWidget(record_btn)
             rec_layout.addWidget(row_widget)
-            self._record_labels[phase] = value_label
+            self._record_labels[pair] = value_label
 
         outer.addWidget(rec_grp)
         outer.addStretch()
@@ -207,19 +218,26 @@ class LoopTestTab(QtWidgets.QWidget):
         in_mode = sim.loop_test_mode
 
         if state.completed:
+            has_fault_record = any(
+                record and not record.get("passed", record.get("status") == "ok")
+                for record in records.values()
+            )
             self._loop_test_mode_banner.setVisible(False)
             self._btn_loop_mode.setText("进入回路检查模式")
             apply_button_tone(self, self._btn_loop_mode, "warning", hero=True)
-            self._summary_lbl.setText("✅ 第一步已确认完成：三相回路连通性测试通过，数据已锁定。")
-            set_live_text(self._summary_lbl, "success")
+            if has_fault_record:
+                self._summary_lbl.setText("第一步已确认完成：存在异常回路记录，数据已锁定。")
+                set_live_text(self._summary_lbl, "warning")
+            else:
+                self._summary_lbl.setText("第一步已确认完成：六组回路连通性测试通过，数据已锁定。")
+                set_live_text(self._summary_lbl, "success")
             self._meter_lbl.setText("")
-            self._feedback_lbl.setText("操作提示：第一步测试已完成，请继续进行第二步 PT 单体线电压检查。")
-            set_live_text(self._feedback_lbl, "success")
+            self._feedback_lbl.setText(f"操作提示：{state.feedback}")
+            set_live_text(self._feedback_lbl, tone_from_color(state.feedback_color))
             for label, (text, _) in zip(self._step_labels, self._api.get_loop_test_steps()):
                 set_step_item(label, text, True, True)
-            for _, label in self._record_labels.items():
-                label.setText("导通 [≈0Ω] ✓")
-                set_record_value(label, "success")
+            for pair, label in self._record_labels.items():
+                self._render_record_label(pair, label, records.get(pair))
             return
 
         self._loop_test_mode_banner.setVisible(in_mode)
@@ -231,28 +249,28 @@ class LoopTestTab(QtWidgets.QWidget):
             apply_button_tone(self, self._btn_loop_mode, "warning", hero=True)
 
         feedback = state.feedback
-        current_phase = self._api.get_current_loop_phase_match()
+        current_pair = self._api.get_current_loop_pair()
         if (
             sim.gen1.breaker_closed
             and sim.gen1.breaker_position == BreakerPosition.WORKING
             and sim.gen2.breaker_closed
             and sim.gen2.breaker_position == BreakerPosition.WORKING
         ):
-            summary = "两台发电机均已切至工作位置并合闸，可在母排拓扑页开始通断测试（可观察电流流向动画）。"
+            summary = "两台发电机均已切至工作位置并合闸，可在母排拓扑页开始六组通断测试。"
             summary_tone = "warning"
         else:
             summary = "请按步骤操作：断开小电阻 → 手动模式 → 合闸（不起机）→ 母排拓扑页通断测试。"
             summary_tone = "info"
         if self._api.is_loop_test_complete():
-            summary = "第一步已确认完成：三相回路连通性测试通过，后续操作不再影响本步骤。"
+            summary = "第一步已确认完成：六组回路连通性测试通过，后续操作不再影响本步骤。"
             summary_tone = "success"
 
         self._summary_lbl.setText(summary)
         set_live_text(self._summary_lbl, summary_tone)
 
         meter_text = p.meter_reading
-        if current_phase:
-            meter_text = f"当前表笔对准 {current_phase} 相回路。{meter_text}"
+        if current_pair:
+            meter_text = f"当前表笔对准 {current_pair} 回路。{meter_text}"
         self._meter_lbl.setText(f"实时测量：{meter_text}")
         set_live_text(self._meter_lbl, tone_from_color(getattr(p, "meter_color", "black")))
 
@@ -267,14 +285,22 @@ class LoopTestTab(QtWidgets.QWidget):
             for label, (text, done) in zip(self._step_labels, steps):
                 set_step_item(label, text, done, True)
 
-        for phase, label in self._record_labels.items():
-            record = records[phase]
-            if record is None:
-                label.setText("未记录")
-                set_record_value(label, "neutral")
-            elif record.get("status") == "ok":
-                label.setText("导通 [≈0Ω] ✓")
-                set_record_value(label, "success")
-            else:
-                label.setText("断路 [∞Ω] ⚠")
-                set_record_value(label, "warning")
+        for pair, label in self._record_labels.items():
+            self._render_record_label(pair, label, records.get(pair))
+
+    def _render_record_label(self, pair: str, label: QtWidgets.QLabel, record: Optional[dict]) -> None:
+        if record is None:
+            label.setText("未记录")
+            set_record_value(label, "neutral")
+            return
+
+        status = record.get("status")
+        passed = bool(record.get("passed", status == "ok"))
+        reading = "导通 [≈0Ω]" if status == "ok" else "断路 [∞Ω]"
+        if passed:
+            label.setText(f"{reading} ✓")
+            set_record_value(label, "success")
+        else:
+            expected = "导通" if pair[0] == pair[1] else "断路"
+            label.setText(f"{reading} ⚠ 期望{expected}")
+            set_record_value(label, "warning")

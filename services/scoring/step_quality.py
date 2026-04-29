@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import List, Tuple
 
 from domain.assessment import AssessmentPenalty, AssessmentScoreItem
+from domain.test_states import LOOP_TEST_RECORD_KEYS
 from services.scoring._common import count_present, make_score_item, nine_group_completion_score, trio_completion_score
 from services.scoring.context import ScoringContext
 
@@ -13,31 +14,31 @@ def _score_loop_test(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem], Li
     loop_records = ctx.loop_records
     loop_complete = ctx.loop_complete
 
-    for code, phase, step_score in (("B1", "A", 2), ("B2", "B", 2), ("B3", "C", 2)):
-        recorded = loop_records.get(phase) is not None
+    for index, pair in enumerate(LOOP_TEST_RECORD_KEYS, start=1):
+        recorded = loop_records.get(pair) is not None
         item, penalty = make_score_item(
-            code,
-            f"{phase}相回路记录完成",
+            f"B{index}",
+            f"{pair}回路记录完成",
             "第一步回路测试",
-            step_score,
-            step_score if recorded else 0,
             1,
-            f"{phase}相回路已完成记录。" if recorded else f"{phase}相回路记录缺失。",
-            f"{phase}相回路记录缺失。",
+            1 if recorded else 0,
+            1,
+            f"{pair}回路已完成记录。" if recorded else f"{pair}回路记录缺失。",
+            f"{pair}回路记录缺失。",
         )
         items.append(item)
         if penalty is not None:
             penalties.append(penalty)
 
-    b4_score = 4 if loop_complete else 2 if count_present(loop_records) >= 2 else 0
+    b7_score = 4 if loop_complete else 2 if count_present(loop_records) >= 4 else 0
     item, penalty = make_score_item(
-        "B4",
+        "B7",
         "第一步结果提交规范",
         "第一步回路测试",
         4,
-        b4_score,
+        b7_score,
         1,
-        "第一步已形成完整闭环。" if b4_score == 4 else "第一步存在漏项或未完成确认。",
+        "第一步已形成完整闭环。" if b7_score == 4 else "第一步存在漏项或未完成确认。",
         "第一步结果提交不规范。",
     )
     items.append(item)

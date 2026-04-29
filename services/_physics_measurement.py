@@ -144,30 +144,39 @@ class MeasurementMixin:
             phase2 = self._phase_resolver.resolve_loop_node_phase(n2)
             self.meter_nodes = (n1, n2)
             fc = sim.fault_config
-            if phase1 == phase2:
+            nominal_match = info1[3] == info2[3]
+            actual_match = phase1 == phase2
+            expected_result = nominal_match == actual_match
+            point = f'{info1[3]}{info2[3]}'
+            if actual_match:
                 self.meter_status = "ok"
-                self.meter_color = "green"
-                self.meter_reading = f"通路 [≈0Ω / 蜂鸣] — {info1[4]} ↔ {info2[4]} 导通"
+                self.meter_color = "green" if expected_result else "red"
+                suffix = "" if expected_result else "（异相异常导通）"
+                self.meter_reading = f"通路 [≈0Ω / 蜂鸣] — {info1[4]} ↔ {info2[4]} 导通{suffix}"
             else:
                 self.meter_status = "danger"
-                self.meter_color = "red"
-                hint = "（检测到接线异常）"
+                self.meter_color = "green" if expected_result else "red"
+                hint = "（异相隔离正常）" if expected_result else "（检测到接线异常）"
                 if self._flow_mgr.should_show_diagnostic_hints():
-                    hint = f"（疑似接线错误，请检查 {info2[4].split()[0]} 侧接线）"
+                    hint = (
+                        "（异相隔离正常）" if expected_result
+                        else f"（疑似接线错误，请检查 {info2[4].split()[0]} 侧接线）"
+                    )
                 self.meter_reading = (
                     f"断路 [∞Ω / 无蜂鸣] — {info1[4]} ↔ {info2[4]} 不通"
                     f"{hint}"
                 )
-                if (fc.active and not fc.repaired
-                        and (fc.scenario_id in ('E01', 'E02')
-                             or fc.params.get('g1_loop_swap')
-                             or fc.params.get('g2_loop_swap'))):
-                    self._mark_fault_detected(
-                        step=1,
-                        source='loop_measurement',
-                        target='loop',
-                        point=f'{phase1}:{phase2}',
-                    )
+            if (not expected_result
+                    and fc.active and not fc.repaired
+                    and (fc.scenario_id in ('E01', 'E02')
+                         or fc.params.get('g1_loop_swap')
+                         or fc.params.get('g2_loop_swap'))):
+                self._mark_fault_detected(
+                    step=1,
+                    source='loop_measurement',
+                    target='loop',
+                    point=point,
+                )
 
     def _handle_intra_pt_measurement(self, sim, n1, n2, info1, info2, pt_name, ph1, ph2) -> None:
         _sim_r = self._sim_state

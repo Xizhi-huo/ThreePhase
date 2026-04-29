@@ -2,6 +2,7 @@ from typing import Callable, Optional, TYPE_CHECKING
 
 from PyQt5 import QtCore, QtWidgets
 
+from domain.test_states import LOOP_TEST_RECORD_KEYS
 from ui.widgets.step_panels._panel_builders import (
     add_blackbox_section,
     add_load_share_cabinet_section,
@@ -88,18 +89,19 @@ class LoopTestPanel(QtWidgets.QGroupBox):
             show_engine=False,
         )
 
-        lay.addWidget(make_note_label("回路测试快速记录（需先开启万用表）:"))
-        rrow = make_inline_row()
-        rh = QtWidgets.QHBoxLayout(rrow)
-        rh.setContentsMargins(0, 0, 0, 0)
-        rh.setSpacing(4)
         self.tp_s1_rec_btns = {}
-        for ph in ("A", "B", "C"):
-            btn = make_button(self, f"{ph} 相", "#1d4ed8")
-            btn.clicked.connect(lambda _, p=ph: self._api.record_loop_measurement(p))
-            rh.addWidget(btn)
-            self.tp_s1_rec_btns[ph] = btn
-        lay.addWidget(rrow)
+        lay.addWidget(make_note_label("回路测试快速记录（需先开启万用表）:"))
+        for pairs in (LOOP_TEST_RECORD_KEYS[:3], LOOP_TEST_RECORD_KEYS[3:]):
+            rrow = make_inline_row()
+            rh = QtWidgets.QHBoxLayout(rrow)
+            rh.setContentsMargins(0, 0, 0, 0)
+            rh.setSpacing(4)
+            for pair in pairs:
+                btn = make_button(self, pair, "#1d4ed8")
+                btn.clicked.connect(lambda _, p=pair: self._api.record_loop_measurement(p))
+                rh.addWidget(btn)
+                self.tp_s1_rec_btns[pair] = btn
+            lay.addWidget(rrow)
 
         if self._show_blackbox_dialog is not None:
             add_blackbox_section(

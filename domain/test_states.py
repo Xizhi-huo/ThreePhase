@@ -10,11 +10,14 @@ from dataclasses import dataclass, field
 from typing import Dict, Optional
 
 
+LOOP_TEST_RECORD_KEYS = ('AA', 'BB', 'CC', 'AB', 'AC', 'BC')
+
+
 @dataclass
 class LoopTestState:
     """第一步：回路连通性测试状态"""
     records: Dict[str, Optional[dict]] = field(
-        default_factory=lambda: {'A': None, 'B': None, 'C': None}
+        default_factory=lambda: {k: None for k in LOOP_TEST_RECORD_KEYS}
     )
     completed: bool = False
     feedback: str = (

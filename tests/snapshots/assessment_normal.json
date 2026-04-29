@@ -85,36 +85,66 @@
     {
       "category": "第一步回路测试",
       "code": "B1",
-      "detail": "A相回路已完成记录。",
-      "earned_score": 2,
-      "max_score": 2,
+      "detail": "AA回路已完成记录。",
+      "earned_score": 1,
+      "max_score": 1,
       "status": "通过",
       "step": 1,
-      "title": "A相回路记录完成"
+      "title": "AA回路记录完成"
     },
     {
       "category": "第一步回路测试",
       "code": "B2",
-      "detail": "B相回路已完成记录。",
-      "earned_score": 2,
-      "max_score": 2,
+      "detail": "BB回路已完成记录。",
+      "earned_score": 1,
+      "max_score": 1,
       "status": "通过",
       "step": 1,
-      "title": "B相回路记录完成"
+      "title": "BB回路记录完成"
     },
     {
       "category": "第一步回路测试",
       "code": "B3",
-      "detail": "C相回路已完成记录。",
-      "earned_score": 2,
-      "max_score": 2,
+      "detail": "CC回路已完成记录。",
+      "earned_score": 1,
+      "max_score": 1,
       "status": "通过",
       "step": 1,
-      "title": "C相回路记录完成"
+      "title": "CC回路记录完成"
     },
     {
       "category": "第一步回路测试",
       "code": "B4",
+      "detail": "AB回路已完成记录。",
+      "earned_score": 1,
+      "max_score": 1,
+      "status": "通过",
+      "step": 1,
+      "title": "AB回路记录完成"
+    },
+    {
+      "category": "第一步回路测试",
+      "code": "B5",
+      "detail": "AC回路已完成记录。",
+      "earned_score": 1,
+      "max_score": 1,
+      "status": "通过",
+      "step": 1,
+      "title": "AC回路记录完成"
+    },
+    {
+      "category": "第一步回路测试",
+      "code": "B6",
+      "detail": "BC回路已完成记录。",
+      "earned_score": 1,
+      "max_score": 1,
+      "status": "通过",
+      "step": 1,
+      "title": "BC回路记录完成"
+    },
+    {
+      "category": "第一步回路测试",
+      "code": "B7",
       "detail": "第一步已形成完整闭环。",
       "earned_score": 4,
       "max_score": 4,
