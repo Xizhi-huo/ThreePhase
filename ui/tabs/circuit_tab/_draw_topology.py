@@ -450,7 +450,7 @@ class DrawTopologyMixin:
             for line in gnd["upper_stubs"]:
                 line.set_visible(True)
             for line in gnd["conn"]:
-                line.set_visible(not disconnected)
+                line.set_visible(True)
             gnd["bypass"].set_visible(not disconnected and direct)
             for art in gnd["resistor"]:
                 art.set_visible(not direct)
