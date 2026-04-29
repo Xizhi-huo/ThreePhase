@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import random
 from pathlib import Path
 
 import numpy as np
 
+from domain.constants import GRID_AMP, GRID_FREQ
 from services.physics_engine import PhysicsEngine
 from tests.support.snapshots import assert_json_snapshot
 from tests.support.stubs import (
@@ -77,6 +79,27 @@ def test_reset_wave_history_rebuilds_after_phase_jump():
     plot_data = engine.build_render_state().plot_data
 
     assert float(np.max(np.abs(plot_data["g1a"] - plot_data["g2a"]))) == 0.0
+
+
+def test_completed_pt_voltage_check_does_not_keep_tracking_active():
+    random.seed(0)
+    ctrl = ControllerStub()
+    sim = ctrl.sim_state
+    sim.gen1.running = True
+    sim.gen2.running = True
+    sim.gen1.freq = sim.gen2.freq = GRID_FREQ
+    sim.gen1.amp = sim.gen2.amp = GRID_AMP
+    sim.gen1.actual_amp = sim.gen2.actual_amp = GRID_AMP
+    ctrl.pt_voltage_check_state.started = True
+    ctrl.pt_voltage_check_state.completed = True
+
+    engine = PhysicsEngine(ctrl)
+    engine.update_physics()
+
+    assert sim.gen1.freq == GRID_FREQ
+    assert sim.gen1.amp == GRID_AMP
+    assert sim.gen2.freq == GRID_FREQ
+    assert sim.gen2.amp == GRID_AMP
 
 
 def test_physics_snapshot_normal():

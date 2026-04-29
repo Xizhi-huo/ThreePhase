@@ -269,6 +269,7 @@ class PtVoltageCheckService:
                     "red")
                 return
             state.completed = True
+            state.started = False
             records = state.records
             bad = [k for k in _ALL_KEYS
                    if not (8925.0 <= records[k]['voltage'] <= 12075.0)]
@@ -304,6 +305,7 @@ class PtVoltageCheckService:
                         "red")
                 return
             state.completed = True
+            state.started = False
             self._set_feedback(
                 "第二步【PT 单体线电压检查】已确认完成，后续操作将不再影响该步骤状态。",
                 "#006600")

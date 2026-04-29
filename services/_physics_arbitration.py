@@ -235,7 +235,11 @@ class ArbitrationMixin:
         _TRK_A  = 0.5      # V/帧
         _TRK_P  = 0.02     # °/帧
         pt_voltage_check_state = self._get_pt_voltage_check_state()
-        pvc_active = pt_voltage_check_state is not None and pt_voltage_check_state.started
+        pvc_active = (
+            pt_voltage_check_state is not None
+            and pt_voltage_check_state.started
+            and not pt_voltage_check_state.completed
+        )
         if pvc_active and not sim.paused:
             # Gen1 有界随机游走，模拟真实发电机微小波动
             if sim.gen1.running:
