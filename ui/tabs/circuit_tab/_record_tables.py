@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from domain.test_states import LOOP_TEST_RECORD_KEYS
+
 
 class RecordTablesMixin:
     def _build_record_tables(self, ax) -> None:
@@ -68,15 +70,16 @@ class RecordTablesMixin:
         self.tbl_left_title.set_visible(False)
         self.tbl_right_title.set_visible(False)
 
-        _h2 = ["相位", "状态"]
+        _h2 = ["测点", "状态"]
         _h3 = ["PT", "相序"]
         _h5 = ["轮次", "状态"]
 
-        _b_s1 = [["A", "---"], ["B", "---"], ["C", "---"]]
-        self.tbl_s1 = _mk(_b_s1, [_LX, _BY, _LW, 0.115], _h2)
+        _b_s1 = [[pair, "---"] for pair in LOOP_TEST_RECORD_KEYS]
+        _S1_H = 0.175
+        self.tbl_s1 = _mk(_b_s1, [_LX, _BY, _LW, _S1_H], _h2)
         self.tbl_s1_title = ax.text(
             _LC,
-            _BY + 0.115 + 0.022,
+            _BY + _S1_H + 0.022,
             "三相回路导通记录",
             fontsize=7,
             ha="center",
@@ -195,14 +198,16 @@ class RecordTablesMixin:
 
         if step == 1:
             records = getattr(self._api.loop_test_state, "records", {})
-            for row_idx, ph in enumerate(["A", "B", "C"], start=1):
-                rec = records.get(ph)
-                self.tbl_s1[(row_idx, 0)].get_text().set_text(ph)
+            for row_idx, pair in enumerate(LOOP_TEST_RECORD_KEYS, start=1):
+                rec = records.get(pair)
+                self.tbl_s1[(row_idx, 0)].get_text().set_text(pair)
                 if rec is not None:
-                    ok = rec.get("status") == "ok"
-                    val = "≈0Ω" if ok else "∞Ω"
-                    self.tbl_s1[(row_idx, 1)].get_text().set_text(f"{'导通' if ok else '断路'}  {val}")
-                    bg = "#dcfce7" if ok else "#fee2e2"
+                    conductive = rec.get("status") == "ok"
+                    passed = bool(rec.get("passed", conductive))
+                    val = "≈0Ω" if conductive else "∞Ω"
+                    label = "导通" if conductive else "断路"
+                    self.tbl_s1[(row_idx, 1)].get_text().set_text(f"{label}  {val}")
+                    bg = "#dcfce7" if passed else "#fee2e2"
                 else:
                     self.tbl_s1[(row_idx, 1)].get_text().set_text("---")
                     bg = "#f1f5f9"
