@@ -27,11 +27,10 @@ class DrawTopologyMixin:
         ax.set_ylim(-0.10, 1.02)
         ax.set_title("Switchgear Bus Topology", pad=8, weight="bold", fontsize=12)
 
-        bus_y = {"A": 0.115, "B": 0.090, "C": 0.065, "N": 0.040}
+        bus_y = {"A": 0.115, "B": 0.090, "C": 0.065}
         bus_yl = [bus_y["A"], bus_y["B"], bus_y["C"]]
         bus_phases = ["A", "B", "C"]
         bus_colors = ["#b45309", "#1a9c3c", "#d62828"]
-        neutral_color = "#111111"
 
         g1_cx, g2_cx = 0.28, 0.72
         phase_dx = 0.04
@@ -182,10 +181,6 @@ class DrawTopologyMixin:
             ax.plot([bus_x_l, bus_x_r], [y, y], color=color, lw=5, solid_capstyle="round")
             for xpos in (bus_x_l - 0.018, bus_x_r + 0.018):
                 ax.text(xpos, y, ph, fontsize=13, ha="center", va="center", weight="bold", color=color, path_effects=stroke)
-        neutral_y = bus_y["N"]
-        ax.plot([bus_x_l, bus_x_r], [neutral_y, neutral_y], color=neutral_color, lw=4, solid_capstyle="round")
-        for xpos in (bus_x_l - 0.018, bus_x_r + 0.018):
-            ax.text(xpos, neutral_y, "N", fontsize=12, ha="center", va="center", weight="bold", color=neutral_color, path_effects=stroke)
         self.txt_bus_source = ax.text(
             0.50,
             0,
