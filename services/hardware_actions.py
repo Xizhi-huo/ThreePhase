@@ -56,7 +56,7 @@ class HardwareActions:
             if not self._is_pt_voltage_check_complete():
                 sections.append(("第二步：PT 单体线电压检查", ["PT1/PT2/PT3 线电压检查尚未完成"]))
             if not self._is_pt_phase_check_complete():
-                sections.append(("第三步：PT 相序检查", ["PT1/PT3 相序检查尚未完成"]))
+                sections.append(("第三步：PT 相序检查", ["PT1/PT2/PT3 相序检查尚未完成"]))
             if not self._is_pt_exam_recorded(2):
                 sections.append(("第四步：PT 二次端子压差考核（Gen 2）",
                                  ["Gen 2 三相 PT 二次端子压差尚未全部记录"]))
@@ -77,7 +77,7 @@ class HardwareActions:
             if not self._is_pt_voltage_check_complete():
                 sections.append(("第二步：PT 单体线电压检查", ["PT1/PT2/PT3 线电压检查尚未完成"]))
             if not self._is_pt_phase_check_complete():
-                sections.append(("第三步：PT 相序检查", ["PT1/PT3 相序检查尚未完成"]))
+                sections.append(("第三步：PT 相序检查", ["PT1/PT2/PT3 相序检查尚未完成"]))
             if not self._is_pt_exam_recorded(2):
                 sections.append(("第四步：PT 二次端子压差考核（Gen 2）",
                                  ["Gen 2 三相 PT 二次端子压差尚未全部记录"]))

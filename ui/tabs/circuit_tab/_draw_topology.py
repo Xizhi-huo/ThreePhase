@@ -318,7 +318,7 @@ class DrawTopologyMixin:
         self.probe2_plot, = ax.plot([], [], "ko", markersize=12, alpha=0.8)
 
         self._psm_terminal_markers = {}
-        for pt_name, edge in (("PT1", "#1d4ed8"), ("PT3", "#7c3aed")):
+        for pt_name, edge in (("PT1", "#1d4ed8"), ("PT2", "#0f766e"), ("PT3", "#7c3aed")):
             for phase in ("A", "B", "C"):
                 node_name = f"{pt_name}_{phase}"
                 x, y = NODES[node_name][:2]

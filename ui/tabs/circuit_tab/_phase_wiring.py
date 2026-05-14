@@ -53,7 +53,7 @@ class PhaseWiringMixin:
 
     def _phase_target_nodes(self) -> tuple[str, ...]:
         pt_name = self._phase_wiring.active_pt
-        if pt_name not in ("PT1", "PT3"):
+        if pt_name not in ("PT1", "PT2", "PT3"):
             return ()
         return tuple(f"{pt_name}_{phase}" for phase in ("A", "B", "C"))
 

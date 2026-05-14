@@ -114,8 +114,8 @@
       "category": "第三步PT相序检查",
       "code": "D1",
       "detail": "PT1 已记录 3/3 项。",
-      "earned_score": 3,
-      "max_score": 3,
+      "earned_score": 2,
+      "max_score": 2,
       "status": "通过",
       "step": 3,
       "title": "PT1相序记录完整"
@@ -123,16 +123,26 @@
     {
       "category": "第三步PT相序检查",
       "code": "D2",
+      "detail": "PT2 已记录 3/3 项。",
+      "earned_score": 2,
+      "max_score": 2,
+      "status": "通过",
+      "step": 3,
+      "title": "PT2相序记录完整"
+    },
+    {
+      "category": "第三步PT相序检查",
+      "code": "D3",
       "detail": "PT3 已记录 3/3 项。",
-      "earned_score": 3,
-      "max_score": 3,
+      "earned_score": 2,
+      "max_score": 2,
       "status": "通过",
       "step": 3,
       "title": "PT3相序记录完整"
     },
     {
       "category": "第三步PT相序检查",
-      "code": "D3",
+      "code": "D4",
       "detail": "第三步记录顺序与接线选择规范。",
       "earned_score": 2,
       "max_score": 2,
@@ -142,7 +152,7 @@
     },
     {
       "category": "第三步PT相序检查",
-      "code": "D4",
+      "code": "D5",
       "detail": "第三步不承担本场景的关键异常识别。",
       "earned_score": 4,
       "max_score": 4,

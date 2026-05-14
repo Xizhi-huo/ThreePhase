@@ -109,6 +109,7 @@ class PowerSyncController:
             get_g2_blackbox_order=lambda: self.g2_blackbox_order,
             get_pt1_pri_blackbox_order=lambda: self.pt1_pri_blackbox_order,
             get_pt1_sec_blackbox_order=lambda: self.pt1_sec_blackbox_order,
+            get_pt2_sec_blackbox_order=lambda: self.pt2_sec_blackbox_order,
             is_loop_test_complete=lambda: self.loop_svc.is_loop_test_complete(),
             is_pt_voltage_check_complete=lambda: self.pt_voltage_svc.is_pt_voltage_check_complete(),
             is_pt_phase_check_complete=lambda: self.pt_phase_svc.is_pt_phase_check_complete(),
@@ -128,12 +129,16 @@ class PowerSyncController:
             set_pt1_pri_blackbox_order=lambda val: setattr(self, 'pt1_pri_blackbox_order', val),
             get_pt1_sec_blackbox_order=lambda: self.pt1_sec_blackbox_order,
             set_pt1_sec_blackbox_order=lambda val: setattr(self, 'pt1_sec_blackbox_order', val),
+            get_pt2_sec_blackbox_order=lambda: self.pt2_sec_blackbox_order,
+            set_pt2_sec_blackbox_order=lambda val: setattr(self, 'pt2_sec_blackbox_order', val),
             apply_g2_blackbox_to_pt3=self.phase_order_state.apply_g2_blackbox_to_pt3,
             apply_pt1_blackbox_to_pt_phases=self.phase_order_state.apply_pt1_blackbox_to_pt_phases,
+            apply_pt2_blackbox_to_pt2=self.phase_order_state.apply_pt2_blackbox_to_pt2,
         )
         self.phase_resolver       = PhaseOrderResolver(
             sim_state=self.sim_state,
             get_pt_phase_orders=lambda: self.pt_phase_orders,
+            get_g1_blackbox_order=lambda: self.g1_blackbox_order,
             get_g2_blackbox_order=lambda: self.g2_blackbox_order,
         )
         self.hw                   = HardwareActions(
@@ -169,6 +174,8 @@ class PowerSyncController:
             set_pt1_pri_blackbox_order=lambda val: setattr(self, 'pt1_pri_blackbox_order', val),
             get_pt1_sec_blackbox_order=lambda: self.pt1_sec_blackbox_order,
             set_pt1_sec_blackbox_order=lambda val: setattr(self, 'pt1_sec_blackbox_order', val),
+            get_pt2_sec_blackbox_order=lambda: self.pt2_sec_blackbox_order,
+            set_pt2_sec_blackbox_order=lambda val: setattr(self, 'pt2_sec_blackbox_order', val),
         )
         self.loop_svc             = LoopTestService(
             sim_state=self.sim_state,
@@ -202,6 +209,7 @@ class PowerSyncController:
             set_pt_phase_check_feedback=self.set_pt_phase_check_feedback,
             record_pt_phase_check_result=self.record_pt_phase_check_result,
             mark_pt_phase_check_completed=self.mark_pt_phase_check_completed,
+            get_pt_phase_sequence=self.get_pt_phase_sequence,
         )
         self.pt_exam_svc          = PtExamService(
             sim_state=self.sim_state,
@@ -212,6 +220,7 @@ class PowerSyncController:
             is_pt_voltage_check_complete=lambda: self.pt_voltage_svc.is_pt_voltage_check_complete(),
             is_pt_phase_check_complete=lambda: self.pt_phase_svc.is_pt_phase_check_complete(),
             append_assessment_event=self.assessment_coord.append_assessment_event,
+            mark_fault_detected=self.assessment_coord.mark_fault_detected,
         )
         self.sync_svc             = SyncTestService(
             sim_state=self.sim_state,
@@ -307,6 +316,14 @@ class PowerSyncController:
         self.phase_order_state.pt1_sec_blackbox_order[:] = list(value)
 
     @property
+    def pt2_sec_blackbox_order(self):
+        return self.phase_order_state.pt2_sec_blackbox_order
+
+    @pt2_sec_blackbox_order.setter
+    def pt2_sec_blackbox_order(self, value):
+        self.phase_order_state.pt2_sec_blackbox_order[:] = list(value)
+
+    @property
     def test_flow_mode(self):
         return self.flow_mgr.test_flow_mode
 
@@ -339,7 +356,29 @@ class PowerSyncController:
             self._reset_fault_affected_records_after_repair(self.sim_state.fault_config.scenario_id)
 
     def _reset_fault_affected_records_after_repair(self, scenario_id: str) -> None:
-        if scenario_id not in ('E03', 'E04'):
+        pt2_secondary_fault = bool(
+            self.sim_state.fault_config.params.get('pt2_sec_blackbox_order')
+        )
+        if scenario_id not in ('E03', 'E04') and not pt2_secondary_fault:
+            return
+
+        if pt2_secondary_fault:
+            phase_state = self.pt_phase_check_state
+            for key in ('PT2_A', 'PT2_B', 'PT2_C'):
+                if key in phase_state.records:
+                    phase_state.records[key] = None
+            phase_state.completed = False
+            phase_state.result = None
+            phase_state.feedback = "PT2 故障已修复，请重新记录 PT2 相序。"
+            phase_state.feedback_color = '#0369a1'
+
+            for gen_id, label in ((1, "Gen1/PT1"), (2, "Gen2/PT3")):
+                exam_state = self.pt_exam_states[gen_id]
+                for key in exam_state.records:
+                    exam_state.records[key] = None
+                exam_state.completed = False
+                exam_state.feedback = f"PT2 故障已修复，请重新完成 {label} 与 PT2 的压差测量。"
+                exam_state.feedback_color = '#0369a1'
             return
 
         voltage_state = self.pt_voltage_check_state
@@ -410,6 +449,7 @@ class PowerSyncController:
         self.phase_order_state.g2_blackbox_order[:] = list(saved_phase.g2_blackbox_order)
         self.phase_order_state.pt1_pri_blackbox_order[:] = list(saved_phase.pt1_pri_blackbox_order)
         self.phase_order_state.pt1_sec_blackbox_order[:] = list(saved_phase.pt1_sec_blackbox_order)
+        self.phase_order_state.pt2_sec_blackbox_order[:] = list(saved_phase.pt2_sec_blackbox_order)
 
         self.loop_test_state = deepcopy(snapshot["loop_test_state"])
         self.pt_voltage_check_state = deepcopy(snapshot["pt_voltage_check_state"])

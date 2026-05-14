@@ -377,8 +377,9 @@ if fc.scenario_id == 'E03': queue_accident_dialog('E03')
 - `pt1_phase_order`（必填）：PT1 二次侧净相序，如 `['B','A','C']`（BAC）或 `['A','B','C']`（隐性正序）。注入时写入 `pt_phase_orders['PT1']`，修复时还原为 `['A','B','C']`。
 - `g1_loop_swap`（可选）：Gen1 机端对调端子对，如 `('A','B')`。
 - `g1_blackbox_order`（可选）：G1 机端接线盒黑盒图显示用，有 G1 换相的场景才有。
-- `p1_pri_blackbox_order`（可选）：PT1 一次侧本级接线置换（黑盒图显示用）。
-- `pt2_sec_blackbox_order`（可选）：PT1 二次侧本级接线置换（黑盒图显示用）。
+- `pt1_pri_blackbox_order` / `p1_pri_blackbox_order`（可选）：PT1 一次侧本级接线置换（黑盒图显示用）。
+- `pt1_sec_blackbox_order`（可选）：PT1 二次侧本级接线置换（黑盒图显示用）。
+- `pt2_sec_blackbox_order`（可选）：PT2（母排PT）二次侧本级接线置换，用于 E17–E21。
 
 **三处关键注入（`inject_fault`）**：
 ```python
@@ -443,10 +444,9 @@ E08（pt1_phase_order=['A','B','C'] 且无 g1_loop_swap）永远不触发——�
 
 **第三步相序仪快捷记录语义**（`ui/test_panel.py::_on_record_psm` → `PowerSyncController.record_phase_sequence()` → `PtPhaseCheckService.record_phase_sequence()`）：
 - 读取相序仪当前三字母结果，如 `ABC` / `BCA` / `CAB` / `ACB`
-- 对 `PT1_A/PT1_B/PT1_C` 或 `PT3_*` 三条记录逐相写入：
-  - `actual_phase = seq[index]`
-  - `phase_match = (actual_phase == 期望端子名)`
-- 因此 `BCA` / `CAB` 虽属于正序组，但会被记录成“端子错位失败”，不再被简化成三相全对
+- 对 `PT1_*` / `PT2_*` / `PT3_*` 三条记录逐相写入同一台 PT 的相序检测结果
+- `phase_match = seq in {'ABC', 'BCA', 'CAB'}`；`BCA` / `CAB` 作为正序轮换在第三步放行
+- 正序轮换导致的端子整体错位必须在第四步 PT1/PT2 或 PT3/PT2 压差矩阵中暴露
 
 **各场景步骤四预期电压**：
 | 场景 | Bus_A | PT1_A | A端压差 | B端压差 | C端压差 |
@@ -626,6 +626,7 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 - E03 激活时 PT3 对话框显示二次侧极性标识，考核 / 工程 / 教学模式均可点击极性标记恢复为 `+++`
 - 第五步前修复关卡与 `SyncTestService.record_sync_round()` 都会调用 `ctrl.has_unrepaired_wiring_fault()`；只要当前场景所涉及的可修复黑盒目标未恢复 `ABC`，系统就停留在第四步并提示先去黑盒修复，同时也禁止记录第五步
   - `g1_blackbox_order` / `pt1_pri_blackbox_order` / `pt1_sec_blackbox_order`
+  - `pt2_sec_blackbox_order`（E17–E21）
   - `g2_blackbox_order`（E02）
 
 **新增 params 字段**（`fault_scenarios.py` E05–E14）：
@@ -633,7 +634,8 @@ actual_phase = _resolve_terminal_actual_phase(pt_name, terminal)
 |----|------|
 | `g1_blackbox_order` | G1 机端接线柱实际相序（黑盒图显示用） |
 | `p1_pri_blackbox_order` | PT1 一次侧本级接线置换 |
-| `pt2_sec_blackbox_order` | PT1 二次侧本级接线置换 |
+| `pt1_sec_blackbox_order` | PT1 二次侧本级接线置换 |
+| `pt2_sec_blackbox_order` | PT2（母排PT）二次侧本级接线置换 |
 
 **G1 / G2 发电机端子盒**（`_GenWiringWidget`）：
 - 上方：3 个固定彩色圆 = 内部绕组（A黄 / B绿 / C红），位置永远固定
@@ -675,12 +677,13 @@ def record_all_pt_measurements_quick(self):
 
 - **2026-04 黑盒接线逻辑校正**：
   - G1 / PT1 黑盒对话框优先显示控制器运行态黑盒状态，不再优先读取 `fault_scenarios.py` 的静态 `params`。
-  - G1 物理真值源是 `ctrl.g1_blackbox_order`；`pt_phase_orders['PT2']` 是同步后的派生结果，供回路与测量计算使用。
+  - G1 回路物理真值源是 `ctrl.g1_blackbox_order`；`pt_phase_orders['PT2']` 是母排 PT 二次侧测量端派生结果，只供 PT 相序/压差/电压计算使用。
   - PT1 物理真值源是 `ctrl.pt1_pri_blackbox_order` 与 `ctrl.pt1_sec_blackbox_order`；`pt_phase_orders['PT1']` 是净相序结果，不等同于 PT1 盒内物理接线。
+  - PT2 物理真值源是 `ctrl.pt2_sec_blackbox_order` 叠加母排上游相序；PT2 二次侧故障不会污染第一步回路测试。
   - PT1 黑盒已支持一次侧、二次侧分别点击互换修复；旧文档中“仅二次侧可修复”的描述已失效。
   - 自动清故障条件已改为三个物理黑盒状态都回到 `['A','B','C']`，而不是仅看 `pt_phase_orders['PT1']` / `['PT2']` 是否恢复正常。
   - E06 / E10 的 PT1 二次侧黑盒状态为正常 `['A','B','C']`，错误仅在 PT1 一次侧；这是本轮重新校正后的场景事实。
-  - 第三步相序仪快捷记录已改为按真实序列逐相判定，`BCA/CAB` 不再被误记为三相全对。
+  - 第三步相序仪已纳入 PT2；`ABC/BCA/CAB` 均按正序放行，正序轮换类错接由第四步压差矩阵暴露。
   - 第五步前和第五步记录时都会检查运行态黑盒是否仍未恢复；E08 这类隐性接线故障现在会被卡在第四步，必须先在黑盒中完成实际修复，不能再穿透到同步测试。
 
 - **2026-04 架构收敛（进行中）**：
@@ -703,10 +706,10 @@ def record_all_pt_measurements_quick(self):
   - `_PTWiringWidget` 已支持二次侧极性显示与交互；E03 的 `-++` 可在 PT3 接线盒中直接恢复为 `+++`
   - E04 的 PT3 变比修复已接入 `FaultManager.maybe_repair_pt_ratio_fault()`，用户在右侧控制台恢复额定变比后会清除故障并要求重新记录受影响数据
   - **渐进式修复逻辑**：`_on_confirm()` 仅在当前场景所有“可修复黑盒目标”均还原为 `['A','B','C']` 后才调用 `repair_fault()`；G1/PT1 与 G2 黑盒都会纳入该判断；单组件修复后提示"继续检查其他位置"，不立即清除故障
-  - `resolve_loop_node_phase` 仍直接读取 `pt_phase_orders['PT2']`，但该值已由 `sync_pt1_blackbox_to_phase_orders()` 从运行态黑盒状态同步生成，不再应被理解为唯一物理真值源
+  - `resolve_loop_node_phase` 读取 `g1_blackbox_order` / `g2_blackbox_order`，不再通过 `pt_phase_orders['PT2']` 推导第一步回路真值，避免 PT2 二次侧故障污染第一步
   - **E01 double-swap bug 修复**：`inject_fault` 中 `g1_loop_swap` 通用块加 `scenario_id != 'E01'` 守卫，防止覆盖 E01 显式设置的 PT2
-  - `fault_scenarios.py` E05–E14 新增 `g1_blackbox_order` / `p1_pri_blackbox_order` / `pt2_sec_blackbox_order` params 供黑盒图静态显示
-  - 第三步 `_on_record_psm()` 已从“按正逆序组记全局布尔”改为“按真实三字母结果逐相写入 `phase_match`”
+  - `fault_scenarios.py` E05–E14 新增 `g1_blackbox_order` / `pt1_pri_blackbox_order` / `pt1_sec_blackbox_order` params；E17–E21 新增 `pt2_sec_blackbox_order` 用于母排 PT 二次侧故障
+  - 第三步 `_on_record_psm()` 已从“仅记录 PT1/PT3”扩展为“记录 PT1/PT2/PT3”，并按正序组写入 `phase_match`
   - `has_unrepaired_wiring_fault()` 已作为第五步前门禁与 `SyncTestService` 兜底条件；第五步前弹窗现为阻断提示，不再直接调用 `repair_fault()`
   - `teaching / engineering / assessment` 三模式差异已收敛到控制器 `FLOW_MODE_POLICIES`，业务层统一通过语义接口读取策略
   - `FLOW_MODE_POLICIES` 当前已类型化为 `FlowModePolicy`

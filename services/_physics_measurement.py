@@ -296,16 +296,30 @@ class MeasurementMixin:
                     target=gen_pt_name,
                     point=f'{gen_term}-{bus_phase}',
                 )
+            elif fc.params.get('pt2_sec_blackbox_order') is not None and not is_same_phase:
+                self._mark_fault_detected(
+                    step=4,
+                    source='pt_exam_measurement',
+                    target='PT2',
+                    point=f'{gen_pt_name}_{gen_term}-PT2_{bus_phase}',
+                )
 
         self.meter_phase_match = False if e03_active else is_same_phase
         self.meter_voltage = meter_v
         self.meter_nodes = (n1, n2)
         self.meter_color = "green"
         self.meter_status = "ok"
-        warn = (" ⚠️" if fc.active and not fc.repaired
-                and fc.scenario_id in ('E03', 'E04')
-                and gen_pt_name == 'PT3'
-                and meter_v > (5.0 if is_same_phase else 200.0) else "")
+        pt2_fault_active = (
+            fc.active and not fc.repaired
+            and fc.params.get('pt2_sec_blackbox_order') is not None
+        )
+        warn = (" ⚠️" if (
+            (fc.active and not fc.repaired
+             and fc.scenario_id in ('E03', 'E04')
+             and gen_pt_name == 'PT3'
+             and meter_v > (5.0 if is_same_phase else 200.0))
+            or (pt2_fault_active and not is_same_phase)
+        ) else "")
         same_tag = "同相" if is_same_phase else "跨相"
         self.meter_reading = (
             f"{gen_pt_name}_{gen_term} ↔ PT2_{bus_phase} | {same_tag}{warn}"

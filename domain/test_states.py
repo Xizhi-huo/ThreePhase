@@ -70,7 +70,11 @@ class PtExamState:
     feedback_color: str = '#444444'
 
 
-_PT_PHASE_CHECK_KEYS = ('PT1_A', 'PT1_B', 'PT1_C', 'PT3_A', 'PT3_B', 'PT3_C')
+_PT_PHASE_CHECK_KEYS = (
+    'PT1_A', 'PT1_B', 'PT1_C',
+    'PT2_A', 'PT2_B', 'PT2_C',
+    'PT3_A', 'PT3_B', 'PT3_C',
+)
 
 
 @dataclass
@@ -84,7 +88,7 @@ class PtPhaseCheckState:
     result: Optional[str] = None   # 'pass' | 'fail' | None
     feedback: str = (
         "请先完成前两步，然后恢复小电阻接地，将 Gen1 并入母排，"
-        "起机 Gen2（不合闸），分别接入相序仪至 PT1 和 PT3 检查相序。"
+        "起机 Gen2（不合闸），分别接入相序仪至 PT1、PT2 和 PT3 检查相序。"
     )
     feedback_color: str = '#444444'
 

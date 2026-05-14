@@ -31,6 +31,7 @@ class PtExamService:
         is_pt_voltage_check_complete: Callable[[], bool],
         is_pt_phase_check_complete: Callable[[], bool],
         append_assessment_event: Callable,
+        mark_fault_detected: Callable | None = None,
     ):
         self._sim_state = sim_state
         self._flow_mgr = flow_mgr
@@ -40,6 +41,7 @@ class PtExamService:
         self._is_pt_voltage_check_complete = is_pt_voltage_check_complete
         self._is_pt_phase_check_complete = is_pt_phase_check_complete
         self._append_assessment_event = append_assessment_event
+        self._mark_fault_detected = mark_fault_detected
 
     # ── 状态工厂 ──────────────────────────────────────────────────────────────
     def create_pt_exam_state(self) -> PtExamState:
@@ -148,7 +150,7 @@ class PtExamService:
             _record_invalid("pt_phase_incomplete")
             self._set_pt_exam_feedback(
                 gen_id,
-                "请先完成第三步【PT 相序检查】，确认 PT1/PT3 各相连线正确后，再进行压差测量。",
+                "请先完成第三步【PT 相序检查】，确认 PT1/PT2/PT3 各相连线正确后，再进行压差测量。",
                 "red",
             )
             return
@@ -430,6 +432,40 @@ class PtExamService:
                         meter_v = abs(gen_ph - bus_ph)
                     else:
                         meter_v = np.sqrt(max(0.0, gen_ph**2 + bus_ph**2 + gen_ph * bus_ph))
+
+                    if self._mark_fault_detected is not None and fc.active and not fc.repaired:
+                        if e03_fault:
+                            self._mark_fault_detected(
+                                step=4,
+                                source='pt_exam_quick_record',
+                                target=pt_name,
+                                point=f'{gen_term}-{bus_phase}',
+                            )
+                        elif fc.scenario_id == 'E04' and gen_id == 2 and is_same_phase:
+                            self._mark_fault_detected(
+                                step=4,
+                                source='pt_exam_quick_record',
+                                target=pt_name,
+                                point=f'{gen_term}-{bus_phase}',
+                            )
+                        elif (
+                            pt_name == 'PT1'
+                            and fc.params.get('pt1_phase_order') is not None
+                            and not is_same_phase
+                        ):
+                            self._mark_fault_detected(
+                                step=4,
+                                source='pt_exam_quick_record',
+                                target=pt_name,
+                                point=f'{gen_term}-{bus_phase}',
+                            )
+                        elif fc.params.get('pt2_sec_blackbox_order') is not None and not is_same_phase:
+                            self._mark_fault_detected(
+                                step=4,
+                                source='pt_exam_quick_record',
+                                target='PT2',
+                                point=f'{pt_name}_{gen_term}-PT2_{bus_phase}',
+                            )
 
                     states[gen_id].records[key] = {
                         'voltage_sec': round(meter_v, 4),

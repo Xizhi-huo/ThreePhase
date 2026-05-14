@@ -57,7 +57,7 @@ class PtPhaseCheckPanel(QtWidgets.QGroupBox):
     def _build(self):
         lay = QtWidgets.QVBoxLayout(self)
         lay.setSpacing(4)
-        self.tp_s3_step_lbls = make_step_list(lay, 7)
+        self.tp_s3_step_lbls = make_step_list(lay, 8)
         lay.addWidget(make_note_label("Gen2 需起机，断路器保持断开", "warning", italic=True))
         make_gen_block(lay, owner=self, api=self._api, gen_refs=self.gen_refs, step_key="s3", gen_id=2)
 
@@ -66,7 +66,7 @@ class PtPhaseCheckPanel(QtWidgets.QGroupBox):
         psm_h = QtWidgets.QHBoxLayout(psm_row)
         psm_h.setContentsMargins(0, 0, 0, 0)
         psm_h.setSpacing(6)
-        for pt_name, bg in [("PT1", "#1d4ed8"), ("PT3", "#7c3aed")]:
+        for pt_name, bg in [("PT1", "#1d4ed8"), ("PT2", "#0f766e"), ("PT3", "#7c3aed")]:
             btn = make_button(self, f"📡 接入 {pt_name}", bg)
             btn.clicked.connect(lambda _, pt=pt_name: self._on_connect_psm(pt))
             psm_h.addWidget(btn)
@@ -81,7 +81,7 @@ class PtPhaseCheckPanel(QtWidgets.QGroupBox):
         rec_h.setContentsMargins(0, 0, 0, 0)
         rec_h.setSpacing(6)
         self._tp_s3_rec_btns = {}
-        for pt_name, bg in [("PT1", "#1d4ed8"), ("PT3", "#7c3aed")]:
+        for pt_name, bg in [("PT1", "#1d4ed8"), ("PT2", "#0f766e"), ("PT3", "#7c3aed")]:
             btn = make_button(self, f"记录 {pt_name}", bg)
             btn.setEnabled(False)
             btn.clicked.connect(lambda _, pt=pt_name: self._on_record_psm(pt))

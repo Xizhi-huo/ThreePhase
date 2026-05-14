@@ -2,13 +2,13 @@
 services/pt_phase_check_service.py
 PT 相序检查服务（第三步）
 
-通过万用表手动测量 PT1_X/PT2_X 和 PT3_X/PT2_X 端子对（共6组），
-根据物理引擎返回的 meter_phase_match 判断 ABC 各相是否连线正确。
+通过相序仪分别检测 PT1/PT2/PT3 二次端子三相顺序（共9组记录），
+根据相序方向判断 ABC 各相是否连线正确。
 
 电气状态与第二步相同：
   - Gen1：手动工作位，起机，合闸并入母排（提供 PT1/PT2 参考电压）
   - Gen2：手动工作位，起机，断路器断开（提供 PT3 参考电压）
-相序判断以 meter_phase_match 为准（物理引擎比较两路波形的实际相位），
+相序判断以相序仪解析出的三相顺序为准，
 与电压大小无关。
 """
 
@@ -18,7 +18,11 @@ from domain.enums import BreakerPosition
 from domain.assessment import AssessmentEventType
 from domain.test_states import PtPhaseCheckState
 
-_ALL_KEYS = ('PT1_A', 'PT1_B', 'PT1_C', 'PT3_A', 'PT3_B', 'PT3_C')
+_ALL_KEYS = (
+    'PT1_A', 'PT1_B', 'PT1_C',
+    'PT2_A', 'PT2_B', 'PT2_C',
+    'PT3_A', 'PT3_B', 'PT3_C',
+)
 _POSITIVE_PHASE_SEQUENCES = {'ABC', 'BCA', 'CAB'}
 
 
@@ -40,6 +44,7 @@ class PtPhaseCheckService:
         set_pt_phase_check_feedback: Callable[[str, str], None],
         record_pt_phase_check_result: Callable,
         mark_pt_phase_check_completed: Callable[[], None],
+        get_pt_phase_sequence: Callable[[str], str] | None = None,
     ):
         self._sim_state = sim_state
         self._flow_mgr = flow_mgr
@@ -53,6 +58,7 @@ class PtPhaseCheckService:
         self._set_pt_phase_check_feedback = set_pt_phase_check_feedback
         self._record_pt_phase_check_result = record_pt_phase_check_result
         self._mark_pt_phase_check_completed = mark_pt_phase_check_completed
+        self._get_pt_phase_sequence = get_pt_phase_sequence
 
     @staticmethod
     def _sequence_display_text(seq: str) -> str:
@@ -96,7 +102,8 @@ class PtPhaseCheckService:
             ("4. 确认 Gen1 在工作位并入母排（提供 PT1/PT2 参考电压）", gen1_on_bus),
             ("5. 启动 Gen2，保持断路器断开（提供 PT3 参考电压）", gen2_running_open),
             ("6. 接入相序仪至 PT1，记录 PT1 三相相序", all(rec[f'PT1_{p}'] is not None for p in 'ABC')),
-            ("7. 接入相序仪至 PT3，记录 PT3 三相相序", all(rec[f'PT3_{p}'] is not None for p in 'ABC')),
+            ("7. 接入相序仪至 PT2，记录 PT2 三相相序", all(rec[f'PT2_{p}'] is not None for p in 'ABC')),
+            ("8. 接入相序仪至 PT3，记录 PT3 三相相序", all(rec[f'PT3_{p}'] is not None for p in 'ABC')),
         ]
         if state.completed:
             return [(text, True) for text, _ in steps]
@@ -162,6 +169,50 @@ class PtPhaseCheckService:
                     f"请先完成 {pt_name} {prev} 相的测量记录，再记录 {phase} 相。", "red")
                 return
 
+        if pt_name == 'PT2':
+            if self._get_pt_phase_sequence is None:
+                _record_invalid("phase_sequence_unavailable")
+                self._set_feedback("当前相序仪结果不可用，请使用测试面板接入相序仪后记录 PT2。", "red")
+                return
+            seq = self._get_pt_phase_sequence('PT2')
+            is_valid_seq = isinstance(seq, str) and len(seq) == 3 and set(seq) == set(phase_order)
+            display_seq = self._sequence_display_text(seq)
+            phase_match = is_valid_seq and seq in _POSITIVE_PHASE_SEQUENCES
+            self._record_pt_phase_check_result(
+                key,
+                phase_match,
+                f"相序仪检测: PT2 → {display_seq}",
+            )
+            self._append_assessment_event(
+                AssessmentEventType.MEASUREMENT_RECORDED,
+                step=3,
+                target=pt_name,
+                point=phase,
+                value=display_seq,
+                raw_sequence=seq,
+            )
+            self._refresh_phase_check_result()
+            if not phase_match:
+                self._mark_fault_detected(
+                    step=3,
+                    source='pt_phase_check',
+                    target=pt_name,
+                    point=phase,
+                    sequence=seq,
+                )
+                self._set_feedback(f"⚠️ 相序异常！{key} 测量结果不一致，请继续排查。", "red")
+            elif state.result == 'pass':
+                self._set_feedback(
+                    "PT 相序检查通过：PT1/PT2/PT3 各相连线均正确，可点击“完成第三步测试”继续。",
+                    "#006600")
+            elif state.result == 'fail':
+                self._set_feedback(
+                    f"{key} 相序正确，但仍存在已记录异常项，请复核异常记录后继续。",
+                    "#cc6600")
+            else:
+                self._set_feedback(f"{key} 相序正确，请继续测量其余项目。", "#006600")
+            return
+
         expected_pair = {key, f"PT2_{phase}"}
         actual_pair = (
             {sim.probe1_node, sim.probe2_node}
@@ -208,7 +259,7 @@ class PtPhaseCheckService:
             self._set_feedback(msg, "red")
         elif state.result == 'pass':
             self._set_feedback(
-                "PT 相序检查通过：PT1/PT3 各相连线均正确，可点击\u201c完成第三步测试\u201d继续。",
+                "PT 相序检查通过：PT1/PT2/PT3 各相连线均正确，可点击\u201c完成第三步测试\u201d继续。",
                 "#006600")
         elif state.result == 'fail':
             self._set_feedback(
@@ -304,13 +355,13 @@ class PtPhaseCheckService:
             state.feedback = f"{pt_name} 相序已记录：{result_txt}"
         elif state.result == 'pass':
             color = "#15803d"
-            state.feedback = f"{pt_name} 相序已记录：{result_txt}。PT1/PT3 全部通过。"
+            state.feedback = f"{pt_name} 相序已记录：{result_txt}。PT1/PT2/PT3 全部通过。"
         elif state.result == 'fail':
             color = "#cc6600"
             state.feedback = f"{pt_name} 相序已记录：{result_txt}，但仍存在已记录异常项。"
         else:
             color = "#15803d"
-            state.feedback = f"{pt_name} 相序已记录：{result_txt}，请继续记录另一侧。"
+            state.feedback = f"{pt_name} 相序已记录：{result_txt}，请继续记录其余 PT。"
         state.feedback_color = color
         return True
 
@@ -322,7 +373,7 @@ class PtPhaseCheckService:
         return self._get_pt_phase_check_state().completed
 
     def _are_all_records_filled(self) -> bool:
-        """六相是否已全部测量（无论通过与否）。"""
+        """九相是否已全部测量（无论通过与否）。"""
         records = self._get_pt_phase_check_state().records
         return all(records.get(k) is not None for k in _ALL_KEYS)
 
@@ -339,7 +390,7 @@ class PtPhaseCheckService:
             state.result = None
 
     def _are_phase_check_records_complete(self) -> bool:
-        """六相记录是否齐全且全部通过（正常模式 finalize 校验用）。"""
+        """九相记录是否齐全且全部通过（正常模式 finalize 校验用）。"""
         records = self._get_pt_phase_check_state().records
         return all(
             records.get(k) is not None and records[k]['phase_match']
@@ -358,7 +409,7 @@ class PtPhaseCheckService:
             # 当前流程策略允许带异常完成，但仍要求本步测量项齐全
             if not self._are_all_records_filled():
                 self._set_feedback(
-                    '请先完成 PT1/PT3 全部六相相序测量，再点击"完成第三步测试"。', "red")
+                    '请先完成 PT1/PT2/PT3 全部九相相序测量，再点击"完成第三步测试"。', "red")
                 return
             self._mark_pt_phase_check_completed()
             fail_keys = [k for k in _ALL_KEYS
@@ -377,7 +428,7 @@ class PtPhaseCheckService:
             # 当前流程策略要求本步全部通过后才能完成
             if not self._are_phase_check_records_complete():
                 self._set_feedback(
-                    '请先完成 PT1/PT3 全部六相相序测量（且全部通过），再点击"完成第三步测试"。',
+                    '请先完成 PT1/PT2/PT3 全部九相相序测量（且全部通过），再点击"完成第三步测试"。',
                     "red")
                 return
             self._mark_pt_phase_check_completed()

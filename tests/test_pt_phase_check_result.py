@@ -53,10 +53,13 @@ def _build_service():
     return state, service
 
 
-def test_phase_sequence_pass_is_not_reported_until_both_pts_are_recorded():
+def test_phase_sequence_pass_is_not_reported_until_all_pts_are_recorded():
     state, service = _build_service()
 
     assert service.record_phase_sequence("PT1", "ABC")
+    assert state.result is None
+
+    assert service.record_phase_sequence("PT2", "ABC")
     assert state.result is None
 
     assert service.record_phase_sequence("PT3", "ABC")
@@ -70,6 +73,10 @@ def test_phase_sequence_positive_rotations_are_accepted():
     assert state.result is None
     assert all(state.records[f"PT1_{phase}"]["phase_match"] for phase in "ABC")
 
+    assert service.record_phase_sequence("PT2", "CAB")
+    assert state.result is None
+    assert all(state.records[f"PT2_{phase}"]["phase_match"] for phase in "ABC")
+
     assert service.record_phase_sequence("PT3", "CAB")
     assert state.result == "pass"
     assert all(state.records[f"PT3_{phase}"]["phase_match"] for phase in "ABC")
@@ -81,5 +88,17 @@ def test_phase_sequence_failure_is_not_overwritten_by_later_pass():
     assert service.record_phase_sequence("PT1", "ACB")
     assert state.result == "fail"
 
+    assert service.record_phase_sequence("PT2", "ABC")
+    assert state.result == "fail"
+
     assert service.record_phase_sequence("PT3", "ABC")
     assert state.result == "fail"
+
+
+def test_pt2_reverse_sequence_is_recorded_as_failure():
+    state, service = _build_service()
+
+    assert service.record_phase_sequence("PT2", "ACB")
+
+    assert state.result == "fail"
+    assert all(not state.records[f"PT2_{phase}"]["phase_match"] for phase in "ABC")

@@ -20,7 +20,7 @@ from services.scoring.step_quality import score_step_quality
 
 
 class AssessmentService:
-    """Build a 30-item assessment result from the recorded event stream."""
+    """Build an assessment result from the recorded event stream."""
 
     def __init__(self):
         pass
@@ -86,7 +86,7 @@ class AssessmentService:
                 opened_targets.append(target)
         early_pt_blackbox_open_events = [
             event for event in blackbox_open_events
-            if event.step in (1, 2) and event.payload.get("target") in {"PT1", "PT3"}
+            if event.step in (1, 2) and event.payload.get("target") in {"PT1", "PT2", "PT3"}
         ]
         opened_target_set: Set[str] = set(opened_targets)
         touched_layers = set()
@@ -140,6 +140,7 @@ class AssessmentService:
         pt2_voltage_count = sum(1 for key in ("PT2_AB", "PT2_BC", "PT2_CA") if voltage_records.get(key) is not None)
         pt3_voltage_count = sum(1 for key in ("PT3_AB", "PT3_BC", "PT3_CA") if voltage_records.get(key) is not None)
         pt1_phase_count = sum(1 for key in ("PT1_A", "PT1_B", "PT1_C") if phase_records.get(key) is not None)
+        pt2_phase_count = sum(1 for key in ("PT2_A", "PT2_B", "PT2_C") if phase_records.get(key) is not None)
         pt3_phase_count = sum(1 for key in ("PT3_A", "PT3_B", "PT3_C") if phase_records.get(key) is not None)
         gen1_exam_count = count_present(pt_exam_records_1)
         gen2_exam_count = count_present(pt_exam_records_2)
@@ -161,6 +162,7 @@ class AssessmentService:
             pt2_voltage_count=pt2_voltage_count,
             pt3_voltage_count=pt3_voltage_count,
             pt1_phase_count=pt1_phase_count,
+            pt2_phase_count=pt2_phase_count,
             pt3_phase_count=pt3_phase_count,
             gen1_exam_count=gen1_exam_count,
             gen2_exam_count=gen2_exam_count,
@@ -394,9 +396,10 @@ class AssessmentService:
         if (params.get("pt1_pri_blackbox_order") is not None
                 or params.get("p1_pri_blackbox_order") is not None):
             targets.append("PT1.primary")
-        if (params.get("pt1_sec_blackbox_order") is not None
-                or params.get("pt2_sec_blackbox_order") is not None):
+        if params.get("pt1_sec_blackbox_order") is not None:
             targets.append("PT1.secondary")
+        if params.get("pt2_sec_blackbox_order") is not None:
+            targets.append("PT2.secondary")
         if params.get("g2_blackbox_order") is not None:
             targets.append("G2.terminal")
         return targets

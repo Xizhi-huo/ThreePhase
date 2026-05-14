@@ -24,6 +24,7 @@ class ScoringContext:
     pt2_voltage_count: int
     pt3_voltage_count: int
     pt1_phase_count: int
+    pt2_phase_count: int
     pt3_phase_count: int
     gen1_exam_count: int
     gen2_exam_count: int

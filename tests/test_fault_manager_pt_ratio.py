@@ -13,6 +13,9 @@ class _BlackboxHandlerStub:
     def sync_pt1_blackbox_to_phase_orders(self):
         pass
 
+    def sync_pt2_blackbox_to_phase_orders(self):
+        pass
+
 
 def _make_sim_state() -> SimulationState:
     return SimulationState(
@@ -34,6 +37,7 @@ def _build_fault_manager():
     g2_order = ["A", "B", "C"]
     pt1_pri_order = ["A", "B", "C"]
     pt1_sec_order = ["A", "B", "C"]
+    pt2_sec_order = ["A", "B", "C"]
 
     manager = FaultManager(
         sim_state=sim,
@@ -50,6 +54,8 @@ def _build_fault_manager():
         set_pt1_pri_blackbox_order=lambda value: pt1_pri_order.__setitem__(slice(None), value),
         get_pt1_sec_blackbox_order=lambda: pt1_sec_order,
         set_pt1_sec_blackbox_order=lambda value: pt1_sec_order.__setitem__(slice(None), value),
+        get_pt2_sec_blackbox_order=lambda: pt2_sec_order,
+        set_pt2_sec_blackbox_order=lambda value: pt2_sec_order.__setitem__(slice(None), value),
     )
     return sim, updates, manager
 

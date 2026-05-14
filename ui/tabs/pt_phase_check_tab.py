@@ -21,7 +21,11 @@ from ui.tabs._step_style import (
 )
 
 
-_ALL_KEYS = ("PT1_A", "PT1_B", "PT1_C", "PT3_A", "PT3_B", "PT3_C")
+_ALL_KEYS = (
+    "PT1_A", "PT1_B", "PT1_C",
+    "PT2_A", "PT2_B", "PT2_C",
+    "PT3_A", "PT3_B", "PT3_C",
+)
 
 
 class PtPhaseCheckTabAPI(Protocol):
@@ -75,10 +79,10 @@ class PtPhaseCheckTab(QtWidgets.QWidget):
         desc = QtWidgets.QLabel(
             "完成前两步后：① 恢复小电阻接地；② Gen1 手动工作模式起机并入母排（建立 PT1/PT2 参考）；"
             "③ Gen2 手动工作模式起机，保持断路器断开（Gen2 自身电压提供 PT3 参考）；"
-            "④ 点击「开始第三步测试」，开启万用表，"
-            "依次测量 PT1_A/PT2_A、PT1_B/PT2_B、PT1_C/PT2_C 和 PT3_A/PT2_A、PT3_B/PT2_B、PT3_C/PT2_C，"
+            "④ 点击「开始第三步测试」，接入相序仪，"
+            "依次检测 PT1、PT2、PT3 三相相序，"
             "逐项记录相序结果；⑤ 全部通过后点击「完成第三步测试」。\n"
-            "相序判断以万用表内置相位比较为准，与电压幅值大小无关。"
+            "相序判断以相序仪旋转方向为准，与电压幅值大小无关。"
         )
         desc.setWordWrap(True)
         outer.addWidget(desc)
@@ -161,18 +165,20 @@ class PtPhaseCheckTab(QtWidgets.QWidget):
             self._step_labels.append(label)
         outer.addWidget(steps_grp)
 
-        rec_grp = QtWidgets.QGroupBox("PT 相序测量记录（PT1/PT3 各三相，共六组）")
+        rec_grp = QtWidgets.QGroupBox("PT 相序测量记录（PT1/PT2/PT3 各三相，共九组）")
         rec_layout = QtWidgets.QVBoxLayout(rec_grp)
         self._record_labels: dict[str, QtWidgets.QLabel] = {}
 
-        for pt_name, pt_color in (("PT1", "#e8f4f8"), ("PT3", "#fff3e0")):
+        for pt_name, pt_color in (("PT1", "#e8f4f8"), ("PT2", "#ecfdf5"), ("PT3", "#fff3e0")):
+            if pt_name == "PT2":
+                group_hint = "  ←母排PT本体相序，需单独接入相序仪检测"
+            elif pt_name == "PT1":
+                group_hint = "  ←Gen1在母排，检测PT1二次侧相序"
+            else:
+                group_hint = "  ←Gen2起机断路器断开，自身电压提供PT3参考，相位比较判断相序"
             pt_grp = QtWidgets.QGroupBox(
-                f"{pt_name} 侧（{pt_name}_X ↔ PT2_X）"
-                + (
-                    "  ←Gen1在母排，两侧同频同源，接线正确≈0V"
-                    if pt_name == "PT1"
-                    else "  ←Gen2起机断路器断开，自身电压提供PT3参考，相位比较判断相序"
-                )
+                f"{pt_name} 侧（相序仪接入 {pt_name}_A / {pt_name}_B / {pt_name}_C）"
+                + group_hint
             )
             pt_grp.setStyleSheet(
                 f"QGroupBox{{background:{pt_color}; color:#444; font-size:13px;}}"
@@ -191,7 +197,7 @@ class PtPhaseCheckTab(QtWidgets.QWidget):
                 phase_label.setFixedWidth(50)
                 set_live_text(phase_label, "info")
 
-                probe_hint = QtWidgets.QLabel(f"（{key} ↔ PT2_{phase}）")
+                probe_hint = QtWidgets.QLabel(f"（相序仪: {key}）")
                 probe_hint.setFixedWidth(170)
                 probe_hint.setStyleSheet("font-size:12px; color:#888888;")
 
@@ -232,7 +238,7 @@ class PtPhaseCheckTab(QtWidgets.QWidget):
             self._btn_mode.setText("开始第三步测试")
             apply_button_tone(self, self._btn_mode, "warning", hero=True)
             self._summary_lbl.setText(
-                "✅ 第三步已确认完成：PT1/PT3 相序检查通过，数据已锁定。"
+                "✅ 第三步已确认完成：PT1/PT2/PT3 相序检查通过，数据已锁定。"
             )
             set_live_text(self._summary_lbl, "success")
             self._meter_lbl.setText("")
@@ -260,18 +266,18 @@ class PtPhaseCheckTab(QtWidgets.QWidget):
         result = state.result
         done_count = sum(1 for key in _ALL_KEYS if records.get(key) is not None)
         if result == "pass":
-            summary = "PT1/PT3 相序检查均通过，可点击“完成第三步测试”继续。"
+            summary = "PT1/PT2/PT3 相序检查均通过，可点击“完成第三步测试”继续。"
             summary_tone = "success"
         elif result == "fail":
             summary = "⚠️ 检测到相序异常，请检查对应 PT 侧接线后重新记录。"
             summary_tone = "danger"
         elif done_count > 0:
-            summary = f"已记录 {done_count}/6 项 PT 相序，请继续完成剩余项目。"
+            summary = f"已记录 {done_count}/9 项 PT 相序，请继续完成剩余项目。"
             summary_tone = "info"
         else:
             summary = (
-                "请按步骤：Gen1并网 → 起机Gen2(不合闸) → 开始第三步测试 → 万用表 → "
-                "逐项记录PT1和PT3相序。"
+                "请按步骤：Gen1并网 → 起机Gen2(不合闸) → 开始第三步测试 → 相序仪 → "
+                "逐项记录PT1、PT2和PT3相序。"
             )
             summary_tone = "info"
 

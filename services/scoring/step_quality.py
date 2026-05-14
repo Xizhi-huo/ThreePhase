@@ -130,18 +130,26 @@ def _score_pt_phase_check(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem
     items: List[AssessmentScoreItem] = []
     penalties: List[AssessmentPenalty] = []
     pt1_phase_count = ctx.pt1_phase_count
+    pt2_phase_count = ctx.pt2_phase_count
     pt3_phase_count = ctx.pt3_phase_count
     invalid_by_step = ctx.invalid_by_step
     session = ctx.session
     detection_step = ctx.detection_step
     fault_detected_event = ctx.fault_detected_event
 
-    d1_score = trio_completion_score(pt1_phase_count)
+    def phase_trio_score(count_value: int) -> int:
+        if count_value >= 3:
+            return 2
+        if count_value >= 1:
+            return 1
+        return 0
+
+    d1_score = phase_trio_score(pt1_phase_count)
     item, penalty = make_score_item(
         "D1",
         "PT1相序记录完整",
         "第三步PT相序检查",
-        3,
+        2,
         d1_score,
         3,
         f"PT1 已记录 {pt1_phase_count}/3 项。",
@@ -151,13 +159,28 @@ def _score_pt_phase_check(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem
     if penalty is not None:
         penalties.append(penalty)
 
-    d2_score = trio_completion_score(pt3_phase_count)
+    d2_score = phase_trio_score(pt2_phase_count)
     item, penalty = make_score_item(
         "D2",
+        "PT2相序记录完整",
+        "第三步PT相序检查",
+        2,
+        d2_score,
+        3,
+        f"PT2 已记录 {pt2_phase_count}/3 项。",
+        "PT2 相序记录不完整。",
+    )
+    items.append(item)
+    if penalty is not None:
+        penalties.append(penalty)
+
+    d3_score = phase_trio_score(pt3_phase_count)
+    item, penalty = make_score_item(
+        "D3",
         "PT3相序记录完整",
         "第三步PT相序检查",
-        3,
-        d2_score,
+        2,
+        d3_score,
         3,
         f"PT3 已记录 {pt3_phase_count}/3 项。",
         "PT3 相序记录不完整。",
@@ -166,15 +189,15 @@ def _score_pt_phase_check(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem
     if penalty is not None:
         penalties.append(penalty)
 
-    d3_score = 2 if invalid_by_step[3] == 0 else 1 if invalid_by_step[3] == 1 else 0
+    d4_score = 2 if invalid_by_step[3] == 0 else 1 if invalid_by_step[3] == 1 else 0
     item, penalty = make_score_item(
-        "D3",
+        "D4",
         "第三步记录顺序规范",
         "第三步PT相序检查",
         2,
-        d3_score,
+        d4_score,
         3,
-        "第三步记录顺序与接线选择规范。" if d3_score == 2 else f"第三步存在 {invalid_by_step[3]} 次无效测量。",
+        "第三步记录顺序与接线选择规范。" if d4_score == 2 else f"第三步存在 {invalid_by_step[3]} 次无效测量。",
         "第三步记录顺序或接线操作不规范。",
     )
     items.append(item)
@@ -182,19 +205,19 @@ def _score_pt_phase_check(ctx: ScoringContext) -> Tuple[List[AssessmentScoreItem
         penalties.append(penalty)
 
     if not session.scene_id or detection_step != 3:
-        d4_score = 4
-        d4_detail = "第三步不承担本场景的关键异常识别。"
+        d5_score = 4
+        d5_detail = "第三步不承担本场景的关键异常识别。"
     else:
-        d4_score = 4 if fault_detected_event is not None and fault_detected_event.step <= 3 else 0
-        d4_detail = "已在第三步形成有效相序异常判断。" if d4_score else "未在第三步形成有效相序异常判断。"
+        d5_score = 4 if fault_detected_event is not None and fault_detected_event.step <= 3 else 0
+        d5_detail = "已在第三步形成有效相序异常判断。" if d5_score else "未在第三步形成有效相序异常判断。"
     item, penalty = make_score_item(
-        "D4",
+        "D5",
         "第三步能识别相序异常",
         "第三步PT相序检查",
         4,
-        d4_score,
+        d5_score,
         3,
-        d4_detail,
+        d5_detail,
         "第三步异常识别不足。",
     )
     items.append(item)
