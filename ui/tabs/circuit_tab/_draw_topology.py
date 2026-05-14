@@ -9,8 +9,8 @@ from matplotlib.patches import Circle, FancyBboxPatch
 from ui.tabs._step_style import normalize_qt_color
 
 
-_LOOP_CB_BOT = 0.24
-_LOOP_CB_TOP = 0.31
+_LOOP_CB_BOT = 0.13
+_LOOP_CB_TOP = 0.20
 _LOOP_PROBE_Y = 0.405
 _LOOP_BUS_Y = {"A": 0.115, "B": 0.090, "C": 0.065}
 
@@ -19,8 +19,6 @@ class DrawTopologyMixin:
     def _draw_circuit_content(self):
         ax = self.ax_circuit
         ax.cla()
-
-        pt_orders = self._api.pt_phase_orders
 
         ax.axis("off")
         ax.set_xlim(0.0, 1.0)
@@ -37,8 +35,8 @@ class DrawTopologyMixin:
         g1_x = [g1_cx - phase_dx, g1_cx, g1_cx + phase_dx]
         g2_x = [g2_cx - phase_dx, g2_cx, g2_cx + phase_dx]
 
-        cb_bot, cb_top = 0.24, 0.31
-        cb_lbl_y = 0.195
+        cb_bot, cb_top = 0.13, 0.20
+        cb_lbl_y = 0.097
         gen_cy, gen_r = 0.52, 0.065
 
         gnd_bot_y = gen_cy + gen_r
@@ -59,44 +57,7 @@ class DrawTopologyMixin:
         ct_y_top = 0.752
         ct_dy = 0.055
 
-        def draw_pt_y_symbol(cx, cy, size, color="#9a3412", yn_side="right"):
-            arm_a = (cx - size * 0.90, cy + size * 0.85)
-            arm_b = (cx, cy + size)
-            arm_c = (cx + size * 0.90, cy + size * 0.85)
-            neutral = (cx, cy - size)
-            for tip in (arm_a, arm_b, arm_c):
-                ax.plot([cx, tip[0]], [cy, tip[1]], color=color, lw=2.0)
-            ax.plot([cx, neutral[0]], [cy, neutral[1]], color=color, lw=1.6, ls="--")
-            ax.plot(*neutral, "o", color=color, markersize=3)
-            yn_x = neutral[0] + (0.012 if yn_side == "right" else -0.012)
-            yn_ha = "left" if yn_side == "right" else "right"
-            ax.text(yn_x, neutral[1], "Yn", fontsize=6, color="#888", va="center", ha=yn_ha)
-            return {"A": arm_a, "B": arm_b, "C": arm_c, "N": neutral, "C_xy": (cx, cy)}
-
-        def draw_pt_wired(src_x, src_y, arm_tip, color, ls="-"):
-            tx, ty = arm_tip
-            ax.plot([src_x, tx], [src_y, src_y], color=color, lw=1.2, alpha=0.85, ls=ls)
-            ax.plot([tx, tx], [src_y, ty], color=color, lw=1.2, alpha=0.85, ls=ls)
-            ax.plot(src_x, src_y, "o", color="k", markersize=3)
-
-        def draw_pt_full(cx, cy, src_xs, src_ys, label, phase_order, ls="-", side="right"):
-            sym = draw_pt_y_symbol(cx, cy, pt_size, yn_side=side if side in ("left", "right") else "right")
-            terminals = [sym["A"], sym["B"], sym["C"]]
-            for sx, sy, ph, color in zip(src_xs, src_ys, bus_phases, bus_colors):
-                draw_pt_wired(sx, sy, terminals[phase_order.index(ph)], color, ls=ls)
-            offset = pt_size * 1.5
-            if side == "right":
-                lbl_x, lbl_ha = cx + offset, "left"
-            elif side == "left":
-                lbl_x, lbl_ha = cx - offset, "right"
-            else:
-                lbl_x, lbl_ha = cx, "center"
-            ax.text(lbl_x, cy + pt_size * 0.4, label, fontsize=7, ha=lbl_ha, color="#9a3412", weight="bold")
-            ax.text(lbl_x, cy - pt_size * 0.4, "PT本体", fontsize=6, ha=lbl_ha, color="#555")
-            ax.text(lbl_x, cy - pt_size * 1.1, "一次侧", fontsize=6, ha=lbl_ha, color="#666")
-            return sym
-
-        def draw_pt_secondary_terminal_strip(cx, cy, prefix, section_y, line_y, color="#9a3412"):
+        def draw_pt_secondary_terminal_strip(cx, prefix, line_y, color="#9a3412"):
             node_keys = [f"{prefix}_{ph}" for ph in ("A", "B", "C")]
             xs = [NODES[key][0] for key in node_keys]
             y = NODES[node_keys[0]][1]
@@ -119,12 +80,56 @@ class DrawTopologyMixin:
             )
             ax.plot([box_left, box_left + box_w], [line_y, line_y], color="#888", lw=1.0, ls=":")
             ax.text(cx, line_y + 0.045, "二次端子排", fontsize=6, ha="center", color=color, weight="bold")
-            source_y = cy + pt_size * 0.75
             for phase, x in zip(("A", "B", "C"), xs):
-                ax.plot([cx, x], [source_y, section_y], color=color, lw=1.0, alpha=0.9)
-                ax.plot([x, x], [section_y, y], color=color, lw=1.0, alpha=0.9)
                 ax.plot(x, y, "o", color="k", markersize=4, zorder=6)
                 ax.text(x, y - 0.017, phase, fontsize=6, ha="center", color=color)
+
+        def draw_vertical_winding(x, y_top, y_bottom, color="#111111", lw=1.35, side=-1):
+            lead = min((y_top - y_bottom) * 0.18, 0.016)
+            coil_top = y_top - lead
+            coil_bottom = y_bottom + lead
+            ax.plot([x, x], [y_top, coil_top], color=color, lw=lw, zorder=4)
+            turns = 4
+            amp = 0.007
+            xs = []
+            ys = []
+            for idx in range(turns):
+                t = np.linspace(0.0, 1.0, 24)
+                ys.extend(coil_top + (coil_bottom - coil_top) * (idx + t) / turns)
+                xs.extend(x + side * amp * np.sin(np.pi * t))
+            ax.plot(xs, ys, color=color, lw=lw, zorder=4)
+            ax.plot([x, x], [coil_bottom, y_bottom], color=color, lw=lw, zorder=4)
+
+        def draw_pt_transformer_symbol(cx, cy, prefix, source_xs, source_ys, label, ls="-"):
+            node_keys = [f"{prefix}_{ph}" for ph in ("A", "B", "C")]
+            terminal_xs = [NODES[key][0] for key in node_keys]
+            terminal_y = NODES[node_keys[0]][1]
+            h = 0.168
+            top_y = cy + h * 0.46
+            upper_bus_y = cy + h * 0.13
+            core_y = cy
+            lower_bus_y = cy - h * 0.13
+            bottom_y = cy - h * 0.46
+            left_x = min(terminal_xs)
+            right_x = max(terminal_xs)
+            core_l = left_x
+            core_r = right_x
+
+            for x in terminal_xs:
+                ax.plot([x, x], [terminal_y, top_y], color="#9a3412", lw=1.0, alpha=0.9, zorder=2)
+                draw_vertical_winding(x, top_y, upper_bus_y, side=-1)
+                draw_vertical_winding(x, lower_bus_y, bottom_y, side=-1)
+
+            ax.plot([left_x, right_x], [upper_bus_y, upper_bus_y], color="#111111", lw=1.35, zorder=4)
+            ax.plot([left_x, right_x], [lower_bus_y, lower_bus_y], color="#111111", lw=1.35, zorder=4)
+            ax.plot([core_l, core_r], [core_y, core_y], color="#111111", lw=1.25, zorder=4)
+
+            for x, sx, sy, color in zip(terminal_xs, source_xs, source_ys, bus_colors):
+                ax.plot([x, x], [bottom_y, sy], color=color, lw=1.0, alpha=0.85, ls=ls, zorder=2)
+                ax.plot([x, sx], [sy, sy], color=color, lw=1.0, alpha=0.85, ls=ls, zorder=2)
+                ax.plot(sx, sy, "o", color="k", markersize=3, zorder=5)
+
+            ax.text(cx + 0.06, core_y, label, fontsize=7, ha="center", color="#9a3412", weight="bold")
 
         def draw_gen_cabinet(gx_list, ls):
             artists = []
@@ -233,41 +238,38 @@ class DrawTopologyMixin:
         self.gnd_data1 = draw_generator_neutral_ground(g1_cx)
         self.gnd_data2 = draw_generator_neutral_ground(g2_cx)
 
-        pt_gen_channels = {"A": cb_bot - 0.015, "B": cb_bot - 0.030, "C": cb_bot - 0.045}
-        draw_pt_full(
-            cx=pt1_cx,
-            cy=pt_gen_cy,
-            src_xs=g1_x,
-            src_ys=[pt_gen_channels["A"], pt_gen_channels["B"], pt_gen_channels["C"]],
+        draw_pt_transformer_symbol(
+            pt1_cx,
+            pt_gen_cy,
+            "PT1",
+            source_xs=g1_x,
+            source_ys=[0.255, 0.240, 0.225],
             label="PT1",
-            phase_order=pt_orders["PT1"],
             ls="--",
-            side="right",
         )
-        draw_pt_secondary_terminal_strip(pt1_cx, pt_gen_cy, "PT1", section_y=0.512, line_y=0.500)
+        draw_pt_secondary_terminal_strip(pt1_cx, "PT1", line_y=0.500)
 
-        sym2 = draw_pt_y_symbol(pt2_cx, pt2_cy, pt_size, yn_side="right")
-        arms2 = [sym2["A"], sym2["B"], sym2["C"]]
-        for ph, bus_y_val, color in zip(bus_phases, bus_yl, bus_colors):
-            arm_tx, arm_ty = arms2[pt_orders["PT2"].index(ph)]
-            ax.plot(arm_tx, bus_y_val, "o", color="k", markersize=3)
-            ax.plot([arm_tx, arm_tx], [bus_y_val, arm_ty], color=color, lw=1.2, alpha=0.85)
-        pt2_lbl_x = pt2_cx + pt_size * 2.8
-        ax.text(pt2_lbl_x, pt2_cy + pt_size * 0.4, "PT2", fontsize=7, ha="left", color="#9a3412", weight="bold")
-        ax.text(pt2_lbl_x, pt2_cy - pt_size * 0.4, "母排", fontsize=6, ha="left", color="#666")
-        draw_pt_secondary_terminal_strip(pt2_cx, pt2_cy, "PT2", section_y=0.372, line_y=0.360)
+        draw_pt_transformer_symbol(
+            pt2_cx,
+            pt2_cy,
+            "PT2",
+            source_xs=[NODES[f"PT2_{ph}"][0] for ph in ("A", "B", "C")],
+            source_ys=bus_yl,
+            label="PT2",
+            ls="-",
+        )
+        draw_pt_secondary_terminal_strip(pt2_cx, "PT2", line_y=0.360)
 
-        draw_pt_full(
-            cx=pt3_cx,
-            cy=pt_gen_cy,
-            src_xs=g2_x,
-            src_ys=[pt_gen_channels["A"], pt_gen_channels["B"], pt_gen_channels["C"]],
+        draw_pt_transformer_symbol(
+            pt3_cx,
+            pt_gen_cy,
+            "PT3",
+            source_xs=g2_x,
+            source_ys=[0.255, 0.240, 0.225],
             label="PT3",
-            phase_order=pt_orders["PT3"],
             ls="-.",
-            side="left",
         )
-        draw_pt_secondary_terminal_strip(pt3_cx, pt_gen_cy, "PT3", section_y=0.512, line_y=0.500)
+        draw_pt_secondary_terminal_strip(pt3_cx, "PT3", line_y=0.500)
 
         pt_v_lbl_y = pt_gen_cy + pt_size + 0.245
         bbox_pt = dict(facecolor="#f8fafc", edgecolor="#9a3412", boxstyle="round,pad=0.25", alpha=0.90)
@@ -406,8 +408,8 @@ class DrawTopologyMixin:
             self._apply_badge_tone_cb(lbl, tone)
 
         for lines, xs, y_bot, y_top, is_closed in [
-            (self.sw1_pack, [0.24, 0.28, 0.32], 0.24, 0.31, p.brk1_visual),
-            (self.sw2_pack, [0.68, 0.72, 0.76], 0.24, 0.31, p.brk2_visual),
+            (self.sw1_pack, [0.24, 0.28, 0.32], 0.13, 0.20, p.brk1_visual),
+            (self.sw2_pack, [0.68, 0.72, 0.76], 0.13, 0.20, p.brk2_visual),
         ]:
             color1 = p.color_sw1 if lines is self.sw1_pack else p.color_sw2
             for line, x in zip(lines, xs):
@@ -418,13 +420,9 @@ class DrawTopologyMixin:
                     line.set_data([x, x + 0.02], [y_bot, y_top - 0.02])
 
     def _generator_state_color(self, gen) -> str:
-        if gen.breaker_closed and not gen.running:
-            return "#f59e0b"
         if not gen.running:
-            return "#111111"
-        if gen.breaker_closed:
-            return "#7c3aed"
-        return "#2563eb"
+            return "#16a34a"
+        return "#dc2626"
 
     def _render_generators(self) -> None:
         for gen_id, gen in ((1, self._api.sim_state.gen1), (2, self._api.sim_state.gen2)):

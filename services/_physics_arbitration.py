@@ -227,13 +227,13 @@ class ArbitrationMixin:
             self.dead_bus_timer = 0.0
             self.first_ready = None
 
-        # ── 第二步特殊追踪：Gen2 追 Gen1，Gen1 小幅抖动 ──────────────────────
-        _FREQ_LO, _FREQ_HI = 49.85, 50.15    # Gen1 频率范围 Hz
-        _AMP_LO,  _AMP_HI  = 10395.0, 10605.0  # Gen1 幅值范围 V
-        # Gen2 慢速追踪步长（秒级响应，约 0.3 Hz/s、15 V/s、0.6°/s）
+        # ── 第二步特殊追踪：Gen2 追 Gen1，Gen1 仅保留小幅抖动 ─────────────────
+        _FREQ_LO, _FREQ_HI = 48.0, 52.0
+        _AMP_LO,  _AMP_HI  = 0.0, 15000.0
+        # Gen2 慢速追踪步长（秒级响应，约 0.3 Hz/s、30 V/s、1.5°/s）
         _TRK_F  = 0.01     # Hz/帧
-        _TRK_A  = 0.5      # V/帧
-        _TRK_P  = 0.02     # °/帧
+        _TRK_A  = 1.5      # V/帧
+        _TRK_P  = 0.5     # °/帧
         pt_voltage_check_state = self._get_pt_voltage_check_state()
         pvc_active = (
             pt_voltage_check_state is not None
@@ -241,16 +241,12 @@ class ArbitrationMixin:
             and not pt_voltage_check_state.completed
         )
         if pvc_active and not sim.paused:
-            # Gen1 有界随机游走，模拟真实发电机微小波动
+            # Gen1 不再自动跳到额定附近，仅在当前手动设定值附近微小波动。
             if sim.gen1.running:
                 sim.gen1.freq = round(
                     max(_FREQ_LO, min(_FREQ_HI,
                         sim.gen1.freq + random.uniform(-0.02, 0.02))), 3)
-                # 幅值：随机游走 + 断路器闭合后向额定值的弱收敛偏置（0.5 V/帧）
                 _amp_jitter = random.uniform(-5.0, 5.0)
-                if sim.gen1.breaker_closed:
-                    _amp_err = GRID_AMP - sim.gen1.amp
-                    _amp_jitter += min(abs(_amp_err), 0.5) * (1 if _amp_err >= 0 else -1)
                 sim.gen1.amp = round(
                     max(_AMP_LO, min(_AMP_HI,
                         sim.gen1.amp + _amp_jitter)), 1)

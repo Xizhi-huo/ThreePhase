@@ -35,7 +35,7 @@ class PtVoltageCheckPanel(QtWidgets.QGroupBox):
         show_load_share_cabinet_dialog: Optional[Callable[[], None]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
     ) -> None:
-        super().__init__("第二步：PT 单体线电压检查", parent)
+        super().__init__("第二步：PT 电压校准", parent)
         self._api = api
         self._get_current_test_step = get_current_test_step
         self._is_step_complete = is_step_complete
@@ -126,6 +126,10 @@ class PtVoltageCheckPanel(QtWidgets.QGroupBox):
         set_props(self.tp_s2_probe_lbl, feedbackText=True, tone="warning")
         lay.addWidget(self.tp_s2_probe_lbl)
 
+        self.tp_s2_pt2_cal_lbl = make_feedback_label("PT2 电压校准: 等待母排电压")
+        set_props(self.tp_s2_pt2_cal_lbl, feedbackText=True, tone="warning")
+        lay.addWidget(self.tp_s2_pt2_cal_lbl)
+
         lay.addWidget(make_note_label("按相位快速记录（A→AB，B→BC，C→CA）:"))
         rrow = make_inline_row()
         rh = QtWidgets.QHBoxLayout(rrow)
@@ -196,6 +200,26 @@ class PtVoltageCheckPanel(QtWidgets.QGroupBox):
         else:
             self.tp_s2_probe_lbl.setText("当前表笔: 未放置")
             set_props(self.tp_s2_probe_lbl, feedbackText=True, tone="warning")
+
+        pt2_sec = getattr(rs, "pt2_v", 0.0) or 0.0
+        ratio = max(1.0, float(getattr(sim, "pt_bus_ratio", 1.0) or 1.0))
+        pt2_primary = pt2_sec * ratio
+        target = 10500.0
+        tolerance = target * 0.001
+        if pt2_sec <= 1.0:
+            cal_text = "PT2 电压校准: 母排 PT 暂无有效二次侧电压"
+            cal_tone = "warning"
+        elif abs(pt2_primary - target) <= tolerance:
+            cal_text = f"PT2 电压校准: 二次侧 {pt2_sec:.1f} V -> 一次侧 {pt2_primary / 1000:.2f} kV，已达到 10.5 kV"
+            cal_tone = "success"
+        elif pt2_primary < target:
+            cal_text = f"PT2 电压校准: 二次侧 {pt2_sec:.1f} V -> 一次侧 {pt2_primary / 1000:.2f} kV，偏低"
+            cal_tone = "warning"
+        else:
+            cal_text = f"PT2 电压校准: 二次侧 {pt2_sec:.1f} V -> 一次侧 {pt2_primary / 1000:.2f} kV，偏高"
+            cal_tone = "warning"
+        self.tp_s2_pt2_cal_lbl.setText(cal_text)
+        set_props(self.tp_s2_pt2_cal_lbl, feedbackText=True, tone=cal_tone)
 
         any_running = sim.gen1.running or sim.gen2.running
         for pri_spin, sec_spin, ratio_lbl in self._tp_s2_ratio_rows.values():

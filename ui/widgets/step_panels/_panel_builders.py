@@ -255,7 +255,7 @@ def build_test_panel_step_dots(owner, *, on_step_clicked):
     row = QtWidgets.QHBoxLayout(step_bar)
     row.setContentsMargins(8, 6, 8, 6)
     buttons = []
-    for step_num, name in enumerate(["①回路", "②线压", "③相序", "④压差", "⑤同步"], start=1):
+    for step_num, name in enumerate(["①回路", "②电压校准", "③相序", "④压差", "⑤同步"], start=1):
         btn = QtWidgets.QPushButton(f"●\n{name}")
         btn.setFlat(True); btn.setCheckable(True); btn.setCursor(QtCore.Qt.ArrowCursor); btn.setStyleSheet(tp_dot_style("idle"))
         btn.clicked.connect(lambda _chk, s=step_num: on_step_clicked(s))
@@ -338,7 +338,7 @@ def refresh_tp_gen_refs(owner, gen_refs, sim, step):
 
 
 def refresh_tp_bottom(owner, api, btn_start, btn_complete, step, sim):
-    name = {1: "回路检查", 2: "线电压检查", 3: "相序检查", 4: "压差测试", 5: "同步测试"}.get(step, f"第{step}步")
+    name = {1: "回路检查", 2: "电压校准", 3: "相序检查", 4: "压差测试", 5: "同步测试"}.get(step, f"第{step}步")
     started = {1: sim.loop_test_mode, 2: api.pt_voltage_check_state.started, 3: api.pt_phase_check_state.started, 4: api.pt_exam_states[1].started and api.pt_exam_states[2].started, 5: api.sync_test_state.started}[step]
     btn_start.setText(f"{'退出' if started else '开始'}{name}")
     apply_button_tone(owner, btn_start, "danger" if started else "warning", hero=True)
