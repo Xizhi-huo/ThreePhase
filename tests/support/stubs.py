@@ -6,7 +6,6 @@ from typing import Any, Dict, Iterable
 
 import numpy as np
 
-from domain.assessment import AssessmentEvent, AssessmentEventType, AssessmentSession
 from domain.enums import BreakerPosition, SystemMode
 from domain.models import FaultConfig, GeneratorState, SimulationState
 from services.flow_mode_manager import FlowModeManager
@@ -29,7 +28,6 @@ class ControllerStub:
         *,
         sim_state: SimulationState | None = None,
         pt_phase_orders: Dict[str, list[str]] | None = None,
-        assessment_closed_loop_ready: bool = False,
     ):
         self.sim_state = sim_state or make_sim_state()
         self.flow_mgr = FlowModeManager()
@@ -54,7 +52,6 @@ class ControllerStub:
         self.pt_phase_svc = self
         self.pt_exam_svc = self
         self.sync_svc = self
-        self.assessment_coord = self
 
         self.loop_test_state = LoopTestState()
         self.pt_voltage_check_state = PtVoltageCheckState()
@@ -62,7 +59,6 @@ class ControllerStub:
         self.pt_exam_states = {1: PtExamState(), 2: PtExamState()}
         self.sync_test_state = SyncTestState()
 
-        self.assessment_closed_loop_ready = assessment_closed_loop_ready
         self.detected_fault_events: list[dict[str, Any]] = []
         self.queued_accident_dialogs: list[str] = []
 
@@ -85,9 +81,6 @@ class ControllerStub:
 
     def is_engineering_mode(self) -> bool:
         return self.flow_mgr.is_engineering_mode()
-
-    def is_assessment_mode(self) -> bool:
-        return self.flow_mgr.is_assessment_mode()
 
     def should_show_diagnostic_hints(self) -> bool:
         return self.flow_mgr.should_show_diagnostic_hints()
@@ -147,9 +140,6 @@ class ControllerStub:
     def _expected_pt_probe_pair(self, gen_id: int, gen_phase: str, bus_phase: str):
         return gen_phase, bus_phase
 
-    def is_assessment_closed_loop_ready(self) -> bool:
-        return self.assessment_closed_loop_ready
-
 
 def make_generator(
     *,
@@ -207,111 +197,6 @@ def apply_fault_e01(ctrl: ControllerStub):
     ctrl.pt_phase_orders["PT1"] = ["B", "A", "C"]
     ctrl.pt_phase_orders["PT2"] = ["B", "A", "C"]
     ctrl.g1_blackbox_order = ["B", "A", "C"]
-
-
-def build_full_records() -> dict[str, Any]:
-    return {
-        "loop_records": {
-            "AA": {"status": "ok", "reading": "通路", "expected_status": "ok", "passed": True},
-            "BB": {"status": "ok", "reading": "通路", "expected_status": "ok", "passed": True},
-            "CC": {"status": "ok", "reading": "通路", "expected_status": "ok", "passed": True},
-            "AB": {"status": "danger", "reading": "断路", "expected_status": "danger", "passed": True},
-            "AC": {"status": "danger", "reading": "断路", "expected_status": "danger", "passed": True},
-            "BC": {"status": "danger", "reading": "断路", "expected_status": "danger", "passed": True},
-        },
-        "voltage_records": {
-            "PT1_AB": {"reading": 184.5},
-            "PT1_BC": {"reading": 184.5},
-            "PT1_CA": {"reading": 184.5},
-            "PT2_AB": {"reading": 105.0},
-            "PT2_BC": {"reading": 105.0},
-            "PT2_CA": {"reading": 105.0},
-            "PT3_AB": {"reading": 184.5},
-            "PT3_BC": {"reading": 184.5},
-            "PT3_CA": {"reading": 184.5},
-        },
-        "phase_records": {
-            "PT1_A": {"reading": "正序"},
-            "PT1_B": {"reading": "正序"},
-            "PT1_C": {"reading": "正序"},
-            "PT2_A": {"reading": "正序"},
-            "PT2_B": {"reading": "正序"},
-            "PT2_C": {"reading": "正序"},
-            "PT3_A": {"reading": "正序"},
-            "PT3_B": {"reading": "正序"},
-            "PT3_C": {"reading": "正序"},
-        },
-        "pt_exam_records": {
-            1: {f"{g}{b}": {"reading": 0.0} for g in "ABC" for b in "ABC"},
-            2: {f"{g}{b}": {"reading": 0.0} for g in "ABC" for b in "ABC"},
-        },
-        "completed": {
-            "loop": True,
-            "voltage": True,
-            "phase": True,
-            "pt_exam_1": True,
-            "pt_exam_2": True,
-            "closure": True,
-        },
-    }
-
-
-def build_normal_assessment_session() -> AssessmentSession:
-    session = AssessmentSession(
-        session_id="ASM-SNAPSHOT-NORMAL",
-        scene_id="",
-        mode="assessment",
-        started_at="2026-04-09T11:55:00",
-    )
-    session.events.extend(
-        [
-            AssessmentEvent(AssessmentEventType.ASSESSMENT_STARTED, "2026-04-09T11:55:00"),
-            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:55:10", step=1),
-            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:56:00", step=2),
-            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:57:00", step=3),
-            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:58:00", step=4),
-            AssessmentEvent(AssessmentEventType.STEP_FINALIZE_ATTEMPTED, "2026-04-09T11:58:30", step=4, payload={"allowed": True}),
-        ]
-    )
-    session.state_snapshot = build_full_records()
-    session.state_snapshot["fault"] = {"repaired": False}
-    return session
-
-
-def build_random_fault_assessment_session() -> AssessmentSession:
-    session = AssessmentSession(
-        session_id="ASM-SNAPSHOT-RANDOM",
-        scene_id="E02",
-        mode="assessment",
-        started_at="2026-04-09T11:50:00",
-        fault_selection_mode="random",
-        fault_guess_scene_id="E01",
-        fault_guess_submitted=True,
-        fault_guess_correct=False,
-    )
-    session.events.extend(
-        [
-            AssessmentEvent(AssessmentEventType.ASSESSMENT_STARTED, "2026-04-09T11:50:00", payload={"fault_selection_mode": "random"}),
-            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:50:10", step=1),
-            AssessmentEvent(AssessmentEventType.FAULT_DETECTED, "2026-04-09T11:50:20", step=1, payload={"scene_id": "E02"}),
-            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:51:00", step=2),
-            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:52:00", step=3),
-            AssessmentEvent(AssessmentEventType.STEP_ENTERED, "2026-04-09T11:53:00", step=4),
-            AssessmentEvent(AssessmentEventType.BLACKBOX_OPENED, "2026-04-09T11:53:20", step=4, payload={"target": "G2"}),
-            AssessmentEvent(AssessmentEventType.BLACKBOX_SWAP, "2026-04-09T11:53:40", step=4, payload={"target": "G2", "layer": "terminal"}),
-            AssessmentEvent(
-                AssessmentEventType.BLACKBOX_CONFIRM_ATTEMPTED,
-                "2026-04-09T11:54:00",
-                step=4,
-                payload={"target": "G2", "layers": ["terminal"], "success": True},
-            ),
-            AssessmentEvent(AssessmentEventType.FAULT_REPAIRED, "2026-04-09T11:54:20", step=4, payload={"scene_id": "E02"}),
-            AssessmentEvent(AssessmentEventType.STEP_FINALIZE_ATTEMPTED, "2026-04-09T11:54:30", step=4, payload={"allowed": True}),
-        ]
-    )
-    session.state_snapshot = build_full_records()
-    session.state_snapshot["fault"] = {"repaired": True}
-    return session
 
 
 def normalize_snapshot_value(value: Any) -> Any:

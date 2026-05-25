@@ -53,7 +53,7 @@ class PhysicsEngine(WaveformMixin, ArbitrationMixin, ProtectionMixin, Measuremen
                 lambda: getattr(source, 'pt_voltage_check_state', None)
             )
             is_sync_test_active = is_sync_test_active or source.is_sync_test_active
-            mark_fault_detected = mark_fault_detected or source.assessment_coord.mark_fault_detected
+            mark_fault_detected = mark_fault_detected or source.mark_fault_detected
             queue_accident_dialog = queue_accident_dialog or source.queue_accident_dialog
 
         missing = [

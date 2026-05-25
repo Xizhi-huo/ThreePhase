@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from domain.assessment import AssessmentEventType
 from domain.enums import BreakerPosition
 from domain.models import FaultConfig
 from domain.test_states import LOOP_TEST_RECORD_KEYS, LoopTestState
@@ -27,10 +26,6 @@ def _ready_loop_sim():
 def _make_service(sim, state, physics, *, detected=None, exited=None):
     detected = [] if detected is None else detected
     exited = [] if exited is None else exited
-    events = []
-
-    def append_event(event_type, step=0, **payload):
-        events.append((event_type, step, payload))
 
     service = LoopTestService(
         sim_state=sim,
@@ -38,11 +33,10 @@ def _make_service(sim, state, physics, *, detected=None, exited=None):
         get_physics=lambda: physics,
         get_loop_test_state=lambda: state,
         set_loop_test_state=lambda next_state: None,
-        append_assessment_event=append_event,
         exit_loop_test_mode=lambda: exited.append(True),
         mark_fault_detected=lambda **payload: detected.append(payload) or True,
     )
-    return service, events, detected, exited
+    return service, detected, exited
 
 
 def _expected_record(status):
@@ -64,7 +58,7 @@ def test_cross_phase_open_is_recorded_as_expected_result():
     sim.probe2_node = "LOOP_G2_B"
     state = LoopTestState()
     physics = SimpleNamespace(meter_status="danger", meter_reading="断路 [∞Ω]")
-    service, events, _, _ = _make_service(sim, state, physics)
+    service, _, _ = _make_service(sim, state, physics)
 
     service.record_loop_measurement("AB")
 
@@ -74,9 +68,6 @@ def test_cross_phase_open_is_recorded_as_expected_result():
         "expected_status": "danger",
         "passed": True,
     }
-    assert events[-1][0] == AssessmentEventType.MEASUREMENT_RECORDED
-    assert events[-1][2]["point"] == "AB"
-    assert events[-1][2]["passed"] is True
 
 
 def test_cross_phase_unexpected_conductance_marks_loop_fault_detected():
@@ -91,7 +82,7 @@ def test_cross_phase_unexpected_conductance_marks_loop_fault_detected():
     )
     state = LoopTestState()
     physics = SimpleNamespace(meter_status="ok", meter_reading="通路 [≈0Ω]")
-    service, _, detected, _ = _make_service(sim, state, physics)
+    service, detected, _ = _make_service(sim, state, physics)
 
     service.record_loop_measurement("AB")
 
@@ -105,7 +96,7 @@ def test_finalize_loop_test_requires_all_six_records():
     sim = _ready_loop_sim()
     state = LoopTestState()
     physics = SimpleNamespace(meter_status="ok", meter_reading="通路 [≈0Ω]")
-    service, _, _, exited = _make_service(sim, state, physics)
+    service, _, exited = _make_service(sim, state, physics)
 
     for pair in LOOP_TEST_RECORD_KEYS[:3]:
         state.records[pair] = _expected_record("ok")

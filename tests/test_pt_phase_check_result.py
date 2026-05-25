@@ -41,7 +41,6 @@ def _build_service():
         set_pt_phase_check_state=lambda next_state: None,
         is_loop_test_complete=lambda: True,
         is_pt_voltage_check_complete=lambda: True,
-        append_assessment_event=lambda *args, **kwargs: None,
         mark_fault_detected=lambda **kwargs: detected.append(kwargs),
         set_pt_phase_check_feedback=lambda message, color: (
             setattr(state, "feedback", message),

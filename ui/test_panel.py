@@ -7,15 +7,12 @@ from typing import Callable, Optional, Protocol
 
 from PyQt5 import QtCore, QtWidgets
 
-from domain.assessment import AssessmentEventType
 from ui.tabs._step_style import apply_badge_tone as _apply_badge_tone, set_props as _set_props
 from ui.widgets.step_panels import LoopTestPanel, PtExamPanel, PtPhaseCheckPanel, PtVoltageCheckPanel, SyncTestPanel
 from ui.widgets.step_panels._dialogs import (
-    show_assessment_result_dialog,
     show_blackbox_dialog,
     show_blackbox_required_dialog,
     show_load_share_cabinet_dialog,
-    show_random_fault_identification_dialog,
 )
 from ui.widgets.load_share_cabinet_widget import LoadShareCabinetState
 from ui.widgets.step_panels._panel_builders import (
@@ -97,13 +94,7 @@ class TestPanelAPI(Protocol):
     def can_advance_with_fault(self) -> bool: ...
     def should_hold_at_step4_when_wiring_fault_unrepaired(self) -> bool: ...
     def has_unrepaired_wiring_fault(self) -> bool: ...
-    def is_assessment_mode(self) -> bool: ...
-    def start_assessment_session(self, scenario_id: str, *, preset_mode: str) -> None: ...
-    def append_assessment_event(self, event_type, **kwargs) -> None: ...
     def get_test_progress_snapshot(self, step: int, pre_step5_repair_triggered: bool) -> object: ...
-    def finish_assessment_session_if_ready(self, step: int) -> object: ...
-    def mark_assessment_result_shown(self) -> None: ...
-    def submit_random_fault_identification(self, scene_id: str) -> None: ...
     def can_inspect_blackbox(self) -> bool: ...
     def can_repair_in_blackbox(self) -> bool: ...
     def get_blackbox_runtime_state(self, target: str) -> object: ...
@@ -269,7 +260,6 @@ class TestPanelWidget(QtWidgets.QWidget):
         self._load_share_cabinet_state.reset_defaults()
         self._api.reset_for_scenario(scenario_id)
         self._test_mode_active = True
-        self._assessment_last_logged_step = None
         self._pre_step5_repair_triggered = False
         self._tp_last_step = None
         for panel in self._tp_step_panels.values():
@@ -282,7 +272,6 @@ class TestPanelWidget(QtWidgets.QWidget):
             self._tp_admin_mode = False
             self.tp_btn_admin.setChecked(False)
             self._tp_forced_step = None
-        self._api.start_assessment_session(scenario_id, preset_mode=getattr(self, "_pre_test_preset_mode", "specified"))
         self._host_set_current_tab(1)
         if not self._api.sim_state.loop_test_mode:
             self._api.enter_loop_test_mode()
@@ -295,7 +284,6 @@ class TestPanelWidget(QtWidgets.QWidget):
         self._tp_admin_mode = False
         self._tp_forced_step = None
         self._pre_step5_repair_triggered = False
-        self._assessment_last_logged_step = None
         for panel in self._tp_step_panels.values():
             panel.reset()
         self.setVisible(False)
@@ -313,29 +301,11 @@ class TestPanelWidget(QtWidgets.QWidget):
 
     def _on_tp_complete_step(self):
         step = self._current_test_step()
-        before_complete = self._is_step_complete(step)
         dispatch_step_action(self._api, step, "complete")
         if step == 2:
             self._on_force_multimeter_off()
         elif step == 3 and self._api.pt_phase_check_state.completed:
             self._tp_step_panels[3].reset()
-        after_complete = self._is_step_complete(step)
-        self._api.append_assessment_event(
-            AssessmentEventType.STEP_FINALIZE_ATTEMPTED,
-            step=step,
-            allowed=after_complete,
-            mode=self._api.test_flow_mode,
-        )
-        if after_complete and not before_complete:
-            self._api.append_assessment_event(AssessmentEventType.STEP_COMPLETED, step=step)
-        elif not after_complete:
-            self._api.append_assessment_event(
-                AssessmentEventType.ADVANCE_BLOCKED,
-                step=step,
-                from_step=step,
-                to_step=min(step + 1, 5),
-                reason="step_finalize_rejected",
-            )
 
     def _on_tp_toggle_admin(self, checked):
         if checked and not self._api.allow_admin_shortcuts():
@@ -352,7 +322,7 @@ class TestPanelWidget(QtWidgets.QWidget):
                 btn.setChecked(False)
                 btn.setCursor(QtCore.Qt.ArrowCursor)
         self._host_set_step_tabs_visible(checked)
-        self._tp_s4_quick_btn.setVisible(checked or self._api.is_assessment_mode())
+        self._tp_s4_quick_btn.setVisible(checked)
 
     def _update_fault_banner(self):
         fc = self._api.sim_state.fault_config
@@ -432,19 +402,12 @@ class TestPanelWidget(QtWidgets.QWidget):
     def _get_phase_wiring_active_pt(self) -> str | None:
         return self._host_get_phase_wiring_active_pt()
 
-    def _show_assessment_result_dialog(self, result):
-        show_assessment_result_dialog(self, result)
-
-    def _show_random_fault_identification_dialog(self):
-        show_random_fault_identification_dialog(self, submit_guess=self._api.submit_random_fault_identification)
-
     def _show_blackbox_required_dialog(self, fc):
-        show_blackbox_required_dialog(self, is_assessment=self._api.is_assessment_mode(), scene_id=fc.scenario_id)
+        show_blackbox_required_dialog(self, scene_id=fc.scenario_id)
 
     def _show_blackbox_dialog(self, target):
         if not self._api.can_inspect_blackbox():
             return
-        self._api.append_assessment_event(AssessmentEventType.BLACKBOX_OPENED, step=self._current_test_step(), target=target)
         show_blackbox_dialog(self, api=self._api, step=self._current_test_step(), target=target)
 
     def _show_load_share_cabinet_dialog(self) -> None:
@@ -460,9 +423,6 @@ class TestPanelWidget(QtWidgets.QWidget):
         step = self._current_test_step()
         self.tp_btn_admin.setVisible(self._api.allow_admin_shortcuts())
         self._tp_s4_quick_btn.setVisible(self._api.can_use_pt_exam_quick_record())
-        if self._assessment_last_logged_step != step:
-            self._api.append_assessment_event(AssessmentEventType.STEP_ENTERED, step=step)
-            self._assessment_last_logged_step = step
         if not self._api.allow_admin_shortcuts():
             self._tp_admin_mode = False
             self.tp_btn_admin.setChecked(False)
@@ -485,13 +445,6 @@ class TestPanelWidget(QtWidgets.QWidget):
         progress = self._api.get_test_progress_snapshot(step, getattr(self, "_pre_step5_repair_triggered", False))
         if progress.block_before_step5 and not getattr(self, "_pre_step5_repair_triggered", False):
             self._pre_step5_repair_triggered = True
-            if progress.should_emit_assessment_gate_event:
-                self._api.append_assessment_event(
-                    AssessmentEventType.ASSESSMENT_GATE_BLOCKED,
-                    step=4,
-                    scene_id=fc.scenario_id,
-                    reason="unrepaired_wiring_before_step5",
-                )
             if progress.should_show_blackbox_required_dialog:
                 self._show_blackbox_required_dialog(fc)
         elif not self._api.has_unrepaired_wiring_fault():
@@ -510,10 +463,3 @@ class TestPanelWidget(QtWidgets.QWidget):
         refresh_tp_gen_refs(self, self._tp_gen_refs, sim, step)
         refresh_tp_bottom(self, self._api, self.tp_btn_start, self.tp_btn_complete, step, sim)
         self._tp_step_panels[step].refresh(rs, step)
-
-        if progress.random_fault_guess_required:
-            self._show_random_fault_identification_dialog()
-        result = self._api.finish_assessment_session_if_ready(step)
-        if result is not None:
-            self._show_assessment_result_dialog(result)
-            self._api.mark_assessment_result_shown()

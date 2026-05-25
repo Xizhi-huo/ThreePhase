@@ -169,7 +169,7 @@ class WidgetBuilderMixin:
         self._pre_test_scenario_id = scenario_id
         self._pre_test_preset_mode = "choose" if scenario_id else "normal"
         if not scenario_id:
-            # 正常模式不走考核流程，回到默认教学模式，避免管理员入口残留隐藏。
+            # 正常模式回到默认教学模式，避免管理员入口状态残留。
             self._pre_test_flow_mode = "teaching"
         self._sync_fault_preset_buttons(self._pre_test_preset_mode)
         self._refresh_pretest_status_label()
@@ -197,7 +197,7 @@ class WidgetBuilderMixin:
         fault_ids = [sid for sid in SCENARIOS if sid]
         self._pre_test_scenario_id = _random.choice(fault_ids)
         self._pre_test_preset_mode = "random"
-        self._pre_test_flow_mode = "assessment"
+        self._pre_test_flow_mode = "teaching"
         self._sync_fault_preset_buttons(self._pre_test_preset_mode)
         self._refresh_pretest_status_label()
 
@@ -245,21 +245,17 @@ class WidgetBuilderMixin:
         mode_lay.setContentsMargins(8, 6, 8, 6)
         mode_lay.setSpacing(4)
         mode_hint = QtWidgets.QLabel(
-            "教学模式允许带故障继续后续步骤；工程模式要求当前步骤合格后才能进入下一步；"
-            "考核模式在第四步闭环完成时自动结算成绩，第五步不计分。"
+            "教学模式允许带故障继续后续步骤；工程模式要求当前步骤合格后才能进入下一步。"
         )
         mode_hint.setWordWrap(True)
         mode_hint.setProperty("mutedText", True)
         mode_lay.addWidget(mode_hint)
         rb_teaching = QtWidgets.QRadioButton("教学模式")
         rb_engineering = QtWidgets.QRadioButton("工程模式")
-        rb_assessment = QtWidgets.QRadioButton("考核模式")
         rb_teaching.setChecked(self._pre_test_flow_mode == "teaching")
         rb_engineering.setChecked(self._pre_test_flow_mode == "engineering")
-        rb_assessment.setChecked(self._pre_test_flow_mode == "assessment")
         mode_lay.addWidget(rb_teaching)
         mode_lay.addWidget(rb_engineering)
-        mode_lay.addWidget(rb_assessment)
         lay.addWidget(mode_grp)
 
         brow = QtWidgets.QHBoxLayout()
@@ -281,9 +277,7 @@ class WidgetBuilderMixin:
                     selected_id = btn.property("scenario_id")
                     break
             self._pre_test_flow_mode = (
-                "engineering" if rb_engineering.isChecked() else
-                "assessment" if rb_assessment.isChecked() else
-                "teaching"
+                "engineering" if rb_engineering.isChecked() else "teaching"
             )
             self._on_fp_set(selected_id)
         else:
@@ -294,7 +288,6 @@ class WidgetBuilderMixin:
         return {
             "teaching": "教学模式",
             "engineering": "工程模式",
-            "assessment": "考核模式",
         }.get(mode, "教学模式")
 
     def _on_circuit_click(self, event):

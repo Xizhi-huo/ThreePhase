@@ -42,7 +42,6 @@ def _build_fault_manager():
     manager = FaultManager(
         sim_state=sim,
         blackbox_handler=_BlackboxHandlerStub(),
-        append_assessment_event=lambda *args, **kwargs: None,
         request_pt_ratio_row_update=lambda attr, pri, sec: updates.append((attr, pri, sec)),
         set_last_fault_detected=lambda value: None,
         get_pt_phase_orders=lambda: pt_phase_orders,

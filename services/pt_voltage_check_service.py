@@ -11,7 +11,6 @@ PT 单体线电压检查服务（第二步）
 from typing import Callable
 
 from domain.enums import BreakerPosition
-from domain.assessment import AssessmentEventType
 from domain.test_states import PtVoltageCheckState
 
 _ALL_KEYS = (
@@ -43,7 +42,6 @@ class PtVoltageCheckService:
         get_pt_voltage_check_state: Callable[[], PtVoltageCheckState],
         set_pt_voltage_check_state: Callable[[PtVoltageCheckState], None],
         is_loop_test_complete: Callable[[], bool],
-        append_assessment_event: Callable,
     ):
         self._sim_state = sim_state
         self._flow_mgr = flow_mgr
@@ -51,7 +49,6 @@ class PtVoltageCheckService:
         self._get_pt_voltage_check_state = get_pt_voltage_check_state
         self._set_pt_voltage_check_state = set_pt_voltage_check_state
         self._is_loop_test_complete = is_loop_test_complete
-        self._append_assessment_event = append_assessment_event
 
     # ── 状态工厂 ──────────────────────────────────────────────────────────────
     def create_pt_voltage_check_state(self) -> PtVoltageCheckState:
@@ -110,13 +107,7 @@ class PtVoltageCheckService:
         state = self._get_pt_voltage_check_state()
 
         def _record_invalid(reason) -> None:
-            self._append_assessment_event(
-                AssessmentEventType.MEASUREMENT_INVALID,
-                step=2,
-                target=pt_name,
-                point=phase_pair,
-                reason=reason,
-            )
+            del reason
 
         if not state.started:
             _record_invalid("step_not_started")
@@ -196,13 +187,6 @@ class PtVoltageCheckService:
             'reading': physics.meter_reading,
         }
 
-        self._append_assessment_event(
-            AssessmentEventType.MEASUREMENT_RECORDED,
-            step=2,
-            target=pt_name,
-            point=phase_pair,
-            value=round(primary_v, 2),
-        )
         all_rec = all(state.records[k] is not None for k in _ALL_KEYS)
         # 额定二次侧线电压 = 一次侧额定（10500V）/ 变比
         _nominal_sec = 10500.0 / _pt_ratio

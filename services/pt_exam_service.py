@@ -1,6 +1,6 @@
 """
 services/pt_exam_service.py
-PT 二次端子压差考核服务
+PT 二次端子压差测试服务
 """
 
 from __future__ import annotations
@@ -9,14 +9,13 @@ from typing import Callable
 
 import numpy as np
 
-from domain.assessment import AssessmentEventType
 from domain.enums import BreakerPosition
 from domain.test_states import PtExamState
 
 
 class PtExamService:
     """
-    PT 二次端子压差考核业务逻辑。
+    PT 二次端子压差测试业务逻辑。
     gen_id 由调用方（UI/Controller）显式传入，服务层不再直接读取任何 UI 控件状态。
     """
 
@@ -30,7 +29,6 @@ class PtExamService:
         is_loop_test_complete: Callable[[], bool],
         is_pt_voltage_check_complete: Callable[[], bool],
         is_pt_phase_check_complete: Callable[[], bool],
-        append_assessment_event: Callable,
         mark_fault_detected: Callable | None = None,
     ):
         self._sim_state = sim_state
@@ -40,7 +38,6 @@ class PtExamService:
         self._is_loop_test_complete = is_loop_test_complete
         self._is_pt_voltage_check_complete = is_pt_voltage_check_complete
         self._is_pt_phase_check_complete = is_pt_phase_check_complete
-        self._append_assessment_event = append_assessment_event
         self._mark_fault_detected = mark_fault_detected
 
     # ── 状态工厂 ──────────────────────────────────────────────────────────────
@@ -112,13 +109,7 @@ class PtExamService:
         gen1, gen2 = sim.gen1, sim.gen2
 
         def _record_invalid(reason) -> None:
-            self._append_assessment_event(
-                AssessmentEventType.MEASUREMENT_INVALID,
-                step=4,
-                target=f'Gen{gen_id}',
-                point=key,
-                reason=reason,
-            )
+            del reason
 
         # ── 门禁：必须先点击"开始第四步测试" ──────────────────────────────
         if not state.started:
@@ -251,13 +242,6 @@ class PtExamService:
             'voltage_sec': meter_v_sec,
             'reading': physics.meter_reading,
         }
-        self._append_assessment_event(
-            AssessmentEventType.MEASUREMENT_RECORDED,
-            step=4,
-            target=f'Gen{gen_id}',
-            point=key,
-            value=round(meter_v_sec, 4),
-        )
         done_count = sum(1 for value in state.records.values() if value is not None)
         if done_count == 9:
             msg = f"Gen {gen_id} 全部 9 组 PT 端子矢量压差已记录完成。"
@@ -335,10 +319,6 @@ class PtExamService:
         """完成第四步：Gen1 和 Gen2 均须完成三相记录，才能锁定结果。"""
         gen1_ok = self._are_pt_exam_records_complete(1)
         gen2_ok = self._are_pt_exam_records_complete(2)
-        if self._flow_mgr.is_assessment_mode() and not (gen1_ok and gen2_ok):
-            self._set_pt_exam_feedback(1, "", "#444444")
-            self._set_pt_exam_feedback(2, "", "#444444")
-            return
         if not gen1_ok:
             self._set_pt_exam_feedback(
                 1,
@@ -471,13 +451,6 @@ class PtExamService:
                         'voltage_sec': round(meter_v, 4),
                         'reading': f"快捷记录 {pt_name}_{gen_term}↔PT2_{bus_phase}: {meter_v:.2f} V",
                     }
-                    self._append_assessment_event(
-                        AssessmentEventType.MEASUREMENT_RECORDED,
-                        step=4,
-                        target=f'Gen{gen_id}',
-                        point=key,
-                        value=round(meter_v, 4),
-                    )
 
             self._set_pt_exam_feedback(
                 gen_id,

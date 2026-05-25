@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from domain.assessment import AssessmentEventType
-
 _NORMAL_ORDER = ['A', 'B', 'C']
 _NORMAL_POLARITY = [1, 1, 1]
 
@@ -26,7 +24,6 @@ class BlackboxRepairHandler:
         sim_state,
         flow_mgr,
         get_fault_mgr: Callable[[], object],
-        append_assessment_event: Callable,
         get_pt_phase_orders: Callable[[], dict],
         get_g1_blackbox_order: Callable[[], list],
         set_g1_blackbox_order: Callable[[list], None],
@@ -45,7 +42,6 @@ class BlackboxRepairHandler:
         self._sim_state = sim_state
         self._flow_mgr = flow_mgr
         self._get_fault_mgr = get_fault_mgr
-        self._append_assessment_event = append_assessment_event
         self._get_pt_phase_orders = get_pt_phase_orders
         self._get_g1_blackbox_order = get_g1_blackbox_order
         self._set_g1_blackbox_order = set_g1_blackbox_order
@@ -146,57 +142,16 @@ class BlackboxRepairHandler:
             initial_sec_polarity=None,
             new_sec_polarity=None) -> BlackboxRepairOutcome:
         component_correct = False
-        touched_layers = []
 
         if target == 'G1':
-            if initial_order is not None and list(new_order) != list(initial_order):
-                self._append_assessment_event(
-                    AssessmentEventType.BLACKBOX_SWAP,
-                    step=step,
-                    target='G1',
-                    layer='terminal',
-                    from_order=list(initial_order),
-                    to_order=list(new_order),
-                )
-                touched_layers.append('terminal')
             self._set_g1_blackbox_order(list(new_order))
             self.sync_pt1_blackbox_to_phase_orders()
             component_correct = (list(new_order) == ['A', 'B', 'C'])
         elif target == 'G2':
-            if initial_order is not None and list(new_order) != list(initial_order):
-                self._append_assessment_event(
-                    AssessmentEventType.BLACKBOX_SWAP,
-                    step=step,
-                    target='G2',
-                    layer='terminal',
-                    from_order=list(initial_order),
-                    to_order=list(new_order),
-                )
-                touched_layers.append('terminal')
             self._set_g2_blackbox_order(list(new_order))
             self.sync_g2_blackbox_to_phase_orders()
             component_correct = (list(new_order) == ['A', 'B', 'C'])
         elif target == 'PT1':
-            if initial_pri_order is not None and list(new_pri_order) != list(initial_pri_order):
-                self._append_assessment_event(
-                    AssessmentEventType.BLACKBOX_SWAP,
-                    step=step,
-                    target='PT1',
-                    layer='primary',
-                    from_order=list(initial_pri_order),
-                    to_order=list(new_pri_order),
-                )
-                touched_layers.append('primary')
-            if initial_sec_order is not None and list(new_sec_order) != list(initial_sec_order):
-                self._append_assessment_event(
-                    AssessmentEventType.BLACKBOX_SWAP,
-                    step=step,
-                    target='PT1',
-                    layer='secondary',
-                    from_order=list(initial_sec_order),
-                    to_order=list(new_sec_order),
-                )
-                touched_layers.append('secondary')
             self._set_pt1_pri_blackbox_order(list(new_pri_order))
             self._set_pt1_sec_blackbox_order(list(new_sec_order))
             self.sync_pt1_blackbox_to_phase_orders()
@@ -205,44 +160,10 @@ class BlackboxRepairHandler:
                 and list(new_sec_order) == ['A', 'B', 'C']
             )
         elif target == 'PT2':
-            if initial_sec_order is not None and list(new_sec_order) != list(initial_sec_order):
-                self._append_assessment_event(
-                    AssessmentEventType.BLACKBOX_SWAP,
-                    step=step,
-                    target='PT2',
-                    layer='secondary',
-                    from_order=list(initial_sec_order),
-                    to_order=list(new_sec_order),
-                )
-                touched_layers.append('secondary')
             self._set_pt2_sec_blackbox_order(list(new_sec_order))
             self.sync_pt2_blackbox_to_phase_orders()
             component_correct = (list(new_sec_order) == ['A', 'B', 'C'])
         elif target == 'PT3':
-            if initial_sec_order is not None and list(new_sec_order) != list(initial_sec_order):
-                self._append_assessment_event(
-                    AssessmentEventType.BLACKBOX_SWAP,
-                    step=step,
-                    target='PT3',
-                    layer='secondary',
-                    from_order=list(initial_sec_order),
-                    to_order=list(new_sec_order),
-                )
-                touched_layers.append('secondary')
-            if (
-                initial_sec_polarity is not None
-                and new_sec_polarity is not None
-                and list(new_sec_polarity) != list(initial_sec_polarity)
-            ):
-                self._append_assessment_event(
-                    AssessmentEventType.BLACKBOX_SWAP,
-                    step=step,
-                    target='PT3',
-                    layer='polarity',
-                    from_order=list(initial_sec_polarity),
-                    to_order=list(new_sec_polarity),
-                )
-                touched_layers.append('polarity')
             pt3_order = self._get_pt_phase_orders().setdefault('PT3', ['A', 'B', 'C'])
             pt3_order[:] = list(new_sec_order)
             fault_config = self._sim_state.fault_config
@@ -261,14 +182,6 @@ class BlackboxRepairHandler:
             )
         else:
             raise ValueError(f"Unsupported blackbox repair target: {target}")
-
-        self._append_assessment_event(
-            AssessmentEventType.BLACKBOX_CONFIRM_ATTEMPTED,
-            step=step,
-            target=target,
-            layers=touched_layers,
-            success=bool(component_correct),
-        )
 
         if not component_correct:
             return BlackboxRepairOutcome(

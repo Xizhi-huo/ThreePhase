@@ -57,7 +57,7 @@ class PtVoltageCheckState:
 
 @dataclass
 class PtExamState:
-    """第四步：PT 二次端子压差考核状态（每台发电机各一份）"""
+    """第四步：PT 二次端子压差测试状态（每台发电机各一份）"""
     records: Dict[str, Optional[dict]] = field(
         default_factory=lambda: {f'{g}{b}': None for g in 'ABC' for b in 'ABC'}
     )

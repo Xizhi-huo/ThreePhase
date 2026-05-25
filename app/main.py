@@ -8,7 +8,7 @@ PowerSyncController   唯一数据源 (SimulationState) + 编排层
   ├─ LoopTestService          第一步：回路连通性测试业务逻辑
   ├─ PtVoltageCheckService    第二步：PT 单体线电压检查业务逻辑
   ├─ PtPhaseCheckService      第三步：PT 相序检查业务逻辑
-  ├─ PtExamService            第四步：PT 二次端子压差考核业务逻辑
+  ├─ PtExamService            第四步：PT 二次端子压差测试业务逻辑
   └─ SyncTestService          第五步：同步功能测试业务逻辑
 PhysicsEngine         物理计算，通过显式注入依赖读写状态，build_render_state() 输出快照
 PowerSyncUI           视图，通过 ctrl 引用读写状态，render_visuals(rs) 消费 RenderState
@@ -21,19 +21,17 @@ import random
 import traceback
 import time
 from copy import deepcopy
+from types import SimpleNamespace
 
 # 将项目根目录加入 sys.path，确保 domain/services/ui 包可以被找到
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PyQt5 import QtWidgets, QtCore
 
-from domain.assessment import AssessmentContext
 from domain.constants import DEFAULT_PT_RATIO_ROWS, GRID_AMP
 from domain.models import GeneratorState, SimulationState, FaultConfig
 from domain.phase_order_state import PhaseOrderState
 from app.controller_signals import ControllerSignals
-from services.assessment_service import AssessmentService
-from services.assessment_coordinator import AssessmentCoordinator
 from services.blackbox_repair_handler import BlackboxRepairHandler
 from services.fault_manager import FaultManager
 from services.hardware_actions import HardwareActions
@@ -81,7 +79,6 @@ class PowerSyncController:
         self.signals = ControllerSignals()
         self._last_reported_test_step = 1
         self.test_flow_mode = 'teaching'
-        self.assessment_session = None
         self._last_fault_detected = False
         self._pending_accident_scene_id = None
         self._pending_ui_tab_index = None
@@ -92,34 +89,10 @@ class PowerSyncController:
         self._test_entry_state_snapshot = None
 
         # ── 业务服务（显式构造注入；controller 保留状态所有权与桥接辅助）───
-        self.assessment_svc       = AssessmentService()
-        self.assessment_coord     = AssessmentCoordinator(
-            sim_state=self.sim_state,
-            flow_mgr=self.flow_mgr,
-            assessment_svc=self.assessment_svc,
-            get_fault_mgr=lambda: self.fault_mgr,
-            get_assessment_session=lambda: self.assessment_session,
-            set_assessment_session=lambda session: setattr(self, 'assessment_session', session),
-            set_last_fault_detected=lambda v: setattr(self, '_last_fault_detected', v),
-            get_loop_test_state=lambda: self.loop_test_state,
-            get_pt_voltage_check_state=lambda: self.pt_voltage_check_state,
-            get_pt_phase_check_state=lambda: self.pt_phase_check_state,
-            get_pt_exam_states=lambda: self.pt_exam_states,
-            get_g1_blackbox_order=lambda: self.g1_blackbox_order,
-            get_g2_blackbox_order=lambda: self.g2_blackbox_order,
-            get_pt1_pri_blackbox_order=lambda: self.pt1_pri_blackbox_order,
-            get_pt1_sec_blackbox_order=lambda: self.pt1_sec_blackbox_order,
-            get_pt2_sec_blackbox_order=lambda: self.pt2_sec_blackbox_order,
-            is_loop_test_complete=lambda: self.loop_svc.is_loop_test_complete(),
-            is_pt_voltage_check_complete=lambda: self.pt_voltage_svc.is_pt_voltage_check_complete(),
-            is_pt_phase_check_complete=lambda: self.pt_phase_svc.is_pt_phase_check_complete(),
-            build_assessment_context=lambda snapshot: AssessmentContext.from_snapshot_and_ctrl(snapshot, self),
-        )
         self.blackbox_handler     = BlackboxRepairHandler(
             sim_state=self.sim_state,
             flow_mgr=self.flow_mgr,
             get_fault_mgr=lambda: self.fault_mgr,
-            append_assessment_event=self.assessment_coord.append_assessment_event,
             get_pt_phase_orders=lambda: self.pt_phase_orders,
             get_g1_blackbox_order=lambda: self.g1_blackbox_order,
             set_g1_blackbox_order=lambda val: setattr(self, 'g1_blackbox_order', val),
@@ -151,7 +124,6 @@ class PowerSyncController:
             is_sync_test_complete=lambda: self.sync_svc.is_sync_test_complete(),
             is_sync_test_active=lambda: self.is_sync_test_active(),
             is_pt_exam_started=lambda gen_id: self.pt_exam_states[gen_id].started,
-            append_assessment_event=self.assessment_coord.append_assessment_event,
             set_pt_exam_feedback=lambda gen_id, msg, color: self.pt_exam_svc._set_pt_exam_feedback(gen_id, msg, color),
             request_ui_tab=self.request_ui_tab,
             show_warning=lambda title, msg: self.ui.show_warning(title, msg),
@@ -162,7 +134,6 @@ class PowerSyncController:
         self.fault_mgr            = FaultManager(
             sim_state=self.sim_state,
             blackbox_handler=self.blackbox_handler,
-            append_assessment_event=self.assessment_coord.append_assessment_event,
             request_pt_ratio_row_update=self.request_pt_ratio_row_update,
             set_last_fault_detected=lambda v: setattr(self, '_last_fault_detected', v),
             get_pt_phase_orders=lambda: self.pt_phase_orders,
@@ -183,9 +154,8 @@ class PowerSyncController:
             get_physics=lambda: self.physics,
             get_loop_test_state=lambda: self.loop_test_state,
             set_loop_test_state=lambda state: setattr(self, 'loop_test_state', state),
-            append_assessment_event=self.assessment_coord.append_assessment_event,
             exit_loop_test_mode=self.exit_loop_test_mode,
-            mark_fault_detected=self.assessment_coord.mark_fault_detected,
+            mark_fault_detected=self.mark_fault_detected,
         )
         self.pt_voltage_svc       = PtVoltageCheckService(
             sim_state=self.sim_state,
@@ -194,7 +164,6 @@ class PowerSyncController:
             get_pt_voltage_check_state=lambda: self.pt_voltage_check_state,
             set_pt_voltage_check_state=lambda state: setattr(self, 'pt_voltage_check_state', state),
             is_loop_test_complete=lambda: self.loop_svc.is_loop_test_complete(),
-            append_assessment_event=self.assessment_coord.append_assessment_event,
         )
         self.pt_phase_svc         = PtPhaseCheckService(
             sim_state=self.sim_state,
@@ -204,8 +173,7 @@ class PowerSyncController:
             set_pt_phase_check_state=lambda state: setattr(self, 'pt_phase_check_state', state),
             is_loop_test_complete=lambda: self.loop_svc.is_loop_test_complete(),
             is_pt_voltage_check_complete=lambda: self.pt_voltage_svc.is_pt_voltage_check_complete(),
-            append_assessment_event=self.assessment_coord.append_assessment_event,
-            mark_fault_detected=self.assessment_coord.mark_fault_detected,
+            mark_fault_detected=self.mark_fault_detected,
             set_pt_phase_check_feedback=self.set_pt_phase_check_feedback,
             record_pt_phase_check_result=self.record_pt_phase_check_result,
             mark_pt_phase_check_completed=self.mark_pt_phase_check_completed,
@@ -219,8 +187,7 @@ class PowerSyncController:
             is_loop_test_complete=lambda: self.loop_svc.is_loop_test_complete(),
             is_pt_voltage_check_complete=lambda: self.pt_voltage_svc.is_pt_voltage_check_complete(),
             is_pt_phase_check_complete=lambda: self.pt_phase_svc.is_pt_phase_check_complete(),
-            append_assessment_event=self.assessment_coord.append_assessment_event,
-            mark_fault_detected=self.assessment_coord.mark_fault_detected,
+            mark_fault_detected=self.mark_fault_detected,
         )
         self.sync_svc             = SyncTestService(
             sim_state=self.sim_state,
@@ -255,7 +222,7 @@ class PowerSyncController:
             get_loop_test_state=lambda: self.loop_test_state,
             get_pt_voltage_check_state=lambda: self.pt_voltage_check_state,
             is_sync_test_active=self.is_sync_test_active,
-            mark_fault_detected=self.assessment_coord.mark_fault_detected,
+            mark_fault_detected=self.mark_fault_detected,
             queue_accident_dialog=self.queue_accident_dialog,
         )
 
@@ -329,11 +296,7 @@ class PowerSyncController:
 
     @test_flow_mode.setter
     def test_flow_mode(self, value: str):
-        old_is_assessment = self.flow_mgr.is_assessment_mode()
         self.flow_mgr.test_flow_mode = value
-        new_is_assessment = self.flow_mgr.is_assessment_mode()
-        if old_is_assessment != new_is_assessment:
-            self.signals.assessment_mode_changed.emit(new_is_assessment)
 
     def _emit_step_changed_if_needed(self, new_step: int):
         old_step = self._last_reported_test_step
@@ -424,7 +387,6 @@ class PowerSyncController:
             "pt_exam_states": deepcopy(self.pt_exam_states),
             "sync_test_state": deepcopy(self.sync_test_state),
             "test_flow_mode": self.test_flow_mode,
-            "assessment_session": deepcopy(self.assessment_session),
             "last_fault_detected": self._last_fault_detected,
             "pending_accident_scene_id": self._pending_accident_scene_id,
             "pending_ui_tab_index": self._pending_ui_tab_index,
@@ -433,7 +395,7 @@ class PowerSyncController:
         }
 
     def restore_test_entry_state(self):
-        """退出测试时恢复进入测试前的仿真、步骤、故障和考核状态。"""
+        """退出测试时恢复进入测试前的仿真、步骤和故障状态。"""
         snapshot = self._test_entry_state_snapshot
         if snapshot is None:
             return
@@ -458,7 +420,6 @@ class PowerSyncController:
         self.sync_test_state = deepcopy(snapshot["sync_test_state"])
 
         self.test_flow_mode = snapshot["test_flow_mode"]
-        self.assessment_session = deepcopy(snapshot["assessment_session"])
         self._last_fault_detected = snapshot["last_fault_detected"]
         self._pending_accident_scene_id = snapshot["pending_accident_scene_id"]
         self._pending_ui_tab_index = snapshot["pending_ui_tab_index"]
@@ -473,9 +434,6 @@ class PowerSyncController:
 
     def get_pt_phase_sequence(self, pt_name):
         return self.phase_resolver.get_pt_phase_sequence(pt_name)
-
-    def is_assessment_mode(self):
-        return self.flow_mgr.is_assessment_mode()
 
     def allow_admin_shortcuts(self):
         return self.flow_mgr.allow_admin_shortcuts()
@@ -501,24 +459,42 @@ class PowerSyncController:
     def can_repair_in_blackbox(self):
         return self.flow_mgr.can_repair_in_blackbox()
 
-    def start_assessment_session(self, scenario_id: str, *, preset_mode: str):
-        return self.assessment_coord.start_assessment_session(scenario_id, preset_mode=preset_mode)
-
-    def append_assessment_event(self, event_type, **kwargs):
-        return self.assessment_coord.append_assessment_event(event_type, **kwargs)
+    def mark_fault_detected(self, step: int, source: str, **payload) -> bool:
+        del step, source, payload
+        fc = self.sim_state.fault_config
+        if not (fc.active and not fc.repaired):
+            return False
+        fc.detected = True
+        self._last_fault_detected = True
+        return True
 
     def get_test_progress_snapshot(self, step: int, pre_step5_repair_triggered: bool):
         self._emit_step_changed_if_needed(step)
-        return self.assessment_coord.get_test_progress_snapshot(step, pre_step5_repair_triggered)
-
-    def finish_assessment_session_if_ready(self, step: int):
-        return self.assessment_coord.finish_assessment_session_if_ready(step)
-
-    def mark_assessment_result_shown(self):
-        return self.assessment_coord.mark_assessment_result_shown()
-
-    def submit_random_fault_identification(self, scene_id: str):
-        return self.assessment_coord.submit_random_fault_identification(scene_id)
+        ready_for_step5 = (
+            self.loop_svc.is_loop_test_complete()
+            and self.pt_voltage_svc.is_pt_voltage_check_complete()
+            and self.pt_phase_svc.is_pt_phase_check_complete()
+            and self.pt_exam_states[1].completed
+            and self.pt_exam_states[2].completed
+        )
+        fc = self.sim_state.fault_config
+        block_before_step5 = (
+            ready_for_step5
+            and self.flow_mgr.should_block_step5_until_blackbox_fixed()
+            and self.fault_mgr.has_unrepaired_wiring_fault()
+            and fc.scenario_id not in ('E01', 'E02', 'E03')
+        )
+        should_show_blackbox_required_dialog = (
+            block_before_step5
+            and self.flow_mgr.should_show_blackbox_required_dialog_before_step5()
+            and not pre_step5_repair_triggered
+        )
+        return SimpleNamespace(
+            current_step=step,
+            ready_for_step5=ready_for_step5,
+            block_before_step5=block_before_step5,
+            should_show_blackbox_required_dialog=should_show_blackbox_required_dialog,
+        )
 
     def get_blackbox_runtime_state(self, target: str):
         return self.blackbox_handler.get_blackbox_runtime_state(target)
@@ -661,7 +637,7 @@ class PowerSyncController:
         return self.pt_phase_svc.record_phase_sequence(pt_name, seq)
 
     # ════════════════════════════════════════════════════════════════════════
-    # 第四步：PT 二次端子压差考核 — 委托给 PtExamService
+    # 第四步：PT 二次端子压差测试 — 委托给 PtExamService
     # ════════════════════════════════════════════════════════════════════════
     def reset_pt_exam(self, gen_id=None):
         self.pt_exam_svc.reset_pt_exam(gen_id)

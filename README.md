@@ -1,6 +1,6 @@
 # ThreePhase 三相电并网仿真教学系统
 
-基于 PyQt5 的高压机组并网操作培训桌面应用。当前主流程为隔离母排模式，覆盖五步并网测试、错误场景注入、物理接线黑盒修复、考核模式评分和基础回归测试。
+基于 PyQt5 的高压机组并网操作培训桌面应用。当前主流程为隔离母排模式，覆盖五步并网测试、错误场景注入、物理接线黑盒修复和基础回归测试。
 
 详细实现背景见 [context.md](context.md)，长期维护清单见 [MAINTENANCE_CHECKLIST.md](MAINTENANCE_CHECKLIST.md)。
 
@@ -19,38 +19,16 @@ python app/main.py
 python -m pytest
 ```
 
-当前回归基线：30 项测试通过。
-
 ## 项目结构
 
 ```text
 ThreePhase/
-├── app/
-│   ├── main.py                  # 应用入口、PowerSyncController
-│   └── controller_signals.py    # Controller 到 UI 的信号总线
-├── domain/
-│   ├── models.py                # GeneratorState、SimulationState
-│   ├── test_states.py           # 五步测试状态
-│   ├── fault_scenarios.py       # E01-E14 故障场景
-│   ├── assessment.py            # 考核事件、会话、成绩数据结构
-│   └── constants.py             # 物理常量
-├── services/
-│   ├── physics_engine.py        # 物理引擎入口
-│   ├── _physics_*.py            # 波形、仲裁、保护、测量 Mixin
-│   ├── loop_test_service.py     # 第一步回路测试
-│   ├── pt_voltage_check_service.py
-│   ├── pt_phase_check_service.py
-│   ├── pt_exam_service.py
-│   ├── sync_test_service.py
-│   ├── fault_manager.py
-│   └── scoring/                 # 考核评分规则
-├── ui/
-│   ├── main_window.py
-│   ├── test_panel.py
-│   ├── panels/
-│   ├── tabs/
-│   └── widgets/
-├── tests/
+├── app/                 # 应用入口、控制器与信号
+├── adapters/            # UI 渲染快照
+├── domain/              # 领域模型、常量、故障场景、步骤状态
+├── services/            # 物理引擎、五步测试、故障管理、黑盒修复
+├── ui/                  # PyQt5 主窗口、控制面板、Tab 与控件
+├── tests/               # 回归测试与快照
 ├── README.md
 └── context.md
 ```
@@ -65,21 +43,10 @@ PowerSyncController
   ├── SimulationState
   ├── PhysicsEngine
   ├── FaultManager
-  ├── AssessmentCoordinator
   └── 五步测试 Service
 ```
 
 `SimulationState` 是运行态数据源；`PhysicsEngine` 每帧更新波形、母排仲裁、断路器保护和测量值；五步测试 Service 负责记录、校验和流程推进；UI 只负责展示和采集操作。
-
-## 当前状态
-
-- 已启用 E01-E14；E15/E16 暂时禁用。
-- 第一步回路测试已扩展为 `AA/BB/CC/AB/AC/BC` 六组记录。
-- E03 可通过 PT3 接线盒二次侧极性标识修复。
-- E04 可通过右侧控制台恢复 PT3 额定变比 `11000:193` 修复。
-- 第五步完成后会稳定双机到 `50Hz / 10500V / 0°`，并重置波形历史。
-- 中性点接地断开显示只隐藏电阻下方三条竖线的下段，保留汇合线、汇合点和电阻连接。
-- 考核模式使用 33 个计分点，成绩单由 `services/scoring/` 规则生成。
 
 ## 五步测试流程
 
@@ -88,7 +55,7 @@ PowerSyncController
 | 1. 回路导通测试 | `LoopTestService` | `AA/BB/CC` 同相导通，`AB/AC/BC` 异相隔离 |
 | 2. PT 电压检查 | `PtVoltageCheckService` | PT1/PT2/PT3 三相线电压在额定容差内 |
 | 3. PT 相序检查 | `PtPhaseCheckService` | PT1/PT2/PT3 相序显示正序、反序或异常 |
-| 4. PT 压差考核 | `PtExamService` | 比较机组侧 PT 与母排侧 PT2 的二次相电压矢量差 |
+| 4. PT 压差测试 | `PtExamService` | 比较机组侧 PT 与母排侧 PT2 的二次相电压矢量差 |
 | 5. 同期功能测试 | `SyncTestService` | Gen2 自动追踪 Gen1，满足同期条件后合闸 |
 
 第四步压差计算口径：
@@ -122,23 +89,13 @@ E03 的 PT3 A 相极性反接会改变压差口径：同相变为 `gen_ph + bus_
 |------|------|
 | `teaching` | 教学模式，允许带异常继续收集证据 |
 | `engineering` | 工程模式，要求当前步骤合格后才能推进 |
-| `assessment` | 考核模式，弱化提示，记录事件流，第四步闭环后生成成绩单 |
 
 E01/E02 的真实修复入口保留在第五步事故弹窗；E03 优先通过 PT3 接线盒修复；E04 通过变比面板修复，不走黑盒门禁。
-
-## UI 入口
-
-- 主窗口：`ui/main_window.py`
-- 右侧控制面板：`ui/panels/control_panel.py`
-- 测试模式面板：`ui/test_panel.py`
-- 母排拓扑：`ui/tabs/circuit_tab/`
-- 黑盒接线图：`ui/widgets/pt_wiring_widget.py`、`ui/widgets/gen_wiring_widget.py`
 
 ## 测试覆盖
 
 当前测试集中覆盖：
 
-- 考核评分快照
 - 黑盒修复编排
 - E04 PT3 变比修复
 - 第一步六组回路记录

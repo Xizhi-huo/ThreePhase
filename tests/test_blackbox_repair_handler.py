@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from domain.assessment import AssessmentEventType
 from domain.models import FaultConfig
 from services.blackbox_repair_handler import BlackboxRepairHandler
 from services.flow_mode_manager import FlowModeManager
@@ -38,7 +37,6 @@ def _build_handler(
         params=params,
     )
     flow_mgr = FlowModeManager()
-    events = []
     repairs = []
     pt_phase_orders = {
         "PT1": ["A", "B", "C"],
@@ -59,7 +57,6 @@ def _build_handler(
             repairs,
             all_normal=lambda: pt2_sec_order == ["A", "B", "C"],
         ),
-        append_assessment_event=lambda event_type, **payload: events.append((event_type, payload)),
         get_pt_phase_orders=lambda: pt_phase_orders,
         get_g1_blackbox_order=lambda: g1_order,
         set_g1_blackbox_order=lambda value: g1_order.__setitem__(slice(None), value),
@@ -75,11 +72,11 @@ def _build_handler(
         apply_pt1_blackbox_to_pt_phases=lambda value: pt_phase_orders.__setitem__("PT1", list(value)),
         apply_pt2_blackbox_to_pt2=lambda: pt_phase_orders.__setitem__("PT2", list(pt2_sec_order)),
     )
-    return sim, events, repairs, handler
+    return sim, repairs, handler
 
 
 def test_e03_pt3_polarity_repair_clears_fault():
-    sim, events, repairs, handler = _build_handler()
+    sim, repairs, handler = _build_handler()
 
     runtime_state = handler.get_blackbox_runtime_state("PT3")
     assert runtime_state["sec_polarity"] == [-1, 1, 1]
@@ -97,16 +94,10 @@ def test_e03_pt3_polarity_repair_clears_fault():
     assert outcome.fault_cleared is True
     assert sim.fault_config.repaired is True
     assert repairs == [(2, "PT3_polarity_blackbox")]
-    assert any(
-        event_type == AssessmentEventType.BLACKBOX_SWAP
-        and payload["target"] == "PT3"
-        and payload["layer"] == "polarity"
-        for event_type, payload in events
-    )
 
 
 def test_e03_pt3_polarity_must_be_normal_to_clear_fault():
-    sim, events, repairs, handler = _build_handler()
+    sim, repairs, handler = _build_handler()
 
     outcome = handler.apply_blackbox_repair_attempt(
         "PT3",
@@ -121,16 +112,10 @@ def test_e03_pt3_polarity_must_be_normal_to_clear_fault():
     assert outcome.fault_cleared is False
     assert sim.fault_config.repaired is False
     assert repairs == []
-    assert any(
-        event_type == AssessmentEventType.BLACKBOX_CONFIRM_ATTEMPTED
-        and payload["target"] == "PT3"
-        and payload["success"] is False
-        for event_type, payload in events
-    )
 
 
 def test_pt2_secondary_repair_clears_repairable_fault():
-    sim, events, repairs, handler = _build_handler(
+    sim, repairs, handler = _build_handler(
         scenario_id="E17",
         params={"pt2_sec_blackbox_order": ["A", "C", "B"]},
         pt2_sec_order_initial=["A", "C", "B"],
@@ -150,9 +135,3 @@ def test_pt2_secondary_repair_clears_repairable_fault():
     assert outcome.fault_cleared is True
     assert sim.fault_config.repaired is True
     assert repairs == [(3, "PT2_blackbox")]
-    assert any(
-        event_type == AssessmentEventType.BLACKBOX_SWAP
-        and payload["target"] == "PT2"
-        and payload["layer"] == "secondary"
-        for event_type, payload in events
-    )

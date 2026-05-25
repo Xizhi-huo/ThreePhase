@@ -7,32 +7,28 @@ from ui.widgets.pt_wiring_widget import PTWiringWidget
 from ui.widgets.step_panels._panel_builders import tone_from_color
 
 
-def show_blackbox_required_dialog(owner, *, is_assessment, scene_id):
+def show_blackbox_required_dialog(owner, *, scene_id):
     info = SCENARIOS.get(scene_id, {})
     dlg = QtWidgets.QDialog(owner)
-    dlg.setWindowTitle("⚠️ 当前流程尚未闭环" if is_assessment else "⚠️ 仍有接线故障未修复")
+    dlg.setWindowTitle("⚠️ 仍有接线故障未修复")
     dlg.setModal(True)
     dlg.resize(500, 300)
     lay = QtWidgets.QVBoxLayout(dlg)
     lay.setContentsMargins(14, 12, 14, 12)
     lay.setSpacing(10)
-    title_text = "当前考核尚未闭环" if is_assessment else info.get("title", "故障") + " — 需先完成黑盒修复"
+    title_text = info.get("title", "故障") + " — 需先完成黑盒修复"
     title_lbl = QtWidgets.QLabel(title_text)
     title_lbl.setStyleSheet("font-size:14px; font-weight:bold; color:#991b1b;")
     lay.addWidget(title_lbl)
-    if is_assessment:
-        hint_text = "当前考核仍未满足结束条件，暂不能继续后续流程。\n\n请根据前四步已获得的测量结果继续排查并完成闭环。如需进一步确认，可进入黑盒检查，但系统不会提供具体故障位置提示。"
-    else:
-        hint_text = "当前仍存在未恢复的物理接线错误，不能进入第五步【同步功能测试】。\n\n请先回到当前流程中的黑盒检查区，完成相关接线修复。只有当相关接线全部恢复为正确顺序后，系统才会自动允许进入第五步。"
+    hint_text = "当前仍存在未恢复的物理接线错误，不能进入第五步【同步功能测试】。\n\n请先回到当前流程中的黑盒检查区，完成相关接线修复。只有当相关接线全部恢复为正确顺序后，系统才会自动允许进入第五步。"
     hint = QtWidgets.QLabel(hint_text)
     hint.setWordWrap(True)
     hint.setStyleSheet("font-size:12px; color:#1f2937; background:#fff7ed; border:1px solid #fdba74; border-radius:4px; padding:8px;")
     lay.addWidget(hint)
-    if not is_assessment:
-        symptom_lbl = QtWidgets.QLabel("【当前已记录的异常现象】\n" + info.get("symptom", ""))
-        symptom_lbl.setWordWrap(True)
-        symptom_lbl.setStyleSheet("font-size:11px; color:#374151; background:#fef3c7; padding:6px; border-radius:4px;")
-        lay.addWidget(symptom_lbl)
+    symptom_lbl = QtWidgets.QLabel("【当前已记录的异常现象】\n" + info.get("symptom", ""))
+    symptom_lbl.setWordWrap(True)
+    symptom_lbl.setStyleSheet("font-size:11px; color:#374151; background:#fef3c7; padding:6px; border-radius:4px;")
+    lay.addWidget(symptom_lbl)
     btn_ok = QtWidgets.QPushButton("知道了")
     btn_ok.setStyleSheet("background:#334155; color:white; font-weight:bold; padding:6px 14px;")
     btn_ok.clicked.connect(dlg.accept)
@@ -46,7 +42,6 @@ def show_blackbox_dialog(owner, *, api, step, target):
     sim = api.sim_state
     fc = sim.fault_config
     allow_repair = api.can_repair_in_blackbox()
-    assessment_mode = api.is_assessment_mode()
     blackbox_state = api.get_blackbox_runtime_state(target)
     fault_active = blackbox_state["fault_active"]
     dlg = QtWidgets.QDialog(owner)
@@ -141,7 +136,7 @@ def show_blackbox_dialog(owner, *, api, step, target):
         initial_sec_polarity = widget.get_sec_polarity()
         vlay.addWidget(widget, alignment=QtCore.Qt.AlignHCenter)
         repair_target = blackbox_state["repair_target"]
-        if fault_active and fc.scenario_id == "E03" and not assessment_mode:
+        if fault_active and fc.scenario_id == "E03":
             note = QtWidgets.QLabel("⚠ A 相极性反接：A1 正负极颠倒（a2 输出反相）")
             set_props(note, stepBanner=True, tone="warning")
             note.setWordWrap(True)
@@ -179,18 +174,13 @@ def show_blackbox_dialog(owner, *, api, step, target):
                 initial_sec_polarity=initial_sec_polarity,
                 new_sec_polarity=new_sec_polarity,
             )
-            if not assessment_mode:
-                fb_lbl.setText(outcome.message)
-                set_props(fb_lbl, feedbackText=True, tone=tone_from_color(outcome.message_color))
-                fb_lbl.setVisible(True)
-            else:
-                fb_lbl.setText("接线已保存，请关闭黑盒后返回外部测试流程复测。")
-                set_props(fb_lbl, feedbackText=True, tone="info")
-                fb_lbl.setVisible(True)
-            if outcome.disable_repair_button and not assessment_mode:
+            fb_lbl.setText(outcome.message)
+            set_props(fb_lbl, feedbackText=True, tone=tone_from_color(outcome.message_color))
+            fb_lbl.setVisible(True)
+            if outcome.disable_repair_button:
                 btn_repair.setEnabled(False)
 
-        btn_repair = QtWidgets.QPushButton("保存接线" if assessment_mode else "确认修复 ✓")
+        btn_repair = QtWidgets.QPushButton("确认修复 ✓")
         apply_button_tone(owner, btn_repair, "success")
         btn_repair.clicked.connect(_on_confirm)
         bh.addWidget(btn_repair, 1)

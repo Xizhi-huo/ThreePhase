@@ -18,9 +18,6 @@ class FlowModePolicy:
     allow_blackbox_repair: bool
     auto_clear_fault_only_when_all_blackboxes_normal: bool
     allow_admin_shortcuts: bool
-    record_assessment_metrics: bool
-    auto_score_assessment: bool
-    assessment_ends_after_step4_closed_loop: bool
 
 
 FLOW_MODE_POLICIES = {
@@ -37,9 +34,6 @@ FLOW_MODE_POLICIES = {
         allow_blackbox_repair=True,
         auto_clear_fault_only_when_all_blackboxes_normal=True,
         allow_admin_shortcuts=True,
-        record_assessment_metrics=False,
-        auto_score_assessment=False,
-        assessment_ends_after_step4_closed_loop=False,
     ),
     'engineering': FlowModePolicy(
         allow_continue_with_fault=False,
@@ -54,26 +48,6 @@ FLOW_MODE_POLICIES = {
         allow_blackbox_repair=True,
         auto_clear_fault_only_when_all_blackboxes_normal=True,
         allow_admin_shortcuts=True,
-        record_assessment_metrics=False,
-        auto_score_assessment=False,
-        assessment_ends_after_step4_closed_loop=False,
-    ),
-    'assessment': FlowModePolicy(
-        allow_continue_with_fault=False,
-        # require_all_measurements_before_finalize=True,
-        # require_step_pass_to_finalize=True,
-        show_fault_detected_banner=False,
-        show_diagnostic_hints=False,
-        block_step5_until_blackbox_fixed=True,
-        hold_at_step4_when_wiring_fault_unrepaired=True,
-        show_blackbox_required_dialog_before_step5=True,
-        allow_blackbox_inspection=True,
-        allow_blackbox_repair=True,
-        auto_clear_fault_only_when_all_blackboxes_normal=True,
-        allow_admin_shortcuts=False,
-        record_assessment_metrics=True,
-        auto_score_assessment=True,
-        assessment_ends_after_step4_closed_loop=True,
     ),
 }
 
@@ -93,9 +67,6 @@ class FlowModeManager:
 
     def is_engineering_mode(self) -> bool:
         return self.test_flow_mode == 'engineering'
-
-    def is_assessment_mode(self) -> bool:
-        return self.test_flow_mode == 'assessment'
 
     def can_advance_with_fault(self) -> bool:
         return self.flow_policy_flag('allow_continue_with_fault')
@@ -134,13 +105,4 @@ class FlowModeManager:
         return self.flow_policy_flag('allow_admin_shortcuts')
 
     def can_use_pt_exam_quick_record(self) -> bool:
-        return self.allow_admin_shortcuts() or self.is_assessment_mode()
-
-    def should_record_assessment_metrics(self) -> bool:
-        return self.flow_policy_flag('record_assessment_metrics')
-
-    def should_auto_score_assessment(self) -> bool:
-        return self.flow_policy_flag('auto_score_assessment')
-
-    def assessment_ends_after_step4_closed_loop(self) -> bool:
-        return self.flow_policy_flag('assessment_ends_after_step4_closed_loop')
+        return self.allow_admin_shortcuts()

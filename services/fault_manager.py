@@ -1,6 +1,5 @@
 from typing import Callable, List
 
-from domain.assessment import AssessmentEventType
 from domain.constants import DEFAULT_PT3_RATIO, DEFAULT_PT_RATIO_ROWS, E04_PT3_RATIO, E04_PT3_RATIO_ROW
 from domain.fault_scenarios import SCENARIOS
 
@@ -11,7 +10,6 @@ class FaultManager:
         *,
         sim_state,
         blackbox_handler,
-        append_assessment_event: Callable,
         request_pt_ratio_row_update: Callable,
         set_last_fault_detected: Callable[[bool], None],
         get_pt_phase_orders: Callable[[], dict],
@@ -28,7 +26,6 @@ class FaultManager:
     ):
         self._sim_state = sim_state
         self._blackbox_handler = blackbox_handler
-        self._append_assessment_event = append_assessment_event
         self._request_pt_ratio_row_update = request_pt_ratio_row_update
         self._set_last_fault_detected = set_last_fault_detected
         self._get_pt_phase_orders = get_pt_phase_orders
@@ -175,9 +172,6 @@ class FaultManager:
         sid = fc.scenario_id
         fc.repaired = True
         fc.detected = False
-        self._append_assessment_event(
-            AssessmentEventType.FAULT_REPAIRED, step=step, scene_id=sid, source=source
-        )
         self._reset_blackbox_orders()
 
         if sid == 'E01':

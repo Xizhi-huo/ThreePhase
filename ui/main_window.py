@@ -25,7 +25,7 @@ PowerSyncUI 通过“Mixin + 独立 QWidget 组件”装配各区域：
     - Tab4（PT 相序检查）的独立 QWidget 组件
 
   PtExamTab         (ui/tabs/pt_exam_tab.py)
-    - Tab5（PT 考核）的独立 QWidget 组件
+    - Tab5（PT 压差测试）的独立 QWidget 组件
 
   SyncTestTab        (ui/tabs/sync_test_tab.py)
     - Tab6（同步测试）的独立 QWidget 组件
@@ -221,24 +221,12 @@ class PowerSyncUI(
 
     def _connect_controller_signals(self):
         self.ctrl.signals.step_changed.connect(self._on_step_changed)
-        self.ctrl.signals.assessment_mode_changed.connect(self._on_assessment_mode_changed)
         self._on_step_changed(0, self._current_test_step())
-        self._on_assessment_mode_changed(self.ctrl.is_assessment_mode())
 
     @QtCore.pyqtSlot(int, int)
     def _on_step_changed(self, old_step: int, new_step: int):
         del old_step
         self._step_status_chip.setText(f"当前步骤：第 {new_step} 步")
-
-    @QtCore.pyqtSlot(bool)
-    def _on_assessment_mode_changed(self, is_assessment: bool):
-        text = "流程模式：考核" if is_assessment else "流程模式：教学/工程"
-        tone = "#92400e" if is_assessment else "#334155"
-        self._mode_status_chip.setText(text)
-        self._mode_status_chip.setStyleSheet(
-            "padding:2px 8px; border:1px solid #cbd5e1; border-radius:10px;"
-            f" color:{tone};"
-        )
 
     @property
     def test_panel(self):
@@ -419,8 +407,7 @@ class PowerSyncUI(
 
         info = SCENARIOS.get(fc.scenario_id, {})
         dlg = QtWidgets.QDialog(self)
-        is_assessment = getattr(self.ctrl, "is_assessment_mode", lambda: False)()
-        dlg.setWindowTitle("⚠️ 当前流程尚未闭环" if is_assessment else "⚠️ 仍有接线故障未修复")
+        dlg.setWindowTitle("⚠️ 仍有接线故障未修复")
         dlg.setModal(True)
         dlg.resize(500, 300)
 
@@ -428,26 +415,16 @@ class PowerSyncUI(
         lay.setContentsMargins(14, 12, 14, 12)
         lay.setSpacing(10)
 
-        if is_assessment:
-            title_text = "当前考核尚未闭环"
-        else:
-            title_text = info.get('title', '故障') + " — 需先完成黑盒修复"
+        title_text = info.get('title', '故障') + " — 需先完成黑盒修复"
         title_lbl = QtWidgets.QLabel(title_text)
         title_lbl.setStyleSheet("font-size:14px; font-weight:bold; color:#991b1b;")
         lay.addWidget(title_lbl)
 
-        if is_assessment:
-            hint_text = (
-                "当前考核仍未满足结束条件，暂不能继续后续流程。\n\n"
-                "请根据前四步已获得的测量结果继续排查并完成闭环。"
-                "如需进一步确认，可进入黑盒检查，但系统不会提供具体故障位置提示。"
-            )
-        else:
-            hint_text = (
-                "当前仍存在未恢复的物理接线错误，不能进入第五步【同步功能测试】。\n\n"
-                "请先回到当前流程中的黑盒检查区，完成相关接线修复。"
-                "只有当相关接线全部恢复为正确顺序后，系统才会自动允许进入第五步。"
-            )
+        hint_text = (
+            "当前仍存在未恢复的物理接线错误，不能进入第五步【同步功能测试】。\n\n"
+            "请先回到当前流程中的黑盒检查区，完成相关接线修复。"
+            "只有当相关接线全部恢复为正确顺序后，系统才会自动允许进入第五步。"
+        )
         hint = QtWidgets.QLabel(hint_text)
         hint.setWordWrap(True)
         hint.setStyleSheet(
@@ -455,13 +432,12 @@ class PowerSyncUI(
             " border:1px solid #fdba74; border-radius:4px; padding:8px;")
         lay.addWidget(hint)
 
-        if not is_assessment:
-            symptom_lbl = QtWidgets.QLabel("【当前已记录的异常现象】\n" + info.get('symptom', ''))
-            symptom_lbl.setWordWrap(True)
-            symptom_lbl.setStyleSheet(
-                "font-size:11px; color:#374151; background:#fef3c7;"
-                " padding:6px; border-radius:4px;")
-            lay.addWidget(symptom_lbl)
+        symptom_lbl = QtWidgets.QLabel("【当前已记录的异常现象】\n" + info.get('symptom', ''))
+        symptom_lbl.setWordWrap(True)
+        symptom_lbl.setStyleSheet(
+            "font-size:11px; color:#374151; background:#fef3c7;"
+            " padding:6px; border-radius:4px;")
+        lay.addWidget(symptom_lbl)
 
         btn_ok = QtWidgets.QPushButton("知道了")
         btn_ok.setStyleSheet(

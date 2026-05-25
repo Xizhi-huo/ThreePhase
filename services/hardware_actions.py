@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 from typing import Callable
 
-from domain.assessment import AssessmentEventType
 from domain.constants import GRID_FREQ, GRID_AMP
 from domain.enums import BreakerPosition
 
@@ -21,7 +20,6 @@ class HardwareActions:
         is_sync_test_complete: Callable[[], bool],
         is_sync_test_active: Callable[[], bool],
         is_pt_exam_started: Callable[[int], bool],
-        append_assessment_event: Callable,
         set_pt_exam_feedback: Callable[[int, str, str], None],
         request_ui_tab: Callable[[int], None],
         show_warning: Callable[[str, str], None],
@@ -38,7 +36,6 @@ class HardwareActions:
         self._is_sync_test_complete = is_sync_test_complete
         self._is_sync_test_active = is_sync_test_active
         self._is_pt_exam_started = is_pt_exam_started
-        self._append_assessment_event = append_assessment_event
         self._set_pt_exam_feedback = set_pt_exam_feedback
         self._request_ui_tab = request_ui_tab
         self._show_warning = show_warning
@@ -58,7 +55,7 @@ class HardwareActions:
             if not self._is_pt_phase_check_complete():
                 sections.append(("第三步：PT 相序检查", ["PT1/PT2/PT3 相序检查尚未完成"]))
             if not self._is_pt_exam_recorded(2):
-                sections.append(("第四步：PT 二次端子压差考核（Gen 2）",
+                sections.append(("第四步：PT 二次端子压差测试（Gen 2）",
                                  ["Gen 2 三相 PT 二次端子压差尚未全部记录"]))
             if not self._is_sync_test_complete() and not self._is_sync_test_active():
                 sections.append(("第五步：同步功能测试",
@@ -79,7 +76,7 @@ class HardwareActions:
             if not self._is_pt_phase_check_complete():
                 sections.append(("第三步：PT 相序检查", ["PT1/PT2/PT3 相序检查尚未完成"]))
             if not self._is_pt_exam_recorded(2):
-                sections.append(("第四步：PT 二次端子压差考核（Gen 2）",
+                sections.append(("第四步：PT 二次端子压差测试（Gen 2）",
                                  ["Gen 2 三相 PT 二次端子压差尚未全部记录"]))
             # 同步测试进行中（Gen2 需合闸作第二轮基准）不拦截
             if not self._is_sync_test_complete() and not self._is_sync_test_active():
@@ -138,7 +135,7 @@ class HardwareActions:
         if generator.breaker_closed:
             generator.breaker_closed = False
             return
-        # ── 拦截：Gen1 考核期间禁止 Gen2 合闸 ─────────────────────────────
+        # ── 拦截：Gen1 第四步测试期间禁止 Gen2 合闸 ───────────────────────
         if gen_id == 2 and self._should_limit_close_to_selected_pt_target():
             self._set_pt_exam_feedback(
                 1,
@@ -158,15 +155,12 @@ class HardwareActions:
                 and fc.active and not fc.repaired
                 and self._is_sync_test_active()):
             if fc.scenario_id == 'E01':
-                self._append_assessment_event(AssessmentEventType.HAZARD_ACTION, step=5, action='close_gen2_breaker', reason='E01 accident')
                 self._show_e01_accident_dialog()
                 return
             elif fc.scenario_id == 'E02':
-                self._append_assessment_event(AssessmentEventType.HAZARD_ACTION, step=5, action='close_gen2_breaker', reason='E02 accident')
                 self._show_e02_accident_dialog()
                 return
             elif fc.scenario_id == 'E03':
-                self._append_assessment_event(AssessmentEventType.HAZARD_ACTION, step=5, action='close_gen2_breaker', reason='E03 accident')
                 self._show_e03_accident_dialog()
                 return
         # ── 拦截：工作位合闸前置流程检查 ───────────────────────────────────

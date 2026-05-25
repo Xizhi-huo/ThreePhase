@@ -6,7 +6,6 @@ services/loop_test_service.py
 from typing import Callable
 
 from domain.enums import BreakerPosition
-from domain.assessment import AssessmentEventType
 from domain.test_states import LOOP_TEST_RECORD_KEYS, LoopTestState
 
 
@@ -27,7 +26,6 @@ class LoopTestService:
         get_physics: Callable[[], object],
         get_loop_test_state: Callable[[], LoopTestState],
         set_loop_test_state: Callable[[LoopTestState], None],
-        append_assessment_event: Callable,
         exit_loop_test_mode: Callable[[], None],
         mark_fault_detected: Callable | None = None,
     ):
@@ -36,7 +34,6 @@ class LoopTestService:
         self._get_physics = get_physics
         self._get_loop_test_state = get_loop_test_state
         self._set_loop_test_state = set_loop_test_state
-        self._append_assessment_event = append_assessment_event
         self._exit_loop_test_mode = exit_loop_test_mode
         self._mark_fault_detected = mark_fault_detected or (lambda **_: False)
 
@@ -126,13 +123,7 @@ class LoopTestService:
             return
 
         def _record_invalid(reason) -> None:
-            self._append_assessment_event(
-                AssessmentEventType.MEASUREMENT_INVALID,
-                step=1,
-                target='loop',
-                point=pair,
-                reason=reason,
-            )
+            del reason
 
         if sim.grounding_mode != "断开":
             _record_invalid("grounding_not_disconnected")
@@ -190,15 +181,6 @@ class LoopTestService:
             'expected_status': expected_status,
             'passed': passed,
         }
-        self._append_assessment_event(
-            AssessmentEventType.MEASUREMENT_RECORDED,
-            step=1,
-            target='loop',
-            point=pair,
-            value=meter_status,
-            expected=expected_status,
-            passed=passed,
-        )
         if not passed:
             self._mark_loop_fault_detected(pair)
 

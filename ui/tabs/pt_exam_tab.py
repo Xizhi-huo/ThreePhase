@@ -258,7 +258,7 @@ class PtExamTab(QtWidgets.QWidget):
             )
             set_live_text(self._summary_lbl, "success")
             self._meter_lbl.setText("")
-            self._feedback_lbl.setText("考核提示：第四步测试已完成，请继续进行第五步。")
+            self._feedback_lbl.setText("测试提示：第四步测试已完成，请继续进行第五步。")
             set_live_text(self._feedback_lbl, "success")
             for label, (text, _) in zip(self._step_labels, self._api.get_pt_exam_steps(gen_id)):
                 set_step_item(label, text, True, True)
@@ -306,7 +306,7 @@ class PtExamTab(QtWidgets.QWidget):
         self._meter_lbl.setText(f"实时测量：{meter_text}")
         set_live_text(self._meter_lbl, tone_from_color(getattr(p, "meter_color", "black")))
 
-        self._feedback_lbl.setText(f"考核提示：{feedback}")
+        self._feedback_lbl.setText(f"测试提示：{feedback}")
         set_live_text(self._feedback_lbl, tone_from_color(state.feedback_color))
 
         steps = self._api.get_pt_exam_steps(gen_id)

@@ -15,7 +15,6 @@ PT 相序检查服务（第三步）
 from typing import Callable
 
 from domain.enums import BreakerPosition
-from domain.assessment import AssessmentEventType
 from domain.test_states import PtPhaseCheckState
 
 _ALL_KEYS = (
@@ -39,7 +38,6 @@ class PtPhaseCheckService:
         set_pt_phase_check_state: Callable[[PtPhaseCheckState], None],
         is_loop_test_complete: Callable[[], bool],
         is_pt_voltage_check_complete: Callable[[], bool],
-        append_assessment_event: Callable,
         mark_fault_detected: Callable,
         set_pt_phase_check_feedback: Callable[[str, str], None],
         record_pt_phase_check_result: Callable,
@@ -53,7 +51,6 @@ class PtPhaseCheckService:
         self._set_pt_phase_check_state = set_pt_phase_check_state
         self._is_loop_test_complete = is_loop_test_complete
         self._is_pt_voltage_check_complete = is_pt_voltage_check_complete
-        self._append_assessment_event = append_assessment_event
         self._mark_fault_detected = mark_fault_detected
         self._set_pt_phase_check_feedback = set_pt_phase_check_feedback
         self._record_pt_phase_check_result = record_pt_phase_check_result
@@ -119,13 +116,7 @@ class PtPhaseCheckService:
         state = self._get_pt_phase_check_state()
 
         def _record_invalid(reason) -> None:
-            self._append_assessment_event(
-                AssessmentEventType.MEASUREMENT_INVALID,
-                step=3,
-                target=pt_name,
-                point=phase,
-                reason=reason,
-            )
+            del reason
 
         if not state.started:
             _record_invalid("step_not_started")
@@ -183,14 +174,6 @@ class PtPhaseCheckService:
                 phase_match,
                 f"相序仪检测: PT2 → {display_seq}",
             )
-            self._append_assessment_event(
-                AssessmentEventType.MEASUREMENT_RECORDED,
-                step=3,
-                target=pt_name,
-                point=phase,
-                value=display_seq,
-                raw_sequence=seq,
-            )
             self._refresh_phase_check_result()
             if not phase_match:
                 self._mark_fault_detected(
@@ -236,14 +219,6 @@ class PtPhaseCheckService:
             phase_match,
             physics.meter_reading,
         )
-        self._append_assessment_event(
-            AssessmentEventType.MEASUREMENT_RECORDED,
-            step=3,
-            target=pt_name,
-            point=phase,
-            value='match' if phase_match else 'mismatch',
-        )
-
         self._refresh_phase_check_result()
         if not phase_match:
             self._mark_fault_detected(
@@ -274,13 +249,7 @@ class PtPhaseCheckService:
         sim = self._sim_state
 
         def _record_invalid(reason: str) -> None:
-            self._append_assessment_event(
-                AssessmentEventType.MEASUREMENT_INVALID,
-                step=3,
-                target=pt_name,
-                point='sequence',
-                reason=reason,
-            )
+            del reason
 
         if not state.started:
             _record_invalid("step_not_started")
@@ -338,15 +307,6 @@ class PtPhaseCheckService:
                 target=pt_name,
                 sequence=seq,
             )
-
-        self._append_assessment_event(
-            AssessmentEventType.MEASUREMENT_RECORDED,
-            step=3,
-            target=pt_name,
-            point='sequence',
-            value=display_seq,
-            raw_sequence=seq,
-        )
 
         result_txt = f"{display_seq}✓" if is_valid_seq and not any_fail else f"{display_seq}✗"
         self._refresh_phase_check_result()
