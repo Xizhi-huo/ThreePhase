@@ -749,3 +749,39 @@ numpy       # 数值计算
 - 当前测试命令：
   - `python -m pytest tests/`
 - Phase 0 已闭环；旧 UI Mixin 依赖扫描文档已随 Tab 组件化完成移除，当前不再维护 `/docs/` 下的 Mixin 映射文件
+
+
+
+Hello everyone. Today I will show a Three-Phase Power Synchronization Training System.
+
+The goal of this project is to make a safe training tool for generator synchronization. In real power systems, synchronization is important and can be dangerous if the steps are wrong. So this system lets users practice the process in a simulation before doing it in real life.
+
+The UI has two main parts. On the left, we have the main simulation and test pages. On the right, we have the control panel. In the control panel, users can control two generators. They can change frequency, voltage, phase angle, running mode, breaker position, start or stop the generator, and open or close the breaker.
+
+The first page shows real-time waveforms and the synchronization panel. Users can see three-phase waveforms, the bus waveform, the phasor diagram, and the synchronization result. The system checks the frequency difference, voltage difference, and phase angle difference. Then it tells the user whether closing the breaker is allowed.
+
+The second page shows the bus topology. It shows the generators, bus, PTs, breakers, grounding, and measurement points. Users can use a virtual multimeter and phase sequence meter to check the system. The system also has a black-box mode. In this mode, some wiring is hidden, so students need to find the problem by using measurement results.
+
+The main part of this project is the five-step pre-synchronization test.
+
+Step one is the loop continuity test. It checks whether the same phases are connected and different phases are isolated.
+
+Step two is the PT line voltage check. It checks the line voltages of PT1, PT2, and PT3.
+
+Step three is the PT phase sequence check. It uses the phase sequence meter to check whether the phase order is correct.
+
+Step four is the PT secondary terminal voltage difference test. It compares the generator-side PT and the bus-side PT. This helps check whether the synchronization circuit is correct.
+
+Step five is the synchronization function test. One generator follows the other generator automatically. The system checks whether the frequency, voltage, and phase angle become close enough for synchronization.
+
+I also added fault training. The system supports many fault cases, from E01 to E14. These include wrong phase wiring, PT polarity reverse, wrong PT ratio, and hidden wiring faults. Some faults can be found in the first step. Some faults can only be found after the phase sequence check or voltage difference test. This helps students learn not only the steps, but also how to find faults from data.
+
+The system has three modes: teaching mode, engineering mode, and assessment mode. In teaching mode, users can continue even if there is a fault. In engineering mode, users must pass the current step before moving to the next step. In assessment mode, the system gives fewer hints, records the user’s actions, and gives a final score.
+
+For the implementation, this project is not just a static UI. It has a physics engine in the background. The engine calculates three-phase waveforms, bus status, breaker protection, PT measurements, and synchronization conditions. The logic is also divided into different service modules, such as loop test, PT voltage check, phase sequence check, voltage difference test, synchronization test, fault management, and scoring.
+
+So far, I have completed the main simulation UI, the control panel, the five-step test process, real-time waveforms, phasor diagram, bus topology, virtual multimeter, phase sequence meter, fault injection, black-box wiring repair, assessment scoring, and automated tests.
+
+In summary, this project is an interactive training system for power synchronization. It changes a complex electrical process into something users can see, operate, test, and practice safely. Users can learn the process, find faults, and understand the synchronization workflow better.
+
+Thank you.
