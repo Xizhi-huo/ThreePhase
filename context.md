@@ -249,3 +249,16 @@ In summary, this project is an interactive training system for power synchroniza
 
 Thank you.
 >>>>>>> ad07e428980fdc5b8a83ef6d669da3308cb6b245
+
+
+Next, I will present the second project: the Three-Phase Grid Synchronization Assessment System.
+
+Unlike the previous teaching mode, this assessment mode no longer provides five-step guidance, process scoring, or fault answers. After the user clicks Start Random Assessment, the system secretly injects a random fault. The student must use tools such as the multimeter, phase sequence meter, measurement records, black-box inspection, and PT ratio adjustment to identify and repair the problem independently.
+
+The core design of this interface is to show only engineering phenomena, without making judgments for the student. For example, the system only displays voltage values, OL, buzzer status, and phase sequence results. It does not tell the student whether something is “normal” or “abnormal,” or where the fault is. This avoids exposing the answer and makes the assessment closer to a real troubleshooting scenario.
+
+The right-side free operation panel keeps all necessary assessment functions, including random assessment startup, measurement records, black-box inspection, neutral grounding, PT ratio settings, and Gen1 / Gen2 start, stop, open, and close controls. Students can operate freely without being restricted by fixed steps.
+
+Finally, when the student believes all conditions are satisfied, they use the normal Gen2 close button to connect it to the busbar. This closing attempt is the final submission: if synchronization succeeds, the student passes; if it fails or protection is triggered, the student does not pass.
+
+In summary, the teaching mode is used to teach the process, while the assessment mode is used to evaluate real ability. It removes hints, gives the judgment back to the student, and uses hidden faults plus a one-time synchronization result to verify whether the student has truly mastered pre-synchronization checks and fault troubleshooting.
